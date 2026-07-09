@@ -1,0 +1,2 @@
+RED missing webcam contract fields: SensorReading, DeviceStatus, CameraDetection, BoundingBox, RoiZone, BehaviorEvent, AnomalyEvent, home/camera/, /detection, /behavior, food_bowl, entrance_risk, no_meal_12h, fall_suspected, dashboard_update
+exit=1

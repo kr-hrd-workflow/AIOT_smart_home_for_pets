@@ -1,0 +1,14 @@
+Runtime debugging audit for revised webcam proposal slice
+
+Hypothesis 1: The C++ contract still misses proposal-required webcam/sensor fields.
+Evidence: python tools/pico_contract_check.py exits 0 in evidence/ulw/webcam-contract-green.txt after running tools/build_pico_host.sh, requiring CTest success, parsing demo JSON, and checking Pico sensor/status, PC webcam detection/behavior, entrance_risk, no_meal_12h, fall_suspected, and camera_trigger payloads.
+
+Hypothesis 2: The Windows/Korean workspace path breaks MinGW/Ninja builds.
+Evidence: bash tools/build_pico_host.sh exits 0 in evidence/ulw/webcam-staged-build-test-demo.txt by staging sources under C:/tools/aiot-pico-host-stage and using C:/tools/codex-winlibs.
+
+Hypothesis 3: The demo binary is only compile-tested and not usable through a real CLI surface.
+Evidence: evidence/ulw/webcam-manual-qa.txt drives happy path, --help, and bad input; bad input returns exit=2.
+
+Residual diagnostic note: clangd LSP diagnostics were attempted but clangd was unavailable. evidence/ulw/webcam-lsp-diagnostics.txt records command-not-found, the failed winget LLVM install with 0x800704c7 user/UAC cancellation, and the npm clangd package inspection result.
+
+Reviewer follow-up: PowerShell initially exposed two checker portability bugs: Python selected WSL bash before Git Bash, and default cp949 decoding could fail on build output. tools/pico_contract_check.py now prefers Git Bash under C:/Program Files/Git, passes the build script as a relative path, and decodes captured output as UTF-8 with replacement. Verified with both Git Bash and PowerShell invocations.

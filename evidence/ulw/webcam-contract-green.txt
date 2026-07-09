@@ -1,0 +1,6 @@
+PASS runtime telemetry contains Pico sensor fields
+PASS runtime sensor/status topics match proposal
+PASS runtime webcam detection payload matches proposal
+PASS runtime ROI eating behavior matches proposal
+PASS runtime anomaly payloads match proposal
+PASS runtime trigger event contains camera wake reason

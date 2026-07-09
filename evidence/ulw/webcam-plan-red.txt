@@ -1,0 +1,2 @@
+RED missing webcam proposal plan fields: PC USB Webcam, OpenCV, YOLO, MJPEG, WebSocket / MJPEG Stream
+exit=1

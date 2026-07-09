@@ -1,0 +1,3 @@
+PASS telemetry contains Pico sensor fields
+PASS trigger event contains camera wake reason
+PASS host assert test pins trigger behavior

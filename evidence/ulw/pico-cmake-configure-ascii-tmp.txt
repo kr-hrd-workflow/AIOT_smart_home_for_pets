@@ -1,0 +1,9 @@
+-- The CXX compiler identification is GNU 16.1.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: C:/tools/codex-winlibs/mingw64/bin/g++.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done (1.2s)
+-- Generating done (0.0s)
+-- Build files have been written to: C:/Users/전산1-4/AIOT_smart_home_for_pets/build/pico_pet_node_host

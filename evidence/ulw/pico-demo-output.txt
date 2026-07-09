@@ -1,0 +1,4 @@
+home/pico/petzone/telemetry
+{"device_id":"pico_petzone_01","zone":"petzone","timestamp_ms":1720000005000,"temperature_c":25.10,"humidity_pct":47.80,"light_lux":112.00,"motion":true,"door_open":false,"food_weight_g":128.40,"water_weight_g":342.90,"bed_weight_g":4100.00,"trigger_camera":true,"reason":"motion"}
+home/pico/petzone/camera_trigger
+{"device_id":"pico_petzone_01","zone":"petzone","timestamp_ms":1720000005000,"temperature_c":25.10,"humidity_pct":47.80,"light_lux":112.00,"motion":true,"door_open":false,"food_weight_g":128.40,"water_weight_g":342.90,"bed_weight_g":4100.00,"trigger_camera":true,"reason":"motion"}

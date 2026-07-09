@@ -1,0 +1,27 @@
+[happy path]
+home/pico/pico_petzone_01/telemetry
+{"device_id":"pico_petzone_01","zone":"petzone","timestamp_ms":1720000005000,"temperature_c":25.10,"humidity_pct":47.80,"light_lux":112.00,"motion":true,"door_open":false,"food_weight_g":128.40,"water_weight_g":342.90,"bed_weight_g":4100.00,"trigger_camera":true,"reason":"motion"}
+home/pico/pico_petzone_01/sensor/food_weight
+{"device_id":"pico_petzone_01","sensor_type":"food_weight","value":128.40,"unit":"g","battery":92.00,"rssi":-51,"timestamp":"2026-07-09T17:05:00+09:00"}
+home/pico/pico_petzone_01/status
+{"device_id":"pico_petzone_01","status":"online","firmware_version":"0.1.0","ip":"192.168.0.23","uptime_sec":3600,"timestamp":"2026-07-09T17:05:00+09:00"}
+home/camera/pc_webcam_01/detection
+{"camera_id":"pc_webcam_01","detected_type":"dog","confidence":0.87,"bbox":{"x":214,"y":352,"w":80,"h":130},"zone":"food_bowl","track_id":"dog_001","timestamp":"2026-07-09T17:05:00+09:00"}
+home/camera/pc_webcam_01/behavior
+{"type":"dashboard_update","payload":{"subject_type":"dog","subject_id":"dog_001","behavior_type":"eating","zone_id":"food_bowl","confidence":0.87,"duration_sec":30,"message":"food_bowl ROI and food_weight decrease indicate eating","created_at":"2026-07-09T17:05:00+09:00"}}
+home/camera/pc_webcam_01/anomaly
+{"type":"anomaly_alert","payload":{"severity":"danger","subject_type":"dog","subject_id":"dog_001","anomaly_type":"entrance_risk","score":0.95,"message":"Door is open and pet is in entrance ROI","created_at":"2026-07-09T17:06:00+09:00"}}
+home/camera/pc_webcam_01/anomaly
+{"type":"anomaly_alert","payload":{"severity":"warning","subject_type":"dog","subject_id":"dog_001","anomaly_type":"no_meal_12h","score":0.40,"message":"No eating event has been recorded for 12 hours","created_at":"2026-07-09T17:07:00+09:00"}}
+home/camera/pc_webcam_01/anomaly
+{"type":"anomaly_alert","payload":{"severity":"danger","subject_type":"person","subject_id":"person_001","anomaly_type":"fall_suspected","score":0.80,"message":"Possible fall or immobility pattern detected","created_at":"2026-07-09T17:08:00+09:00"}}
+home/pico/pico_petzone_01/camera_trigger
+{"device_id":"pico_petzone_01","zone":"petzone","timestamp_ms":1720000005000,"temperature_c":25.10,"humidity_pct":47.80,"light_lux":112.00,"motion":true,"door_open":false,"food_weight_g":128.40,"water_weight_g":342.90,"bed_weight_g":4100.00,"trigger_camera":true,"reason":"motion"}
+[help]
+usage: pet_node_demo [--help]
+prints Pico sensor, webcam detection, behavior, anomaly, and camera trigger sample payloads
+[bad input]
+unknown argument: --bad
+usage: pet_node_demo [--help]
+prints Pico sensor, webcam detection, behavior, anomaly, and camera trigger sample payloads
+exit=2
