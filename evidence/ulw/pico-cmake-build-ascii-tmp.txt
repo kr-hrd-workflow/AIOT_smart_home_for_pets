@@ -1,0 +1,6 @@
+[1/6] Building CXX object CMakeFiles/test_pet_node_core.dir/tests/test_pet_node_core.cpp.obj
+[2/6] Building CXX object CMakeFiles/pet_node_demo.dir/src/main.cpp.obj
+[3/6] Building CXX object CMakeFiles/pet_node_core.dir/src/pet_node.cpp.obj
+[4/6] Linking CXX static library libpet_node_core.a
+[5/6] Linking CXX executable pet_node_demo.exe
+[6/6] Linking CXX executable test_pet_node_core.exe

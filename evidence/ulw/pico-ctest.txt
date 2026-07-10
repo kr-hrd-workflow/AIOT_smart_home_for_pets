@@ -1,0 +1,7 @@
+Test project C:/Users/전산1-4/AIOT_smart_home_for_pets/build/pico_pet_node_host
+    Start 1: pet_node_core
+1/1 Test #1: pet_node_core ....................   Passed    0.05 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) =   0.10 sec

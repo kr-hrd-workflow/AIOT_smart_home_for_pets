@@ -1,0 +1,29 @@
+-- The CXX compiler identification is GNU 16.1.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: C:/tools/codex-winlibs/mingw64/bin/g++.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done (3.2s)
+-- Generating done (0.0s)
+-- Build files have been written to: C:/tools/aiot-pico-host-stage/build
+[1/6] Building CXX object CMakeFiles/test_pet_node_core.dir/tests/test_pet_node_core.cpp.obj
+[2/6] Building CXX object CMakeFiles/pet_node_core.dir/src/pet_node.cpp.obj
+[3/6] Building CXX object CMakeFiles/pet_node_demo.dir/src/main.cpp.obj
+[4/6] Linking CXX static library libpet_node_core.a
+[5/6] Linking CXX executable pet_node_demo.exe
+[6/6] Linking CXX executable test_pet_node_core.exe
+Test project C:/tools/aiot-pico-host-stage/build
+    Start 1: pet_node_core
+1/1 Test #1: pet_node_core ....................   Passed    0.05 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) =   0.06 sec
+home/pico/petzone/telemetry
+{"device_id":"pico_petzone_01","zone":"petzone","timestamp_ms":1720000005000,"temperature_c":25.10,"humidity_pct":47.80,"light_lux":112.00,"motion":true,"door_open":false,"food_weight_g":128.40,"water_weight_g":342.90,"bed_weight_g":4100.00,"trigger_camera":true,"reason":"motion"}
+home/pico/petzone/camera_trigger
+{"device_id":"pico_petzone_01","zone":"petzone","timestamp_ms":1720000005000,"temperature_c":25.10,"humidity_pct":47.80,"light_lux":112.00,"motion":true,"door_open":false,"food_weight_g":128.40,"water_weight_g":342.90,"bed_weight_g":4100.00,"trigger_camera":true,"reason":"motion"}
+PASS telemetry contains Pico sensor fields
+PASS trigger event contains camera wake reason
+PASS host assert test pins trigger behavior

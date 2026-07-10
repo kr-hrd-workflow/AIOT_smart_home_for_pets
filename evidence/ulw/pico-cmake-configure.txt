@@ -1,0 +1,7 @@
+-- The CXX compiler identification is unknown
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: C:/tools/codex-winlibs/mingw64/bin/g++.exe - skipped
+-- Configuring done (3.3s)
+-- Generating done (0.0s)
+-- Build files have been written to: C:/Users/전산1-4/AIOT_smart_home_for_pets/build/pico_pet_node_host

@@ -1,0 +1,2 @@
+C:\Python310\python.exe: can't open file 'C:\\Users\\Àü»ê1-4\\AIOT_smart_home_for_pets\\tools\\pico_contract_check.py': [Errno 2] No such file or directory
+exit=2

@@ -1,0 +1,4 @@
+PASS telemetry contains Pico sensor fields
+PASS trigger event contains camera wake reason
+PASS host assert test pins trigger behavior
+cleanup: no server, tmux session, browser, port, container, or temp runtime resource spawned

@@ -1,0 +1,16 @@
+[1/6] Building CXX object CMakeFiles\test_pet_node_core.dir\tests\test_pet_node_core.cpp.obj
+FAILED: [code=1] CMakeFiles/test_pet_node_core.dir/tests/test_pet_node_core.cpp.obj 
+C:\tools\codex-winlibs\mingw64\bin\g++.exe  -IC:\Users\전산1-4\AIOT_smart_home_for_pets\firmware\pico_pet_node\include  -o CMakeFiles\test_pet_node_core.dir\tests\test_pet_node_core.cpp.obj -c C:\Users\전산1-4\AIOT_smart_home_for_pets\firmware\pico_pet_node\tests\test_pet_node_core.cpp
+C:\Users\전산1-4\AppData\Local\Temp\cc2nsgXp.s: Assembler messages:
+Error: can't open C:\Users\전산1-4\AppData\Local\Temp\cc2nsgXp.s for reading: Illegal byte sequence
+[2/6] Building CXX object CMakeFiles\pet_node_core.dir\src\pet_node.cpp.obj
+FAILED: [code=1] CMakeFiles/pet_node_core.dir/src/pet_node.cpp.obj 
+C:\tools\codex-winlibs\mingw64\bin\g++.exe  -IC:\Users\전산1-4\AIOT_smart_home_for_pets\firmware\pico_pet_node\include  -o CMakeFiles\pet_node_core.dir\src\pet_node.cpp.obj -c C:\Users\전산1-4\AIOT_smart_home_for_pets\firmware\pico_pet_node\src\pet_node.cpp
+C:\Users\전산1-4\AppData\Local\Temp\ccsHCboq.s: Assembler messages:
+Error: can't open C:\Users\전산1-4\AppData\Local\Temp\ccsHCboq.s for reading: Illegal byte sequence
+[3/6] Building CXX object CMakeFiles\pet_node_demo.dir\src\main.cpp.obj
+FAILED: [code=1] CMakeFiles/pet_node_demo.dir/src/main.cpp.obj 
+C:\tools\codex-winlibs\mingw64\bin\g++.exe  -IC:\Users\전산1-4\AIOT_smart_home_for_pets\firmware\pico_pet_node\include  -o CMakeFiles\pet_node_demo.dir\src\main.cpp.obj -c C:\Users\전산1-4\AIOT_smart_home_for_pets\firmware\pico_pet_node\src\main.cpp
+C:\Users\전산1-4\AppData\Local\Temp\cckrE3Rp.s: Assembler messages:
+Error: can't open C:\Users\전산1-4\AppData\Local\Temp\cckrE3Rp.s for reading: Illegal byte sequence
+ninja: build stopped: subcommand failed.

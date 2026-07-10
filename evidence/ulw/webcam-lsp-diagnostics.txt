@@ -1,0 +1,5 @@
+[clangd availability]
+/usr/bin/bash: line 1: clangd: command not found
+[install attempt]
+winget install LLVM.LLVM failed with 0x800704c7: operation canceled by user/UAC
+npm clangd package was inspected and contains no executable binary

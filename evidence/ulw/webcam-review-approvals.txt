@@ -1,0 +1,8 @@
+Gate review status: APPROVED
+Code review status after fixes: APPROVED
+
+Resolved blocker 1: tools/pico_contract_check.py no longer verifies token presence from docs/tests. It runs the staged build, requires CTest success, parses emitted JSON, and validates runtime topics and payload fields.
+
+Resolved blocker 2: tools/pico_contract_check.py now uses explicit UTF-8 decoding, prefers Git Bash over WSL bash, and invokes tools/build_pico_host.sh as a relative path so PowerShell and Git Bash invocations both pass in the Korean-path workspace.
+
+Remaining diagnostic gap: clangd LSP is not installed and winget LLVM install was canceled by UAC/user flow. CMake, g++, CTest, runtime contract checker, and CLI manual QA all passed.
