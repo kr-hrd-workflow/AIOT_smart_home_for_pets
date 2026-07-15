@@ -1,0 +1,24 @@
+[project]
+name = "petcare-backend"
+version = "0.1.0"
+requires-python = "==3.12.13"
+dependencies = [
+  "alembic==1.18.5",
+  "fastapi==0.139.0",
+  "paho-mqtt==2.1.0",
+  "psycopg[binary]==3.3.4",
+  "pydantic==2.13.4",
+  "SQLAlchemy==2.0.51",
+  "uvicorn==0.51.0",
+]
+
+[dependency-groups]
+dev = [
+  "httpx==0.28.1",
+  "pytest==9.1.1",
+  "pytest-asyncio==1.4.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
