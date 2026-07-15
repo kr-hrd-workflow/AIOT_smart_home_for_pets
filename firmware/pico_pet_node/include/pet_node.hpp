@@ -1,156 +1,79 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
-#include <string>
 #include <string_view>
 
 namespace petcare {
 
-struct SensorSnapshot {
-    std::string_view device_id;
-    std::string_view zone;
-    std::uint64_t timestamp_ms;
-    float temperature_c;
-    float humidity_pct;
-    float light_lux;
-    bool motion;
-    bool door_open;
-    float food_weight_g;
-    float water_weight_g;
-    float bed_weight_g;
-};
+enum class DeviceProfile { entrance_01, petzone_01 };
+enum class ValueKind { number, boolean, integer };
+enum class DeviceState { online, offline };
 
-struct CameraTrigger {
-    bool active;
-    std::string_view reason;
-};
+struct SensorValue {
+    ValueKind kind;
+    union {
+        double number_value;
+        bool boolean_value;
+        std::uint16_t integer_value;
+    };
 
-struct TelemetryMessage {
-    std::string topic;
-    std::string payload;
+    static constexpr SensorValue number(double value) {
+        SensorValue result{};
+        result.kind = ValueKind::number;
+        result.number_value = value;
+        return result;
+    }
+
+    static constexpr SensorValue boolean(bool value) {
+        SensorValue result{};
+        result.kind = ValueKind::boolean;
+        result.boolean_value = value;
+        return result;
+    }
+
+    static constexpr SensorValue integer(std::uint16_t value) {
+        SensorValue result{};
+        result.kind = ValueKind::integer;
+        result.integer_value = value;
+        return result;
+    }
 };
 
 struct SensorReading {
     std::string_view device_id;
     std::string_view sensor_type;
-    float value;
+    SensorValue value;
     std::string_view unit;
-    float battery;
-    int rssi;
-    std::string_view timestamp;
+    std::string_view observed_at;
 };
 
 struct DeviceStatus {
     std::string_view device_id;
-    std::string_view status;
-    std::string_view firmware_version;
-    std::string_view ip;
-    std::uint32_t uptime_sec;
-    std::string_view timestamp;
+    DeviceState state;
+    std::string_view observed_at;
 };
 
-struct BoundingBox {
-    int x;
-    int y;
-    int w;
-    int h;
+struct TelemetryMessage {
+    std::array<char, 64> topic{};
+    std::size_t topic_size = 0;
+    std::array<char, 256> payload{};
+    std::size_t payload_size = 0;
+
+    bool assign(std::string_view new_topic, std::string_view new_payload);
 };
 
-struct CameraDetection {
-    std::string_view camera_id;
-    std::string_view detected_type;
-    float confidence;
-    BoundingBox bbox;
-    std::string_view zone;
-    std::string_view track_id;
-    std::string_view timestamp;
+struct WeightCalibration {
+    std::int32_t tare_raw;
+    double counts_per_gram;
+
+    bool grams(std::int32_t raw, double& output) const;
 };
 
-struct RoiZone {
-    std::string_view zone_id;
-    int x1;
-    int y1;
-    int x2;
-    int y2;
-};
-
-struct BehaviorEvent {
-    std::string_view subject_type;
-    std::string_view subject_id;
-    std::string_view behavior_type;
-    std::string_view zone_id;
-    float confidence;
-    std::uint32_t duration_sec;
-    std::string_view message;
-    std::string_view timestamp;
-};
-
-struct AnomalyEvent {
-    std::string_view subject_type;
-    std::string_view subject_id;
-    std::string_view anomaly_type;
-    std::string_view severity;
-    float score;
-    std::string_view message;
-    std::string_view timestamp;
-};
-
-std::string telemetry_topic(std::string_view device_id);
-std::string sensor_topic(std::string_view device_id, std::string_view sensor_type);
-std::string status_topic(std::string_view device_id);
-std::string camera_detection_topic(std::string_view camera_id);
-std::string camera_behavior_topic(std::string_view camera_id);
-std::string camera_anomaly_topic(std::string_view camera_id);
-std::string camera_trigger_topic(std::string_view device_id);
-CameraTrigger evaluate_camera_trigger(
-    const SensorSnapshot& current,
-    const SensorSnapshot& previous,
-    float min_weight_delta_g = 5.0f
-);
-std::string serialize_telemetry(
-    const SensorSnapshot& snapshot,
-    const CameraTrigger& trigger
-);
-std::string serialize_camera_trigger(
-    const SensorSnapshot& snapshot,
-    const CameraTrigger& trigger
-);
-TelemetryMessage make_telemetry_message(
-    const SensorSnapshot& snapshot,
-    const CameraTrigger& trigger
-);
-TelemetryMessage make_camera_trigger_message(
-    const SensorSnapshot& snapshot,
-    const CameraTrigger& trigger
-);
-TelemetryMessage make_sensor_message(const SensorReading& reading);
-TelemetryMessage make_status_message(const DeviceStatus& status);
-TelemetryMessage make_detection_message(const CameraDetection& detection);
-TelemetryMessage make_behavior_message(std::string_view camera_id, const BehaviorEvent& event);
-TelemetryMessage make_anomaly_message(std::string_view camera_id, const AnomalyEvent& event);
-AnomalyEvent make_no_meal_anomaly(
-    std::string_view subject_type,
-    std::string_view subject_id,
-    std::string_view timestamp
-);
-AnomalyEvent make_fall_suspected_anomaly(
-    std::string_view subject_type,
-    std::string_view subject_id,
-    std::string_view timestamp
-);
-bool detection_in_roi(const CameraDetection& detection, const RoiZone& zone);
-BehaviorEvent infer_eating_behavior(
-    const CameraDetection& detection,
-    const RoiZone& food_zone,
-    float previous_food_weight_g,
-    float current_food_weight_g,
-    std::string_view timestamp
-);
-AnomalyEvent infer_entrance_risk(
-    const CameraDetection& detection,
-    const RoiZone& entrance_zone,
-    bool door_open,
-    std::string_view timestamp
-);
+std::string_view profile_device_id(DeviceProfile profile);
+bool profile_allows(DeviceProfile profile, std::string_view sensor_type);
+bool serialize_sensor_message(const SensorReading& reading, TelemetryMessage& output);
+bool serialize_status_message(const DeviceStatus& status, TelemetryMessage& output);
 
 }

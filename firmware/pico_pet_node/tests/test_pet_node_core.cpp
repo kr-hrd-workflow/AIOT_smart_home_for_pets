@@ -1,191 +1,171 @@
 #include "pet_node.hpp"
 
+#include <array>
 #include <cassert>
-#include <string>
+#include <cmath>
+#include <cstdlib>
+#include <new>
+#include <string_view>
+
+namespace {
+
+std::size_t allocations = 0;
+
+std::string_view topic(const petcare::TelemetryMessage& message) {
+    return {message.topic.data(), message.topic_size};
+}
+
+std::string_view payload(const petcare::TelemetryMessage& message) {
+    return {message.payload.data(), message.payload_size};
+}
+
+}
+
+void* operator new(std::size_t size) {
+    ++allocations;
+    if (void* value = std::malloc(size)) {
+        return value;
+    }
+    throw std::bad_alloc{};
+}
+
+void* operator new[](std::size_t size) {
+    return ::operator new(size);
+}
+
+void operator delete(void* value) noexcept { std::free(value); }
+void operator delete[](void* value) noexcept { std::free(value); }
+void operator delete(void* value, std::size_t) noexcept { std::free(value); }
+void operator delete[](void* value, std::size_t) noexcept { std::free(value); }
 
 int main() {
-    const petcare::SensorSnapshot previous{
-        "pico_petzone_01",
-        "petzone",
-        1720000000000ULL,
-        25.0f,
-        48.0f,
-        100.0f,
-        false,
-        false,
-        150.0f,
-        350.0f,
-        4100.0f,
-    };
-    const petcare::SensorSnapshot current{
-        "pico_petzone_01",
-        "petzone",
-        1720000005000ULL,
-        25.1f,
-        47.8f,
-        112.0f,
-        true,
-        false,
-        128.4f,
-        342.9f,
-        4100.0f,
-    };
+    using petcare::DeviceProfile;
+    using petcare::DeviceState;
+    using petcare::SensorReading;
+    using petcare::SensorValue;
 
-    const auto trigger = petcare::evaluate_camera_trigger(current, previous);
-    assert(trigger.active);
-    assert(trigger.reason == "motion");
-    assert(petcare::telemetry_topic(current.device_id) == "home/pico/pico_petzone_01/telemetry");
-    assert(petcare::camera_trigger_topic(current.device_id) == "home/pico/pico_petzone_01/camera_trigger");
+    static_assert(petcare::TelemetryMessage{}.topic.size() == 64);
+    static_assert(petcare::TelemetryMessage{}.payload.size() == 256);
 
-    const auto message = petcare::make_telemetry_message(current, trigger);
-    assert(message.topic == "home/pico/pico_petzone_01/telemetry");
+    assert(petcare::profile_device_id(DeviceProfile::entrance_01) == "entrance-01");
+    assert(petcare::profile_device_id(DeviceProfile::petzone_01) == "petzone-01");
+    for (const auto sensor : {"temperature", "humidity", "presence_moving", "presence_stationary"}) {
+        assert(petcare::profile_allows(DeviceProfile::entrance_01, sensor));
+        assert(petcare::profile_allows(DeviceProfile::petzone_01, sensor));
+    }
+    for (const auto sensor : {"food_weight", "water_weight", "bed_pressure_left", "bed_pressure_center", "bed_pressure_right"}) {
+        assert(!petcare::profile_allows(DeviceProfile::entrance_01, sensor));
+        assert(petcare::profile_allows(DeviceProfile::petzone_01, sensor));
+    }
+    for (const auto retired : {"bed_weight", "light", "motion", "door_open"}) {
+        assert(!petcare::profile_allows(DeviceProfile::entrance_01, retired));
+        assert(!petcare::profile_allows(DeviceProfile::petzone_01, retired));
+    }
+    assert(!petcare::profile_allows(static_cast<DeviceProfile>(99), "temperature"));
 
-    const auto telemetry = message.payload;
-    assert(telemetry.find("\"device_id\":\"pico_petzone_01\"") != std::string::npos);
-    assert(telemetry.find("\"zone\":\"petzone\"") != std::string::npos);
-    assert(telemetry.find("\"temperature_c\":25.10") != std::string::npos);
-    assert(telemetry.find("\"humidity_pct\":47.80") != std::string::npos);
-    assert(telemetry.find("\"motion\":true") != std::string::npos);
-    assert(telemetry.find("\"food_weight_g\":128.40") != std::string::npos);
-    assert(telemetry.find("\"water_weight_g\":342.90") != std::string::npos);
-    assert(telemetry.find("\"trigger_camera\":true") != std::string::npos);
-    assert(telemetry.find("\"reason\":\"motion\"") != std::string::npos);
+    std::array<char, 257> boundary_bytes{};
+    boundary_bytes.fill('x');
+    petcare::TelemetryMessage boundary{};
+    assert(boundary.assign({boundary_bytes.data(), 64}, {boundary_bytes.data(), 256}));
+    assert(boundary.topic_size == 64 && boundary.payload_size == 256);
+    const auto full_boundary = boundary;
+    assert(!boundary.assign({boundary_bytes.data(), 65}, {boundary_bytes.data(), 256}));
+    assert(boundary.topic == full_boundary.topic && boundary.payload == full_boundary.payload);
+    assert(!boundary.assign({boundary_bytes.data(), 64}, {boundary_bytes.data(), 257}));
+    assert(boundary.topic == full_boundary.topic && boundary.payload == full_boundary.payload);
 
-    const petcare::SensorSnapshot quiet = previous;
-    const auto no_trigger = petcare::evaluate_camera_trigger(quiet, previous);
-    assert(!no_trigger.active);
-    assert(no_trigger.reason == "none");
+    constexpr std::string_view observed_at = "2026-07-15T07:00:00.000Z";
+    const SensorReading temperature{"entrance-01", "temperature", SensorValue::number(25.5), "C", observed_at};
+    petcare::TelemetryMessage sensor_message{};
+    assert(petcare::serialize_sensor_message(temperature, sensor_message));
+    assert(topic(sensor_message) == "home/pico/entrance-01/sensor/temperature");
+    assert(payload(sensor_message) ==
+        "{\"device_id\":\"entrance-01\",\"sensor_type\":\"temperature\",\"value\":25.5,\"unit\":\"C\",\"observed_at\":\"2026-07-15T07:00:00.000Z\"}");
 
-    const petcare::SensorSnapshot door_open{
-        "pico_entry_01",
-        "entry",
-        1720000006000ULL,
-        24.0f,
-        45.0f,
-        80.0f,
-        false,
-        true,
-        0.0f,
-        0.0f,
-        0.0f,
-    };
-    const auto door_trigger = petcare::evaluate_camera_trigger(door_open, previous);
-    assert(door_trigger.active);
-    assert(door_trigger.reason == "door_open");
-    const auto trigger_message = petcare::make_camera_trigger_message(door_open, door_trigger);
-    assert(trigger_message.topic == "home/pico/pico_entry_01/camera_trigger");
-    assert(trigger_message.payload.find("\"reason\":\"door_open\"") != std::string::npos);
+    const petcare::DeviceStatus online{"petzone-01", DeviceState::online, observed_at};
+    petcare::TelemetryMessage status_message{};
+    assert(petcare::serialize_status_message(online, status_message));
+    assert(topic(status_message) == "home/pico/petzone-01/status");
+    assert(payload(status_message) ==
+        "{\"device_id\":\"petzone-01\",\"status\":\"online\",\"observed_at\":\"2026-07-15T07:00:00.000Z\"}");
 
-    const petcare::SensorReading food_weight{
-        "pico_petzone_01",
-        "food_weight",
-        128.4f,
-        "g",
-        92.0f,
-        -51,
-        "2026-07-09T17:05:00+09:00",
-    };
-    const auto sensor = petcare::make_sensor_message(food_weight);
-    assert(sensor.topic == "home/pico/pico_petzone_01/sensor/food_weight");
-    assert(sensor.payload.find("\"sensor_type\":\"food_weight\"") != std::string::npos);
-    assert(sensor.payload.find("\"battery\":92.00") != std::string::npos);
-    assert(sensor.payload.find("\"rssi\":-51") != std::string::npos);
+    const std::array<SensorReading, 9> petzone_readings{{
+        {"petzone-01", "temperature", SensorValue::number(24.25), "C", observed_at},
+        {"petzone-01", "humidity", SensorValue::number(51.0), "%", observed_at},
+        {"petzone-01", "presence_moving", SensorValue::boolean(true), "bool", observed_at},
+        {"petzone-01", "presence_stationary", SensorValue::boolean(false), "bool", observed_at},
+        {"petzone-01", "food_weight", SensorValue::number(80.0), "g", observed_at},
+        {"petzone-01", "water_weight", SensorValue::number(80.0), "g", observed_at},
+        {"petzone-01", "bed_pressure_left", SensorValue::integer(0), "adc", observed_at},
+        {"petzone-01", "bed_pressure_center", SensorValue::integer(2048), "adc", observed_at},
+        {"petzone-01", "bed_pressure_right", SensorValue::integer(4095), "adc", observed_at},
+    }};
+    for (const auto& reading : petzone_readings) {
+        petcare::TelemetryMessage message{};
+        assert(petcare::serialize_sensor_message(reading, message));
+    }
+    petcare::TelemetryMessage boolean_message{};
+    assert(petcare::serialize_sensor_message(petzone_readings[2], boolean_message));
+    assert(payload(boolean_message) ==
+        "{\"device_id\":\"petzone-01\",\"sensor_type\":\"presence_moving\",\"value\":true,\"unit\":\"bool\",\"observed_at\":\"2026-07-15T07:00:00.000Z\"}");
+    petcare::TelemetryMessage integer_message{};
+    assert(petcare::serialize_sensor_message(petzone_readings[8], integer_message));
+    assert(payload(integer_message) ==
+        "{\"device_id\":\"petzone-01\",\"sensor_type\":\"bed_pressure_right\",\"value\":4095,\"unit\":\"adc\",\"observed_at\":\"2026-07-15T07:00:00.000Z\"}");
 
-    const petcare::DeviceStatus status{
-        "pico_petzone_01",
-        "online",
-        "0.1.0",
-        "192.168.0.23",
-        3600,
-        "2026-07-09T17:05:00+09:00",
-    };
-    const auto status_message = petcare::make_status_message(status);
-    assert(status_message.topic == "home/pico/pico_petzone_01/status");
-    assert(status_message.payload.find("\"status\":\"online\"") != std::string::npos);
-    assert(status_message.payload.find("\"firmware_version\":\"0.1.0\"") != std::string::npos);
+    const petcare::WeightCalibration food{100, 10.0};
+    const petcare::WeightCalibration water{100, 10.0};
+    double food_grams = 0.0;
+    double water_grams = 0.0;
+    assert(food.grams(900, food_grams) && food_grams == 80.0);
+    assert(water.grams(900, water_grams) && water_grams == 80.0);
+    const petcare::WeightCalibration changed_food{200, 10.0};
+    assert(changed_food.grams(900, food_grams) && food_grams == 70.0);
+    assert(water.grams(900, water_grams) && water_grams == 80.0);
+    const double previous_grams = water_grams;
+    const petcare::WeightCalibration zero_scale{100, 0.0};
+    const petcare::WeightCalibration nonfinite_scale{100, NAN};
+    assert(!zero_scale.grams(900, water_grams));
+    assert(!nonfinite_scale.grams(900, water_grams));
+    assert(water_grams == previous_grams);
 
-    const petcare::CameraDetection detection{
-        "pc_webcam_01",
-        "dog",
-        0.87f,
-        {214, 352, 80, 130},
-        "food_bowl",
-        "dog_001",
-        "2026-07-09T17:05:00+09:00",
-    };
-    const auto detection_message = petcare::make_detection_message(detection);
-    assert(detection_message.topic == "home/camera/pc_webcam_01/detection");
-    assert(detection_message.payload.find("\"camera_id\":\"pc_webcam_01\"") != std::string::npos);
-    assert(detection_message.payload.find("\"detected_type\":\"dog\"") != std::string::npos);
-    assert(detection_message.payload.find("\"bbox\":{\"x\":214,\"y\":352,\"w\":80,\"h\":130}") != std::string::npos);
+    petcare::TelemetryMessage sentinel{};
+    sentinel.topic.fill('T');
+    sentinel.payload.fill('P');
+    sentinel.topic_size = 7;
+    sentinel.payload_size = 11;
+    const auto unchanged = sentinel;
+    const std::array<SensorReading, 11> invalid{{
+        {"entrance-01", "food_weight", SensorValue::number(1.0), "g", observed_at},
+        {"petzone-01", "temperature", SensorValue::boolean(true), "C", observed_at},
+        {"petzone-01", "humidity", SensorValue::number(INFINITY), "%", observed_at},
+        {"petzone-01", "bed_pressure_left", SensorValue::integer(4096), "adc", observed_at},
+        {"petzone-01", "temperature", SensorValue::number(1.0), "F", observed_at},
+        {"petzone-01", "bed_weight", SensorValue::number(1.0), "g", observed_at},
+        {"petzone-01", "temperature", SensorValue::number(1.0), "C", "2026-07-15T07:00:00+09:00"},
+        {"device-id-that-is-longer-than-the-fixed-sixty-four-byte-topic-buffer-boundary", "temperature", SensorValue::number(1.0), "C", observed_at},
+        {"petzone-01", "temperature", SensorValue::number(1.0), "C", "2026-07-15T07:00:00.000Z-extra-payload-that-must-not-be-truncated"},
+        {"petzone-01", "temperature", SensorValue::number(1.0), "C", "2026-02-29T07:00:00.000Z"},
+        {"petzone-01", "temperature", SensorValue::number(1.0), "C", "2026-04-31T07:00:00.000Z"},
+    }};
+    for (const auto& reading : invalid) {
+        assert(!petcare::serialize_sensor_message(reading, sentinel));
+        assert(sentinel.topic == unchanged.topic && sentinel.payload == unchanged.payload);
+        assert(sentinel.topic_size == unchanged.topic_size && sentinel.payload_size == unchanged.payload_size);
+    }
+    assert(!petcare::serialize_status_message({"petzone-01", static_cast<DeviceState>(99), observed_at}, sentinel));
+    assert(sentinel.topic == unchanged.topic && sentinel.payload == unchanged.payload);
 
-    const petcare::RoiZone food_zone{"food_bowl", 100, 350, 300, 520};
-    assert(petcare::detection_in_roi(detection, food_zone));
-    const auto eating = petcare::infer_eating_behavior(
-        detection,
-        food_zone,
-        150.0f,
-        128.4f,
-        "2026-07-09T17:05:00+09:00"
-    );
-    assert(eating.behavior_type == "eating");
-    const auto behavior_message = petcare::make_behavior_message("pc_webcam_01", eating);
-    assert(behavior_message.topic == "home/camera/pc_webcam_01/behavior");
-    assert(behavior_message.payload.find("\"type\":\"dashboard_update\"") != std::string::npos);
-    assert(behavior_message.payload.find("\"behavior_type\":\"eating\"") != std::string::npos);
-
-    const petcare::RoiZone entrance_zone{"entrance", 0, 0, 250, 250};
-    const petcare::CameraDetection entrance_detection{
-        "pc_webcam_01",
-        "dog",
-        0.91f,
-        {40, 40, 90, 110},
-        "entrance",
-        "dog_001",
-        "2026-07-09T17:06:00+09:00",
-    };
-    const auto entrance_risk = petcare::infer_entrance_risk(
-        entrance_detection,
-        entrance_zone,
-        true,
-        "2026-07-09T17:06:00+09:00"
-    );
-    assert(entrance_risk.anomaly_type == "entrance_risk");
-    assert(entrance_risk.severity == "danger");
-    const auto anomaly_message = petcare::make_anomaly_message("pc_webcam_01", entrance_risk);
-    assert(anomaly_message.topic == "home/camera/pc_webcam_01/anomaly");
-    assert(anomaly_message.payload.find("\"type\":\"anomaly_alert\"") != std::string::npos);
-    assert(anomaly_message.payload.find("\"severity\":\"danger\"") != std::string::npos);
-
-    const auto no_risk = petcare::infer_entrance_risk(
-        detection,
-        entrance_zone,
-        false,
-        "2026-07-09T17:06:00+09:00"
-    );
-    assert(no_risk.anomaly_type == "none");
-
-    const auto no_meal = petcare::make_no_meal_anomaly(
-        "dog",
-        "dog_001",
-        "2026-07-09T17:06:00+09:00"
-    );
-    assert(no_meal.anomaly_type == "no_meal_12h");
-    assert(no_meal.severity == "warning");
-    assert(no_meal.message == "No eating event has been recorded for 12 hours");
-    const auto no_meal_message = petcare::make_anomaly_message("pc_webcam_01", no_meal);
-    assert(no_meal_message.payload.find("\"anomaly_type\":\"no_meal_12h\"") != std::string::npos);
-
-    const auto fall = petcare::make_fall_suspected_anomaly(
-        "person",
-        "person_001",
-        "2026-07-09T17:06:30+09:00"
-    );
-    assert(fall.anomaly_type == "fall_suspected");
-    assert(fall.severity == "danger");
-    assert(fall.message == "Possible fall or immobility pattern detected");
-    const auto fall_message = petcare::make_anomaly_message("pc_webcam_01", fall);
-    assert(fall_message.payload.find("\"anomaly_type\":\"fall_suspected\"") != std::string::npos);
-
+    petcare::TelemetryMessage warmup{};
+    assert(petcare::serialize_sensor_message(petzone_readings[0], warmup));
+    assert(petcare::serialize_status_message(online, warmup));
+    const auto before = allocations;
+    for (int second = 0; second < 120; ++second) {
+        for (const auto& reading : petzone_readings) {
+            assert(petcare::serialize_sensor_message(reading, warmup));
+        }
+        assert(petcare::serialize_status_message(online, warmup));
+    }
+    assert(allocations == before);
     return 0;
 }

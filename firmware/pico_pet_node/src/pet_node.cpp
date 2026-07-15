@@ -1,6 +1,7 @@
 #include "pet_node.hpp"
 
-#include <cstddef>
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 
@@ -8,388 +9,216 @@ namespace petcare {
 
 namespace {
 
-const char* bool_json(bool value) {
-    return value ? "true" : "false";
-}
+struct SensorSpec {
+    ValueKind kind;
+    std::string_view unit;
+    bool petzone_only;
+};
 
-bool changed_by(float current, float previous, float threshold) {
-    return std::fabs(current - previous) >= threshold;
-}
-
-std::string json_buffer(const char* buffer, std::size_t capacity, int written) {
-    if (written <= 0) {
-        return "{}";
+bool sensor_spec(std::string_view sensor_type, SensorSpec& output) {
+    if (sensor_type == "temperature") {
+        output = {ValueKind::number, "C", false};
+    } else if (sensor_type == "humidity") {
+        output = {ValueKind::number, "%", false};
+    } else if (sensor_type == "presence_moving" || sensor_type == "presence_stationary") {
+        output = {ValueKind::boolean, "bool", false};
+    } else if (sensor_type == "food_weight" || sensor_type == "water_weight") {
+        output = {ValueKind::number, "g", true};
+    } else if (sensor_type == "bed_pressure_left" || sensor_type == "bed_pressure_center" ||
+               sensor_type == "bed_pressure_right") {
+        output = {ValueKind::integer, "adc", true};
+    } else {
+        return false;
     }
-    const auto length = static_cast<std::size_t>(written);
-    return std::string(buffer, length < capacity ? length : capacity - 1);
+    return true;
 }
 
-std::string format(const char* fmt, const SensorSnapshot& snapshot, const CameraTrigger& trigger) {
-    char buffer[768];
-    const int written = std::snprintf(
-        buffer,
-        sizeof(buffer),
-        fmt,
-        static_cast<int>(snapshot.device_id.size()),
-        snapshot.device_id.data(),
-        static_cast<int>(snapshot.zone.size()),
-        snapshot.zone.data(),
-        static_cast<unsigned long long>(snapshot.timestamp_ms),
-        snapshot.temperature_c,
-        snapshot.humidity_pct,
-        snapshot.light_lux,
-        bool_json(snapshot.motion),
-        bool_json(snapshot.door_open),
-        snapshot.food_weight_g,
-        snapshot.water_weight_g,
-        snapshot.bed_weight_g,
-        bool_json(trigger.active),
-        static_cast<int>(trigger.reason.size()),
-        trigger.reason.data()
-    );
-
-    return json_buffer(buffer, sizeof(buffer), written);
-}
-
-}
-
-std::string telemetry_topic(std::string_view device_id) {
-    return "home/pico/" + std::string(device_id) + "/telemetry";
-}
-
-std::string sensor_topic(std::string_view device_id, std::string_view sensor_type) {
-    return "home/pico/" + std::string(device_id) + "/sensor/" + std::string(sensor_type);
-}
-
-std::string status_topic(std::string_view device_id) {
-    return "home/pico/" + std::string(device_id) + "/status";
-}
-
-std::string camera_detection_topic(std::string_view camera_id) {
-    return "home/camera/" + std::string(camera_id) + "/detection";
-}
-
-std::string camera_behavior_topic(std::string_view camera_id) {
-    return "home/camera/" + std::string(camera_id) + "/behavior";
-}
-
-std::string camera_anomaly_topic(std::string_view camera_id) {
-    return "home/camera/" + std::string(camera_id) + "/anomaly";
-}
-
-std::string camera_trigger_topic(std::string_view device_id) {
-    return "home/pico/" + std::string(device_id) + "/camera_trigger";
-}
-
-CameraTrigger evaluate_camera_trigger(
-    const SensorSnapshot& current,
-    const SensorSnapshot& previous,
-    float min_weight_delta_g
-) {
-    if (current.motion) {
-        return {true, "motion"};
+bool profile_for_device(std::string_view device_id, DeviceProfile& profile) {
+    if (device_id == "entrance-01") {
+        profile = DeviceProfile::entrance_01;
+        return true;
     }
-    if (current.door_open && !previous.door_open) {
-        return {true, "door_open"};
+    if (device_id == "petzone-01") {
+        profile = DeviceProfile::petzone_01;
+        return true;
     }
-    if (changed_by(current.food_weight_g, previous.food_weight_g, min_weight_delta_g)) {
-        return {true, "food_weight_change"};
+    return false;
+}
+
+bool digit(char value) { return value >= '0' && value <= '9'; }
+
+int two_digits(std::string_view value, std::size_t offset) {
+    return (value[offset] - '0') * 10 + value[offset + 1] - '0';
+}
+
+bool valid_utc(std::string_view value) {
+    if (value.size() != 24 || value[4] != '-' || value[7] != '-' || value[10] != 'T' ||
+        value[13] != ':' || value[16] != ':' || value[19] != '.' || value[23] != 'Z') {
+        return false;
     }
-    if (changed_by(current.water_weight_g, previous.water_weight_g, min_weight_delta_g)) {
-        return {true, "water_weight_change"};
+    for (const auto offset : {0U, 1U, 2U, 3U, 5U, 6U, 8U, 9U, 11U, 12U, 14U, 15U, 17U, 18U, 20U, 21U, 22U}) {
+        if (!digit(value[offset])) {
+            return false;
+        }
     }
-    if (changed_by(current.bed_weight_g, previous.bed_weight_g, min_weight_delta_g)) {
-        return {true, "bed_weight_change"};
+    const int year = (value[0] - '0') * 1000 + (value[1] - '0') * 100 + (value[2] - '0') * 10 + value[3] - '0';
+    const int month = two_digits(value, 5);
+    const int day = two_digits(value, 8);
+    if (year < 2024 || month < 1 || month > 12 || day < 1 || two_digits(value, 11) > 23 ||
+        two_digits(value, 14) > 59 || two_digits(value, 17) > 59) {
+        return false;
     }
-    return {false, "none"};
-}
-
-std::string serialize_telemetry(
-    const SensorSnapshot& snapshot,
-    const CameraTrigger& trigger
-) {
-    return format(
-        "{\"device_id\":\"%.*s\",\"zone\":\"%.*s\",\"timestamp_ms\":%llu,"
-        "\"temperature_c\":%.2f,\"humidity_pct\":%.2f,\"light_lux\":%.2f,"
-        "\"motion\":%s,\"door_open\":%s,\"food_weight_g\":%.2f,"
-        "\"water_weight_g\":%.2f,\"bed_weight_g\":%.2f,"
-        "\"trigger_camera\":%s,\"reason\":\"%.*s\"}",
-        snapshot,
-        trigger
-    );
-}
-
-std::string serialize_camera_trigger(
-    const SensorSnapshot& snapshot,
-    const CameraTrigger& trigger
-) {
-    return format(
-        "{\"device_id\":\"%.*s\",\"zone\":\"%.*s\",\"timestamp_ms\":%llu,"
-        "\"temperature_c\":%.2f,\"humidity_pct\":%.2f,\"light_lux\":%.2f,"
-        "\"motion\":%s,\"door_open\":%s,\"food_weight_g\":%.2f,"
-        "\"water_weight_g\":%.2f,\"bed_weight_g\":%.2f,"
-        "\"trigger_camera\":%s,\"reason\":\"%.*s\"}",
-        snapshot,
-        trigger
-    );
-}
-
-TelemetryMessage make_telemetry_message(
-    const SensorSnapshot& snapshot,
-    const CameraTrigger& trigger
-) {
-    return {
-        telemetry_topic(snapshot.device_id),
-        serialize_telemetry(snapshot, trigger),
-    };
-}
-
-TelemetryMessage make_camera_trigger_message(
-    const SensorSnapshot& snapshot,
-    const CameraTrigger& trigger
-) {
-    return {
-        camera_trigger_topic(snapshot.device_id),
-        serialize_camera_trigger(snapshot, trigger),
-    };
-}
-
-TelemetryMessage make_sensor_message(const SensorReading& reading) {
-    char buffer[512];
-    const int written = std::snprintf(
-        buffer,
-        sizeof(buffer),
-        "{\"device_id\":\"%.*s\",\"sensor_type\":\"%.*s\",\"value\":%.2f,"
-        "\"unit\":\"%.*s\",\"battery\":%.2f,\"rssi\":%d,\"timestamp\":\"%.*s\"}",
-        static_cast<int>(reading.device_id.size()),
-        reading.device_id.data(),
-        static_cast<int>(reading.sensor_type.size()),
-        reading.sensor_type.data(),
-        reading.value,
-        static_cast<int>(reading.unit.size()),
-        reading.unit.data(),
-        reading.battery,
-        reading.rssi,
-        static_cast<int>(reading.timestamp.size()),
-        reading.timestamp.data()
-    );
-    return {
-        sensor_topic(reading.device_id, reading.sensor_type),
-        json_buffer(buffer, sizeof(buffer), written),
-    };
-}
-
-TelemetryMessage make_status_message(const DeviceStatus& status) {
-    char buffer[512];
-    const int written = std::snprintf(
-        buffer,
-        sizeof(buffer),
-        "{\"device_id\":\"%.*s\",\"status\":\"%.*s\",\"firmware_version\":\"%.*s\","
-        "\"ip\":\"%.*s\",\"uptime_sec\":%u,\"timestamp\":\"%.*s\"}",
-        static_cast<int>(status.device_id.size()),
-        status.device_id.data(),
-        static_cast<int>(status.status.size()),
-        status.status.data(),
-        static_cast<int>(status.firmware_version.size()),
-        status.firmware_version.data(),
-        static_cast<int>(status.ip.size()),
-        status.ip.data(),
-        static_cast<unsigned>(status.uptime_sec),
-        static_cast<int>(status.timestamp.size()),
-        status.timestamp.data()
-    );
-    return {
-        status_topic(status.device_id),
-        json_buffer(buffer, sizeof(buffer), written),
-    };
-}
-
-TelemetryMessage make_detection_message(const CameraDetection& detection) {
-    char buffer[768];
-    const int written = std::snprintf(
-        buffer,
-        sizeof(buffer),
-        "{\"camera_id\":\"%.*s\",\"detected_type\":\"%.*s\",\"confidence\":%.2f,"
-        "\"bbox\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d},"
-        "\"zone\":\"%.*s\",\"track_id\":\"%.*s\",\"timestamp\":\"%.*s\"}",
-        static_cast<int>(detection.camera_id.size()),
-        detection.camera_id.data(),
-        static_cast<int>(detection.detected_type.size()),
-        detection.detected_type.data(),
-        detection.confidence,
-        detection.bbox.x,
-        detection.bbox.y,
-        detection.bbox.w,
-        detection.bbox.h,
-        static_cast<int>(detection.zone.size()),
-        detection.zone.data(),
-        static_cast<int>(detection.track_id.size()),
-        detection.track_id.data(),
-        static_cast<int>(detection.timestamp.size()),
-        detection.timestamp.data()
-    );
-    return {
-        camera_detection_topic(detection.camera_id),
-        json_buffer(buffer, sizeof(buffer), written),
-    };
-}
-
-TelemetryMessage make_behavior_message(std::string_view camera_id, const BehaviorEvent& event) {
-    char buffer[768];
-    const int written = std::snprintf(
-        buffer,
-        sizeof(buffer),
-        "{\"type\":\"dashboard_update\",\"payload\":{\"subject_type\":\"%.*s\","
-        "\"subject_id\":\"%.*s\",\"behavior_type\":\"%.*s\",\"zone_id\":\"%.*s\","
-        "\"confidence\":%.2f,\"duration_sec\":%u,\"message\":\"%.*s\","
-        "\"created_at\":\"%.*s\"}}",
-        static_cast<int>(event.subject_type.size()),
-        event.subject_type.data(),
-        static_cast<int>(event.subject_id.size()),
-        event.subject_id.data(),
-        static_cast<int>(event.behavior_type.size()),
-        event.behavior_type.data(),
-        static_cast<int>(event.zone_id.size()),
-        event.zone_id.data(),
-        event.confidence,
-        static_cast<unsigned>(event.duration_sec),
-        static_cast<int>(event.message.size()),
-        event.message.data(),
-        static_cast<int>(event.timestamp.size()),
-        event.timestamp.data()
-    );
-    return {
-        camera_behavior_topic(camera_id),
-        json_buffer(buffer, sizeof(buffer), written),
-    };
-}
-
-TelemetryMessage make_anomaly_message(std::string_view camera_id, const AnomalyEvent& event) {
-    char buffer[768];
-    const int written = std::snprintf(
-        buffer,
-        sizeof(buffer),
-        "{\"type\":\"anomaly_alert\",\"payload\":{\"severity\":\"%.*s\","
-        "\"subject_type\":\"%.*s\",\"subject_id\":\"%.*s\",\"anomaly_type\":\"%.*s\","
-        "\"score\":%.2f,\"message\":\"%.*s\",\"created_at\":\"%.*s\"}}",
-        static_cast<int>(event.severity.size()),
-        event.severity.data(),
-        static_cast<int>(event.subject_type.size()),
-        event.subject_type.data(),
-        static_cast<int>(event.subject_id.size()),
-        event.subject_id.data(),
-        static_cast<int>(event.anomaly_type.size()),
-        event.anomaly_type.data(),
-        event.score,
-        static_cast<int>(event.message.size()),
-        event.message.data(),
-        static_cast<int>(event.timestamp.size()),
-        event.timestamp.data()
-    );
-    return {
-        camera_anomaly_topic(camera_id),
-        json_buffer(buffer, sizeof(buffer), written),
-    };
-}
-
-AnomalyEvent make_no_meal_anomaly(
-    std::string_view subject_type,
-    std::string_view subject_id,
-    std::string_view timestamp
-) {
-    return {
-        subject_type,
-        subject_id,
-        "no_meal_12h",
-        "warning",
-        0.40f,
-        "No eating event has been recorded for 12 hours",
-        timestamp,
-    };
-}
-
-AnomalyEvent make_fall_suspected_anomaly(
-    std::string_view subject_type,
-    std::string_view subject_id,
-    std::string_view timestamp
-) {
-    return {
-        subject_type,
-        subject_id,
-        "fall_suspected",
-        "danger",
-        0.80f,
-        "Possible fall or immobility pattern detected",
-        timestamp,
-    };
-}
-
-bool detection_in_roi(const CameraDetection& detection, const RoiZone& zone) {
-    const int center_x = detection.bbox.x + detection.bbox.w / 2;
-    const int center_y = detection.bbox.y + detection.bbox.h / 2;
-    return center_x >= zone.x1 && center_x <= zone.x2 && center_y >= zone.y1 && center_y <= zone.y2;
-}
-
-BehaviorEvent infer_eating_behavior(
-    const CameraDetection& detection,
-    const RoiZone& food_zone,
-    float previous_food_weight_g,
-    float current_food_weight_g,
-    std::string_view timestamp
-) {
-    const bool is_pet = detection.detected_type == "dog" || detection.detected_type == "cat";
-    const bool food_decreased = previous_food_weight_g - current_food_weight_g >= 5.0f;
-    if (is_pet && detection_in_roi(detection, food_zone) && food_decreased) {
-        return {
-            detection.detected_type,
-            detection.track_id,
-            "eating",
-            food_zone.zone_id,
-            detection.confidence,
-            30,
-            "food_bowl ROI and food_weight decrease indicate eating",
-            timestamp,
-        };
+    constexpr std::array<int, 12> days_per_month{{31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}};
+    int last_day = days_per_month[static_cast<std::size_t>(month - 1)];
+    const bool leap_year = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    if (month == 2 && leap_year) {
+        last_day = 29;
     }
-    return {
-        detection.detected_type,
-        detection.track_id,
-        "detected",
-        detection.zone,
-        detection.confidence,
-        0,
-        "detection only",
-        timestamp,
-    };
+    return day <= last_day;
 }
 
-AnomalyEvent infer_entrance_risk(
-    const CameraDetection& detection,
-    const RoiZone& entrance_zone,
-    bool door_open,
-    std::string_view timestamp
-) {
-    const bool is_pet = detection.detected_type == "dog" || detection.detected_type == "cat";
-    if (door_open && is_pet && detection_in_roi(detection, entrance_zone)) {
-        return {
-            detection.detected_type,
-            detection.track_id,
-            "entrance_risk",
-            "danger",
-            0.95f,
-            "Door is open and pet is in entrance ROI",
-            timestamp,
-        };
+bool valid_reading(const SensorReading& reading, SensorSpec& spec) {
+    DeviceProfile profile{};
+    if (!profile_for_device(reading.device_id, profile) || !sensor_spec(reading.sensor_type, spec) ||
+        !profile_allows(profile, reading.sensor_type) || reading.unit != spec.unit || reading.value.kind != spec.kind ||
+        !valid_utc(reading.observed_at)) {
+        return false;
     }
-    return {
-        detection.detected_type,
-        detection.track_id,
-        "none",
-        "warning",
-        0.0f,
-        "No entrance risk detected",
-        timestamp,
-    };
+    if (spec.kind == ValueKind::number) {
+        return std::isfinite(reading.value.number_value);
+    }
+    if (spec.kind == ValueKind::integer) {
+        return reading.value.integer_value <= 4095;
+    }
+    return true;
+}
+
+}
+
+std::string_view profile_device_id(DeviceProfile profile) {
+    switch (profile) {
+    case DeviceProfile::entrance_01:
+        return "entrance-01";
+    case DeviceProfile::petzone_01:
+        return "petzone-01";
+    }
+    return {};
+}
+
+bool profile_allows(DeviceProfile profile, std::string_view sensor_type) {
+    SensorSpec spec{};
+    if (!sensor_spec(sensor_type, spec)) {
+        return false;
+    }
+    switch (profile) {
+    case DeviceProfile::entrance_01:
+        return !spec.petzone_only;
+    case DeviceProfile::petzone_01:
+        return true;
+    }
+    return false;
+}
+
+bool TelemetryMessage::assign(std::string_view new_topic, std::string_view new_payload) {
+    if (new_topic.size() > topic.size() || new_payload.size() > payload.size()) {
+        return false;
+    }
+    TelemetryMessage candidate{};
+    candidate.topic_size = new_topic.size();
+    candidate.payload_size = new_payload.size();
+    std::copy(new_topic.begin(), new_topic.end(), candidate.topic.begin());
+    std::copy(new_payload.begin(), new_payload.end(), candidate.payload.begin());
+    *this = candidate;
+    return true;
+}
+
+bool WeightCalibration::grams(std::int32_t raw, double& output) const {
+    if (!std::isfinite(counts_per_gram) || counts_per_gram <= 0.0) {
+        return false;
+    }
+    const double candidate = (static_cast<double>(raw) - static_cast<double>(tare_raw)) / counts_per_gram;
+    if (!std::isfinite(candidate)) {
+        return false;
+    }
+    output = candidate;
+    return true;
+}
+
+bool serialize_sensor_message(const SensorReading& reading, TelemetryMessage& output) {
+    SensorSpec spec{};
+    if (!valid_reading(reading, spec)) {
+        return false;
+    }
+    std::array<char, 65> topic{};
+    std::array<char, 257> payload{};
+    std::array<char, 32> value{};
+    int value_written = 0;
+    if (spec.kind == ValueKind::number) {
+        value_written = std::snprintf(value.data(), value.size(), "%.15g", reading.value.number_value);
+    } else if (spec.kind == ValueKind::boolean) {
+        value_written = std::snprintf(value.data(), value.size(), "%s", reading.value.boolean_value ? "true" : "false");
+    } else {
+        value_written = std::snprintf(value.data(), value.size(), "%u", static_cast<unsigned>(reading.value.integer_value));
+    }
+    if (value_written <= 0 || value_written >= static_cast<int>(value.size())) {
+        return false;
+    }
+    const int topic_written = std::snprintf(
+        topic.data(), topic.size(), "home/pico/%.*s/sensor/%.*s",
+        static_cast<int>(reading.device_id.size()), reading.device_id.data(),
+        static_cast<int>(reading.sensor_type.size()), reading.sensor_type.data()
+    );
+    const int payload_written = std::snprintf(
+        payload.data(), payload.size(),
+        "{\"device_id\":\"%.*s\",\"sensor_type\":\"%.*s\",\"value\":%s,\"unit\":\"%.*s\",\"observed_at\":\"%.*s\"}",
+        static_cast<int>(reading.device_id.size()), reading.device_id.data(),
+        static_cast<int>(reading.sensor_type.size()), reading.sensor_type.data(), value.data(),
+        static_cast<int>(reading.unit.size()), reading.unit.data(),
+        static_cast<int>(reading.observed_at.size()), reading.observed_at.data()
+    );
+    if (topic_written < 0 || payload_written < 0) {
+        return false;
+    }
+    return output.assign(
+        {topic.data(), static_cast<std::size_t>(topic_written)},
+        {payload.data(), static_cast<std::size_t>(payload_written)}
+    );
+}
+
+bool serialize_status_message(const DeviceStatus& status, TelemetryMessage& output) {
+    DeviceProfile profile{};
+    if (!profile_for_device(status.device_id, profile) || !valid_utc(status.observed_at)) {
+        return false;
+    }
+    const char* state = nullptr;
+    switch (status.state) {
+    case DeviceState::online:
+        state = "online";
+        break;
+    case DeviceState::offline:
+        state = "offline";
+        break;
+    default:
+        return false;
+    }
+    std::array<char, 65> topic{};
+    std::array<char, 257> payload{};
+    const int topic_written = std::snprintf(
+        topic.data(), topic.size(), "home/pico/%.*s/status",
+        static_cast<int>(status.device_id.size()), status.device_id.data()
+    );
+    const int payload_written = std::snprintf(
+        payload.data(), payload.size(), "{\"device_id\":\"%.*s\",\"status\":\"%s\",\"observed_at\":\"%.*s\"}",
+        static_cast<int>(status.device_id.size()), status.device_id.data(), state,
+        static_cast<int>(status.observed_at.size()), status.observed_at.data()
+    );
+    if (topic_written < 0 || payload_written < 0) {
+        return false;
+    }
+    return output.assign(
+        {topic.data(), static_cast<std::size_t>(topic_written)},
+        {payload.data(), static_cast<std::size_t>(payload_written)}
+    );
 }
 
 }
