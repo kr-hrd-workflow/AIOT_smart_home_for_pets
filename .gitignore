@@ -67,3 +67,22 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+/.runtime/
+/.venv/
+/backend/.venv/
+/dashboard/node_modules/
+/.env
+/backend/.env
+/dashboard/.env
+/dashboard/.env.local
+/firmware/pico_pet_node/credentials/
+/firmware/pico_pet_node/include/pico_credentials.h
+/dashboard/playwright-report/
+/dashboard/test-results/
+/.omo/evidence/
+/.omo/ulw-loop/
+/.omo/start-work/
+/.omo/boulder.json
+/.superpowers/sdd/
+/progress-monitor/
+__pycache__/
