@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:17.10@sha256:0af65001d05296a2ead57ac4a6412433d8913d1bb5d0c88435a7d1e1ee5cb04b
+    environment:
+      POSTGRES_DB: petcare
+      POSTGRES_USER: petcare
+      POSTGRES_PASSWORD: ${PETCARE_POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - petcare-postgres:/var/lib/postgresql/data
+
+  mosquitto:
+    image: eclipse-mosquitto:2.0.22@sha256:212f89e1eaeb2c322d6441b64396e3346026674db8fa9c27beac293405c32b3c
+    entrypoint: ["/bin/sh", "/petcare/docker-entrypoint.sh"]
+    environment:
+      PETCARE_MQTT_USERNAME: ${PETCARE_MQTT_USERNAME}
+      PETCARE_MQTT_PASSWORD: ${PETCARE_MQTT_PASSWORD}
+    ports:
+      - "${PETCARE_MQTT_PUBLISH_HOST:-127.0.0.1}:18883:1883"
+    volumes:
+      - ./infra/mosquitto:/petcare:ro
+
+volumes:
+  petcare-postgres:
