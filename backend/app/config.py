@@ -5,7 +5,7 @@ from typing import Literal, Self
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictInt, model_validator
 
 
 class AppConfig(BaseModel):
@@ -25,6 +25,10 @@ class AppConfig(BaseModel):
     timezone_name: Literal["Asia/Seoul"] = "Asia/Seoul"
     night_start_hour: Literal[22] = 22
     night_end_hour: Literal[6] = 6
+    mqtt_profile: Literal["local_live", "hardware"] | None = None
+    mqtt_services_manifest: str = ".runtime/services.json"
+    mqtt_username: SecretStr | None = None
+    mqtt_password: SecretStr | None = None
 
     @model_validator(mode="after")
     def validate_all(self) -> Self:
@@ -33,6 +37,13 @@ class AppConfig(BaseModel):
             raise ValueError("DATABASE_URL must target loopback PostgreSQL on port 55432")
         if not 0 <= self.fsr_exit_threshold < self.fsr_entry_threshold <= 12285:
             raise ValueError("invalid FSR thresholds")
+        mqtt_values = (self.mqtt_profile, self.mqtt_username, self.mqtt_password)
+        if any(value is not None for value in mqtt_values) and not all(value is not None for value in mqtt_values):
+            raise ValueError("MQTT profile, username, and password must be configured together")
+        if self.mqtt_username is not None and not self.mqtt_username.get_secret_value():
+            raise ValueError("MQTT username must not be empty")
+        if self.mqtt_password is not None and not self.mqtt_password.get_secret_value():
+            raise ValueError("MQTT password must not be empty")
         return self
 
     @property
@@ -46,6 +57,10 @@ class AppConfig(BaseModel):
     @property
     def timezone(self) -> ZoneInfo:
         return ZoneInfo(self.timezone_name)
+
+    @property
+    def mqtt_enabled(self) -> bool:
+        return self.mqtt_profile is not None
 
 
 def _integer(name: str, default: int) -> int:
@@ -69,4 +84,8 @@ def load_config() -> AppConfig:
         fsr_stability_counts_right=_integer("FSR_STABILITY_COUNTS_RIGHT", 40),
         fsr_entry_threshold=_integer("FSR_ENTRY_THRESHOLD", 450),
         fsr_exit_threshold=_integer("FSR_EXIT_THRESHOLD", 250),
+        mqtt_profile=os.environ.get("PETCARE_MQTT_PROFILE"),
+        mqtt_services_manifest=os.environ.get("PETCARE_SERVICES_MANIFEST", ".runtime/services.json"),
+        mqtt_username=os.environ.get("PETCARE_MQTT_USERNAME"),
+        mqtt_password=os.environ.get("PETCARE_MQTT_PASSWORD"),
     )

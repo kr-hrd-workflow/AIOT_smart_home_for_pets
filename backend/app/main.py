@@ -5,16 +5,34 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from .config import load_config
-from .db import configure_database, dispose_database
+from .db import configure_database, dispose_database, session_factory
+from .mqtt_ingest import MqttIngestor, load_mqtt_endpoint
+from .rule_ingress import RuleIngress
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(application: FastAPI):
     config = load_config()
     configure_database(config.database_url)
+    ingress = RuleIngress()
+    ingestor = MqttIngestor.disabled()
     try:
+        if config.mqtt_enabled:
+            assert config.mqtt_profile is not None and config.mqtt_username is not None and config.mqtt_password is not None
+            ingestor = MqttIngestor(
+                ingress=ingress,
+                session_factory=session_factory,
+                endpoint=load_mqtt_endpoint(config.mqtt_services_manifest, config.mqtt_profile),
+                username=config.mqtt_username.get_secret_value(),
+                password=config.mqtt_password.get_secret_value(),
+            )
+        application.state.rule_ingress = ingress
+        application.state.mqtt_ingestor = ingestor
+        # Todo 11 starts intake only after the single RuleWorker can drain this ingress.
         yield
     finally:
+        ingestor.stop()
+        ingress.stop_accepting()
         dispose_database()
 
 
