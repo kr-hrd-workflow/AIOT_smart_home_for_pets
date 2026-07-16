@@ -1,4 +1,5 @@
 #include "pet_node.hpp"
+#include "../pico/include/mqtt_publisher.hpp"
 
 #include <array>
 #include <cassert>
@@ -44,6 +45,60 @@ int main() {
     using petcare::SensorReading;
     using petcare::SensorValue;
 
+    petcare::ReconnectBackoff reconnect;
+    for (const auto seconds : {1U, 2U, 4U, 8U, 16U, 30U, 30U}) {
+        assert(reconnect.next_delay_seconds() == seconds);
+    }
+    reconnect.reset();
+    assert(reconnect.next_delay_seconds() == 1U);
+
+    static_assert(petcare::MqttContract::qos == 1);
+    static_assert(!petcare::MqttContract::sensor_retain);
+    static_assert(petcare::MqttContract::status_retain);
+    static_assert(petcare::MqttContract::heartbeat_ms == 10'000);
+    static_assert(petcare::UtcClock::minimum_utc_ms == 1'704'067'200'000ULL);
+    static_assert(petcare::UtcClock::retry_ms == 15'000);
+    static_assert(petcare::UtcClock::resync_ms == 21'600'000);
+    static_assert(std::string_view{petcare::UtcClock::primary_server} == "pool.ntp.org");
+    static_assert(std::string_view{petcare::UtcClock::fallback_server} == "time.cloudflare.com");
+
+    petcare::UtcClock clock;
+    std::array<char, 25> timestamp{};
+    std::uint64_t timestamp_ms = 0;
+    assert(!clock.valid());
+    assert(!clock.timestamp(0, timestamp, timestamp_ms));
+    assert(!clock.synchronize(petcare::UtcClock::minimum_utc_ms - 1, 100));
+    assert(!clock.valid());
+    assert(clock.synchronize(petcare::UtcClock::minimum_utc_ms, 100));
+    assert(clock.timestamp(100, timestamp, timestamp_ms));
+    assert((std::string_view{timestamp.data(), 24} == "2024-01-01T00:00:00.000Z"));
+    const auto first_batch = timestamp;
+    std::array<char, 25> same_batch{};
+    std::uint64_t same_batch_ms = 0;
+    assert(clock.timestamp(100, same_batch, same_batch_ms));
+    assert(same_batch == first_batch && same_batch_ms == timestamp_ms);
+    clock.mark_published(timestamp_ms);
+    assert(clock.synchronize(petcare::UtcClock::minimum_utc_ms + 10'000, 5'000));
+    assert(clock.timestamp(5'500, timestamp, timestamp_ms));
+    assert((std::string_view{timestamp.data(), 24} == "2024-01-01T00:00:10.500Z"));
+    clock.mark_published(timestamp_ms);
+    assert(!clock.synchronize(timestamp_ms - 1, 6'000));
+    assert(!clock.valid());
+    assert(!clock.timestamp(6'000, timestamp, timestamp_ms));
+    assert(!clock.synchronize(timestamp_ms, 6'100));
+    assert(clock.synchronize(timestamp_ms + 1, 6'200));
+    assert(clock.valid());
+    petcare::UtcClock rebooted_clock;
+    assert(!rebooted_clock.valid());
+
+    petcare::HeartbeatSchedule heartbeat;
+    heartbeat.connected(50);
+    assert(!heartbeat.due(10'049));
+    assert(heartbeat.due(10'050));
+    heartbeat.emitted(10'050);
+    assert(!heartbeat.due(20'049));
+    assert(heartbeat.due(20'050));
+
     static_assert(petcare::TelemetryMessage{}.topic.size() == 64);
     static_assert(petcare::TelemetryMessage{}.payload.size() == 256);
 
@@ -88,6 +143,12 @@ int main() {
     assert(topic(status_message) == "home/pico/petzone-01/status");
     assert(payload(status_message) ==
         "{\"device_id\":\"petzone-01\",\"status\":\"online\",\"observed_at\":\"2026-07-15T07:00:00.000Z\"}");
+
+    petcare::TelemetryMessage lwt{};
+    assert(petcare::make_offline_lwt("petzone-01", observed_at, lwt));
+    assert(topic(lwt) == "home/pico/petzone-01/status");
+    assert(payload(lwt) ==
+        "{\"device_id\":\"petzone-01\",\"status\":\"offline\",\"observed_at\":\"2026-07-15T07:00:00.000Z\"}");
 
     const std::array<SensorReading, 9> petzone_readings{{
         {"petzone-01", "temperature", SensorValue::number(24.25), "C", observed_at},
@@ -165,6 +226,9 @@ int main() {
             assert(petcare::serialize_sensor_message(reading, warmup));
         }
         assert(petcare::serialize_status_message(online, warmup));
+        assert(clock.timestamp(6'200 + static_cast<std::uint64_t>(second) * 1'000, timestamp, timestamp_ms));
+        clock.mark_published(timestamp_ms);
+        assert(petcare::make_offline_lwt("petzone-01", observed_at, warmup));
     }
     assert(allocations == before);
     return 0;

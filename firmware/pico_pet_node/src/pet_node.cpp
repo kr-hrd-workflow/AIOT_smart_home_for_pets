@@ -144,6 +144,17 @@ bool WeightCalibration::grams(std::int32_t raw, double& output) const {
     return true;
 }
 
+std::uint32_t ReconnectBackoff::next_delay_seconds() {
+    constexpr std::array<std::uint32_t, 6> delays{{1, 2, 4, 8, 16, 30}};
+    const auto delay = delays[std::min<std::size_t>(index_, delays.size() - 1)];
+    if (index_ < delays.size() - 1) {
+        ++index_;
+    }
+    return delay;
+}
+
+void ReconnectBackoff::reset() { index_ = 0; }
+
 bool serialize_sensor_message(const SensorReading& reading, TelemetryMessage& output) {
     SensorSpec spec{};
     if (!valid_reading(reading, spec)) {

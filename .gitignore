@@ -77,6 +77,7 @@ Testing/
 /dashboard/.env.local
 /firmware/pico_pet_node/credentials/
 /firmware/pico_pet_node/include/pico_credentials.h
+/firmware/pico_pet_node/pico/include/petcare_secrets.hpp
 /dashboard/playwright-report/
 /dashboard/test-results/
 /.omo/evidence/

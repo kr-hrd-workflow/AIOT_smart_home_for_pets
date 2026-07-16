@@ -71,6 +71,15 @@ struct WeightCalibration {
     bool grams(std::int32_t raw, double& output) const;
 };
 
+class ReconnectBackoff {
+public:
+    std::uint32_t next_delay_seconds();
+    void reset();
+
+private:
+    std::uint8_t index_ = 0;
+};
+
 std::string_view profile_device_id(DeviceProfile profile);
 bool profile_allows(DeviceProfile profile, std::string_view sensor_type);
 bool serialize_sensor_message(const SensorReading& reading, TelemetryMessage& output);
