@@ -206,7 +206,7 @@ def bbox_overlaps_zone(detection: Mapping[str, object] | CameraDetectionIn, zone
 @dataclass(frozen=True)
 class ProcessedFrame:
     jpeg: bytes
-    detections: list[CameraDetectionIn]
+    detections: tuple[CameraDetectionIn, ...]
     fps: float
     inference_ms: float
     observed_at: datetime
@@ -252,7 +252,7 @@ class VisionPipeline:
             raise
         inference_finished = time.perf_counter()
 
-        detections = [
+        detections = tuple(
             CameraDetectionIn(
                 camera_id="pc-webcam-01",
                 zone_name=zone_for_center(item["center_x"], item["center_y"], self.zones),
@@ -260,7 +260,7 @@ class VisionPipeline:
                 **item,
             )
             for item in selected
-        ]
+        )
         bed = [item for item in detections if item.subject_id is not None and item.zone_name == "pet_bed"]
         bed_subject_ids = tuple(subject for subject in ("dog_001", "cat_001") if any(item.subject_id == subject for item in bed))
         selected_bed_subject_id = None
