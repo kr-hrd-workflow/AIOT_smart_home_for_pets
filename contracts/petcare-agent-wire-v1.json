@@ -1,0 +1,49 @@
+{
+  "enrollment": {
+    "request": {
+      "enrollment_code": "AQEBAQEBAQEBAQEBAQEBAQ",
+      "algorithm": "Ed25519",
+      "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "local_camera_id": "pc-webcam-01"
+    },
+    "response": {
+      "status": 201,
+      "body": {
+        "agent_id": "agent_01",
+        "camera_id": "camera_01",
+        "connector_token": "fixture-only-connector-token"
+      }
+    }
+  },
+  "clip": {
+    "version": "PETCARE-CLIP-V1",
+    "body_base64": "bXA0LWJ5dGVz",
+    "content_sha256": "Il4ucfaWNpVoTPXCrvfVgv_3asuMAo7Yt5ycUryTSV0",
+    "seed": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+    "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+    "nonce": "AAAAAAAAAAAAAAAAAAAAAA",
+    "canonical": "PETCARE-CLIP-V1\nPOST\n/api/petcare/agent/clips\nagent_01\ncamera_01\n1784520000\nAAAAAAAAAAAAAAAAAAAAAA\nIl4ucfaWNpVoTPXCrvfVgv_3asuMAo7Yt5ycUryTSV0\n2026-07-20T03:59:50.000000Z\n2026-07-20T04:00:20.000000Z\nbed_sensor_mismatch:7,eating:41,resting:105\n",
+    "headers": {
+      "Content-Type": "video/mp4",
+      "Content-Length": "9",
+      "X-PetCare-Agent-Id": "agent_01",
+      "X-PetCare-Camera-Id": "camera_01",
+      "X-PetCare-Timestamp": "1784520000",
+      "X-PetCare-Nonce": "AAAAAAAAAAAAAAAAAAAAAA",
+      "X-PetCare-Content-SHA256": "Il4ucfaWNpVoTPXCrvfVgv_3asuMAo7Yt5ycUryTSV0",
+      "X-PetCare-Started-At": "2026-07-20T03:59:50.000000Z",
+      "X-PetCare-Ended-At": "2026-07-20T04:00:20.000000Z",
+      "X-PetCare-Events": "bed_sensor_mismatch:7,eating:41,resting:105",
+      "X-PetCare-Signature": "fiTRBQk2p-2ny3LcFvBtHO2DdnqC0CqueJzuczGdC7xA_Idv0YAZ0nDCuGBiPVqS8SwldyHTrhDatHMBFUW5Aw"
+    },
+    "signature": "fiTRBQk2p-2ny3LcFvBtHO2DdnqC0CqueJzuczGdC7xA_Idv0YAZ0nDCuGBiPVqS8SwldyHTrhDatHMBFUW5Aw",
+    "receipt": {
+      "status": 201,
+      "body": {
+        "id": "clip_01",
+        "createdAt": "2026-07-20T04:00:21.000Z",
+        "expiresAt": "2026-07-27T04:00:21.000Z"
+      }
+    }
+  }
+}

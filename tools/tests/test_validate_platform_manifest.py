@@ -100,6 +100,37 @@ EXPECTED = {
                 "sha256": "62A63B981FE391A9CBAD7EF51B17E49AEAA3E7B0D029B36CA1E9C3B2A9B78823",
             },
         },
+        "ffmpeg": {
+            "version": "8.1.2-22-g94138f6973",
+            "source_tag": "autobuild-2026-07-19-13-12",
+            "windows_x64": {
+                "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-07-19-13-12/ffmpeg-n8.1.2-22-g94138f6973-win64-gpl-8.1.zip",
+                "sha256": "9DB2860AF5D1C536ED7FCB7ED84FA4EF80D188D1396D1CDF8CAD180137510F3F",
+            },
+            "linux_x64": {
+                "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-07-19-13-12/ffmpeg-n8.1.2-22-g94138f6973-linux64-gpl-8.1.tar.xz",
+                "sha256": "166375E7F8B1F6963949A61A83FFFFE858EBA742F6326180B8FF3BC58B205C72",
+            },
+            "linux_arm64": {
+                "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-07-19-13-12/ffmpeg-n8.1.2-22-g94138f6973-linuxarm64-gpl-8.1.tar.xz",
+                "sha256": "371203E43AB3AAA703C9904B40F6A6065DCC08FD3260F441F3BBE040E1AFE8BF",
+            },
+        },
+        "cloudflared": {
+            "version": "2026.7.2",
+            "windows_x64": {
+                "url": "https://github.com/cloudflare/cloudflared/releases/download/2026.7.2/cloudflared-windows-amd64.exe",
+                "sha256": "CDB5D4432F6AE1595654A692A51308B69D2BF7AF961F5578D9391837CF072DF9",
+            },
+            "linux_x64": {
+                "url": "https://github.com/cloudflare/cloudflared/releases/download/2026.7.2/cloudflared-linux-amd64",
+                "sha256": "EC905EA7B7E327FF8ABDDE8CB64697A2152DE74DBCDBF6AEC9DB8364EB3886CD",
+            },
+            "linux_arm64": {
+                "url": "https://github.com/cloudflare/cloudflared/releases/download/2026.7.2/cloudflared-linux-arm64",
+                "sha256": "405DF476437E027FC6D18729A5A77155C0A33A6082AEEE60A799A688F3052E66",
+            },
+        },
         "postgresql": {
             "windows_id": "PostgreSQL.PostgreSQL.17",
             "version": "17.10-2",
@@ -142,13 +173,13 @@ EXPECTED = {
             "mosquitto": "eclipse-mosquitto:2.0.22@sha256:212f89e1eaeb2c322d6441b64396e3346026674db8fa9c27beac293405c32b3c",
         },
         "actions": {"actions/checkout": "93cb6efe18208431cddfb8368fd83d5badbf9bfd"},
-        "sites_plugin": {"version": "0.1.27", "starter": "vinext"},
+        "sites_plugin": {"version": "0.1.30", "starter": "vinext"},
         "backend_dependencies": {
             "fastapi": "0.139.0", "pydantic": "2.13.4", "SQLAlchemy": "2.0.51",
             "alembic": "1.18.5", "psycopg[binary]": "3.3.4", "paho-mqtt": "2.1.0",
             "uvicorn": "0.51.0", "ultralytics": "8.3.0", "numpy": "1.26.4",
             "opencv-python": "4.10.0.84", "pytest": "9.1.1", "pytest-asyncio": "1.4.0",
-            "httpx": "0.28.1",
+            "httpx": "0.28.1", "cryptography": "49.0.0", "pywin32": "312",
         },
         "sites_dependencies": {
             "drizzle-orm": "0.45.2", "next": "16.2.6", "react": "19.2.6",
@@ -159,6 +190,7 @@ EXPECTED = {
             "drizzle-kit": "0.31.10", "eslint": "9.39.4", "eslint-config-next": "16.2.6",
             "react-server-dom-webpack": "19.2.6", "tailwindcss": "4.2.1",
             "typescript": "5.9.3", "vinext": "0.0.50", "vite": "8.0.13", "wrangler": "4.92.0",
+            "@supabase/ssr": "0.12.3", "@supabase/supabase-js": "2.110.7", "jose": "6.2.3",
         },
         "test_dependencies": {
             "vitest": "4.1.10", "@testing-library/react": "16.3.2",
