@@ -3,9 +3,13 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from starlette.concurrency import run_in_threadpool
 
+from .api import build_dashboard_summary, install_api
 from .camera_service import CameraService, build_camera_service
 from .config import load_config
+from .contracts import DashboardUpdate
+from .dashboard_hub import DashboardHub
 from .db import configure_database, dispose_database, session_factory
 from .mqtt_ingest import MqttIngestor, load_mqtt_endpoint
 from .rule_ingress import RuleIngress, SystemRuleClock
@@ -22,6 +26,8 @@ async def lifespan(application: FastAPI):
     ingestor = MqttIngestor.disabled()
     camera_service: CameraService | None = None
     worker: RuleWorker | None = None
+    hub = DashboardHub()
+    hub_task = hub.start_broadcaster()
     try:
         if config.mqtt_enabled:
             assert config.mqtt_profile is not None and config.mqtt_username is not None and config.mqtt_password is not None
@@ -40,14 +46,31 @@ async def lifespan(application: FastAPI):
             session_factory=session_factory,
             engine=engine,
         )
-        worker.start()
-        ingestor.start()
-        if camera_service.pipeline is not None:
-            camera_service.start()
+        application.state.clock = clock
+        application.state.session_factory = session_factory
         application.state.rule_ingress = ingress
         application.state.rule_worker = worker
         application.state.mqtt_ingestor = ingestor
         application.state.camera_service = camera_service
+        application.state.dashboard_hub = hub
+        application.state.rule_engine = engine
+
+        def publish_committed(message: object) -> None:
+            hub.publish_from_worker(message)
+            try:
+                summary = build_dashboard_summary(application)
+            except Exception:
+                return
+            hub.publish_from_worker(DashboardUpdate(type="dashboard_update", payload=summary))
+
+        if hasattr(engine, "publisher"):
+            engine.publisher = publish_committed
+        if hasattr(engine, "dashboard_publisher"):
+            engine.dashboard_publisher = publish_committed
+        worker.start()
+        ingestor.start()
+        if camera_service.pipeline is not None:
+            camera_service.start()
         yield
     finally:
         ingress.stop_accepting()
@@ -60,9 +83,22 @@ async def lifespan(application: FastAPI):
                 camera_service.shutdown()
         except Exception:
             pass
-        if worker is not None:
-            worker.shutdown()
-        dispose_database()
+        try:
+            if worker is not None:
+                await run_in_threadpool(worker.shutdown)
+        finally:
+            hub.shutdown()
+            try:
+                await hub_task
+            finally:
+                dispose_database()
 
 
-app = FastAPI(title="PetCare", lifespan=lifespan)
+app = FastAPI(
+    title="PetCare",
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
+install_api(app)

@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Annotated, Literal, Self
+from typing import Annotated, Literal, Self, TypeAlias
 
 from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, model_validator
 
@@ -379,6 +379,24 @@ class DashboardSummary(StrictModel):
     bed: BedStatus
     behaviors: list[BehaviorEventOut]
     anomalies: list[AnomalyEventOut]
+
+
+class DashboardUpdate(StrictModel):
+    type: Literal["dashboard_update"]
+    payload: DashboardSummary
+
+
+class BedStatusMessage(StrictModel):
+    type: Literal["bed_status"]
+    payload: BedStatus
+
+
+class AnomalyAlert(StrictModel):
+    type: Literal["anomaly_alert"]
+    payload: AnomalyEventOut
+
+
+DashboardMessage: TypeAlias = DashboardUpdate | BedStatusMessage | AnomalyAlert
 
 
 class ApiError(StrictModel):

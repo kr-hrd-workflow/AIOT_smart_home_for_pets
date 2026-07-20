@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
+from threading import Event
 from typing import Any, Literal, cast
 
 import paho.mqtt.client as mqtt
@@ -248,6 +249,7 @@ class MqttIngestor:
         self._watermarks: dict[tuple[str, str], datetime] = {}
         self._status_seen: set[tuple[str, str, datetime]] = set()
         self._started = False
+        self._connected = Event()
         self.last_result: IngestResult | None = None
         self.last_error: str | None = None
 
@@ -258,6 +260,10 @@ class MqttIngestor:
     @property
     def enabled(self) -> bool:
         return all((self._ingress, self._session_factory, self._endpoint, self._username, self._password))
+
+    @property
+    def connected(self) -> bool:
+        return self._connected.is_set()
 
     @staticmethod
     def _new_client() -> mqtt.Client:
@@ -273,6 +279,7 @@ class MqttIngestor:
         client.username_pw_set(self._username, self._password)
         client.reconnect_delay_set(1, 30)
         client.on_connect = self._on_connect
+        client.on_disconnect = self._on_disconnect
         client.on_message = self._on_message
         client.connect_async(self._endpoint.host, self._endpoint.port, 30)
         client.loop_start()
@@ -280,10 +287,23 @@ class MqttIngestor:
         self._started = True
 
     def _on_connect(self, client: Any, _userdata: object, _flags: object, reason_code: object, _properties: object) -> None:
-        if int(reason_code) == 0:
+        if reason_code == 0:
+            self._connected.set()
+            self.last_error = None
             client.subscribe(EXACT_SUBSCRIPTIONS)
         else:
+            self._connected.clear()
             self.last_error = f"MQTT connection failed: {reason_code}"
+
+    def _on_disconnect(
+        self,
+        _client: Any,
+        _userdata: object,
+        _disconnect_flags: object,
+        _reason_code: object,
+        _properties: object,
+    ) -> None:
+        self._connected.clear()
 
     def _on_message(self, _client: Any, _userdata: object, message: object) -> None:
         assert self._ingress is not None and self._session_factory is not None
@@ -307,5 +327,6 @@ class MqttIngestor:
             return
         self._client.disconnect()
         self._client.loop_stop()
+        self._connected.clear()
         self._client = None
         self._started = False

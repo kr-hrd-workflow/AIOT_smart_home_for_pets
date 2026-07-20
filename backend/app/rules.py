@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from statistics import median
+from threading import Lock
 from typing import Literal
 from zoneinfo import ZoneInfo
 
@@ -28,6 +29,8 @@ from .contracts import (
     BedCalibrationChannel,
     BedCalibrationError,
     BedCalibrationSuccess,
+    BedChannelStatus,
+    BedStatus,
     MismatchKind,
     RestCloseReason,
     SevenDayComparison,
@@ -622,6 +625,7 @@ class RuleEngine:
         self.config = config
         self.camera_service = camera_service
         self.publisher = publisher
+        self.dashboard_publisher: object | None = None
         self.eating = EatingState()
         self.bed = BedState()
         self.rest = RestState()
@@ -631,6 +635,13 @@ class RuleEngine:
         self._processed_sensor_ids: set[int] = set()
         self._processed_frames: set[tuple[str, datetime]] = set()
         self._processed_status: set[tuple[str, str, datetime]] = set()
+        self._dashboard_snapshot_lock = Lock()
+        self._bed_status_snapshot: BedStatus | None = None
+
+    @property
+    def bed_status_snapshot(self) -> BedStatus | None:
+        with self._dashboard_snapshot_lock:
+            return None if self._bed_status_snapshot is None else self._bed_status_snapshot.model_copy(deep=True)
 
     def startup(self, session: Session, scheduler: object, now: datetime) -> None:
         for device_id in ("entrance-01", "petzone-01"):
@@ -651,6 +662,7 @@ class RuleEngine:
         for subject_id in ("dog_001", "cat_001"):
             self._schedule_no_meal(session, scheduler, subject_id, now, getattr(scheduler, "effective_monotonic", 0.0))
         self._sync_state_deadlines(scheduler)
+        self.refresh_dashboard_snapshot(session, now, getattr(scheduler, "effective_monotonic", 0.0))
 
     def command(
         self,
@@ -846,6 +858,7 @@ class RuleEngine:
                 device.status = "offline"
                 device.updated_at = effective_at
                 session.commit()
+            self._refresh_dashboard_snapshot_after_commit(session, effective_at, now_monotonic)
             return
         if kind == "no_meal":
             self._emit_no_meal(session, key, effective_at)
@@ -877,6 +890,7 @@ class RuleEngine:
                 self._close_eating(session, close)
                 self.eating.mark_closed()
         session.commit()
+        self._refresh_dashboard_snapshot_after_commit(session, effective_at, now_monotonic)
 
     def _evaluate(
         self,
@@ -898,6 +912,7 @@ class RuleEngine:
             session.rollback()
             self._restore_state(snapshot)
             raise
+        self._refresh_dashboard_snapshot_after_commit(session, now_utc, now_monotonic)
         for operation, subject_id in pending_no_meal:
             if operation == "cancel":
                 scheduler.cancel("no_meal", subject_id)
@@ -1257,6 +1272,67 @@ class RuleEngine:
         ).scalar_one_or_none()
         return local_day_metrics(sessions, earliest_pressure_at=earliest, now=now, timezone=self.config.timezone)
 
+    def _refresh_dashboard_snapshot_after_commit(
+        self,
+        session: Session,
+        now: datetime,
+        now_monotonic: float,
+    ) -> None:
+        try:
+            self.refresh_dashboard_snapshot(session, now, now_monotonic)
+        except Exception:
+            pass
+
+    def refresh_dashboard_snapshot(self, session: Session, now: datetime, now_monotonic: float) -> None:
+        evaluation = self.bed.evaluate(now, now_monotonic)
+        metrics = self.rest_metrics(session, now)
+        open_rest = session.execute(select(RestSession).where(RestSession.ended_at.is_(None))).scalar_one_or_none()
+        current_rest_seconds = 0 if open_rest is None else _duration(open_rest.started_at, now)
+        calibration = self.bed.calibration
+        channels: list[BedChannelStatus] = []
+        for index, channel in enumerate(CHANNELS):
+            fact = self.bed.pressure_facts.get(channel)
+            baseline = None if calibration is None else float(calibration.baselines[index])
+            polarity = None if calibration is None else calibration.polarities[index]
+            available = (
+                fact is not None
+                and timedelta(0) <= now - fact.observed_at <= timedelta(seconds=self.config.sensor_ttl_seconds)
+            )
+            delta = None
+            if fact is not None and baseline is not None and polarity is not None:
+                delta = float(max(0.0, polarity * (fact.raw - baseline)))
+            channels.append(
+                BedChannelStatus(
+                    channel=channel,
+                    raw=None if fact is None else fact.raw,
+                    baseline=baseline,
+                    delta=delta,
+                    polarity=polarity,
+                    available=available,
+                    observed_at=None if fact is None else fact.observed_at,
+                )
+            )
+        snapshot = BedStatus(
+            device_id="petzone-01",
+            sensor_state=evaluation.sensor_state,
+            pressure_state=evaluation.pressure_state,
+            fusion_state=evaluation.fusion_state,
+            camera_confirmed=evaluation.camera_confirmed,
+            channels=channels,
+            current_rest_seconds=current_rest_seconds,
+            today_rest_seconds=metrics.today_seconds,
+            nighttime_exit_count=metrics.nighttime_exit_count,
+            seven_day=metrics.seven_day,
+            calibrated_at=None if calibration is None else calibration.window_end,
+        )
+        with self._dashboard_snapshot_lock:
+            self._bed_status_snapshot = snapshot
+        if self.dashboard_publisher is not None:
+            try:
+                self.dashboard_publisher({"type": "bed_status", "payload": snapshot.model_copy(deep=True)})
+            except Exception:
+                pass
+
     def _publish_anomaly(self, row: AnomalyEvent) -> None:
         if self.publisher is None:
             return
@@ -1269,7 +1345,10 @@ class RuleEngine:
             message=row.message,
             occurred_at=row.occurred_at,
         )
-        self.publisher({"type": "anomaly_alert", "payload": payload})
+        try:
+            self.publisher({"type": "anomaly_alert", "payload": payload})
+        except Exception:
+            pass
 
 
 def _duration(started_at: datetime, ended_at: datetime) -> int:
