@@ -123,3 +123,30 @@ def test_camera_confirmed_is_true_only_for_confirmed_rest_fusion() -> None:
     state.observe_camera(bed.CameraFact(now + timedelta(seconds=2), now + timedelta(seconds=2), 3.0, (), None, {}))
     mismatch = state.evaluate(now + timedelta(seconds=2), 3.0)
     assert (mismatch.fusion_state, mismatch.camera_confirmed) == ("unconfirmed_pressure", False)
+
+
+def test_successful_calibration_is_immediately_ready_and_empty() -> None:
+    bed = importlib.import_module("app.bed")
+    now = datetime(2026, 7, 20, 4, 0, tzinfo=UTC)
+    state = bed.BedState()
+    state.load_calibration(
+        bed.CalibrationSnapshot(
+            now - timedelta(seconds=60),
+            now,
+            (45, 45, 45),
+            (100.0, 100.0, 100.0),
+            (1, 1, 1),
+            (40, 40, 40),
+            450,
+            250,
+        ),
+        restart=False,
+    )
+
+    evaluation = state.evaluate(now, 10.0)
+
+    assert (evaluation.sensor_state, evaluation.pressure_state, evaluation.aggregate_delta) == (
+        "ready",
+        "empty",
+        0.0,
+    )

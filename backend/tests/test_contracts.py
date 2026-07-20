@@ -278,6 +278,11 @@ def test_config_defaults_and_exact_validation(monkeypatch: pytest.MonkeyPatch) -
     assert config.sensor_ttl_seconds == config.camera_ttl_seconds == 3
     assert config.timezone.key == "Asia/Seoul"
     assert (config.night_start_hour, config.night_end_hour) == (22, 6)
+    assert (config.camera_source, config.camera_model_path, config.camera_index) == (
+        "usb",
+        ".runtime/models/yolo11n.pt",
+        0,
+    )
 
     base = {"database_url": "postgresql+psycopg://petcare:secret@127.0.0.1:55432/petcare"}
     for bad in (
@@ -287,6 +292,10 @@ def test_config_defaults_and_exact_validation(monkeypatch: pytest.MonkeyPatch) -
         {"fsr_entry_threshold": 12286},
         {"sensor_ttl_seconds": 4},
         {"camera_ttl_seconds": 2},
+        {"camera_source": "file"},
+        {"camera_source": "other"},
+        {"camera_model_path": ""},
+        {"camera_index": -1},
         {"database_url": "sqlite:///petcare.db"},
         {"database_url": "postgresql+psycopg://petcare:secret@127.0.0.1:5432/petcare"},
     ):

@@ -5,19 +5,45 @@ from datetime import datetime
 from threading import Event, Lock, Thread
 from typing import Callable
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .config import AppConfig
 from .contracts import CameraStatus
 from .events import CameraFrameCommitted
-from .models import Camera, CameraEvent
+from .models import Camera, CameraEvent, Zone
 from .rule_ingress import IngressTicket, RuleIngress
-from .vision import CameraUnavailable, ProcessedFrame, VisionPipeline
+from .vision import CameraUnavailable, FileFrameSource, ProcessedFrame, UsbFrameSource, VisionPipeline, YoloDetector
 
 
 CAMERA_ID = "pc-webcam-01"
 MJPEG_PREFIX = b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
 MJPEG_SUFFIX = b"\r\n"
 AVAILABILITY_SLOTS = 61
+
+
+def build_camera_service(
+    config: AppConfig,
+    ingress: RuleIngress,
+    session_factory: Callable[[], Session],
+) -> CameraService:
+    if config.camera_source == "disabled":
+        return CameraService.disabled()
+    session = session_factory()
+    try:
+        zones = {
+            row.zone_name: (row.x1, row.y1, row.x2, row.y2)
+            for row in session.execute(select(Zone).where(Zone.enabled.is_(True))).scalars()
+        }
+    finally:
+        session.close()
+    source = (
+        FileFrameSource(config.camera_file_path)
+        if config.camera_source == "file"
+        else UsbFrameSource(config.camera_index)
+    )
+    pipeline = VisionPipeline(YoloDetector(config.camera_model_path), zones, source=source)
+    return CameraService(pipeline, ingress, session_factory)
 
 
 class CameraService:

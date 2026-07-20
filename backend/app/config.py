@@ -25,6 +25,10 @@ class AppConfig(BaseModel):
     timezone_name: Literal["Asia/Seoul"] = "Asia/Seoul"
     night_start_hour: Literal[22] = 22
     night_end_hour: Literal[6] = 6
+    camera_source: Literal["usb", "file", "disabled"] = "usb"
+    camera_file_path: str | None = None
+    camera_model_path: str = ".runtime/models/yolo11n.pt"
+    camera_index: StrictInt = Field(default=0, ge=0)
     mqtt_profile: Literal["local_live", "hardware"] | None = None
     mqtt_services_manifest: str = ".runtime/services.json"
     mqtt_username: SecretStr | None = None
@@ -37,6 +41,10 @@ class AppConfig(BaseModel):
             raise ValueError("DATABASE_URL must target loopback PostgreSQL on port 55432")
         if not 0 <= self.fsr_exit_threshold < self.fsr_entry_threshold <= 12285:
             raise ValueError("invalid FSR thresholds")
+        if not self.camera_model_path:
+            raise ValueError("camera model path must not be empty")
+        if self.camera_source == "file" and not self.camera_file_path:
+            raise ValueError("file camera source requires a path")
         mqtt_values = (self.mqtt_profile, self.mqtt_username, self.mqtt_password)
         if any(value is not None for value in mqtt_values) and not all(value is not None for value in mqtt_values):
             raise ValueError("MQTT profile, username, and password must be configured together")
@@ -84,6 +92,10 @@ def load_config() -> AppConfig:
         fsr_stability_counts_right=_integer("FSR_STABILITY_COUNTS_RIGHT", 40),
         fsr_entry_threshold=_integer("FSR_ENTRY_THRESHOLD", 450),
         fsr_exit_threshold=_integer("FSR_EXIT_THRESHOLD", 250),
+        camera_source=os.environ.get("PETCARE_CAMERA_SOURCE", "usb"),
+        camera_file_path=os.environ.get("PETCARE_CAMERA_FILE"),
+        camera_model_path=os.environ.get("PETCARE_CAMERA_MODEL", ".runtime/models/yolo11n.pt"),
+        camera_index=_integer("PETCARE_CAMERA_INDEX", 0),
         mqtt_profile=os.environ.get("PETCARE_MQTT_PROFILE"),
         mqtt_services_manifest=os.environ.get("PETCARE_SERVICES_MANIFEST", ".runtime/services.json"),
         mqtt_username=os.environ.get("PETCARE_MQTT_USERNAME"),

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -340,7 +341,8 @@ def local_day_metrics(
         seconds = Decimal(0)
         for session in sessions:
             session_end = now if session.ended_at is None else session.ended_at
-            overlap_start = max(start, session.started_at)
+            session_start = max(session.started_at, today_start) if session.ended_at is None else session.started_at
+            overlap_start = max(start, session_start)
             overlap_end = min(end, session_end)
             if overlap_end > overlap_start:
                 seconds += Decimal(str((overlap_end - overlap_start).total_seconds()))
@@ -417,7 +419,9 @@ class EatingState:
         self.open_started_at: datetime | None = None
         self.last_inside_at: datetime | None = None
         self.outside_started_monotonic: float | None = None
+        self.last_jointly_fresh_at: datetime | None = None
         self.armed = True
+        self.blocked_subjects: set[SubjectId] = set()
         self.empty_started_monotonic: float | None = None
         self.empty_started_at: datetime | None = None
 
@@ -441,7 +445,7 @@ class EatingState:
                 if subject_id not in present:
                     self.dwells.pop(subject_id, None)
                     continue
-                if subject_id not in self.dwells:
+                if subject_id not in self.dwells and subject_id not in self.blocked_subjects:
                     pre = self._median_window(fact.observed_at - timedelta(seconds=10), fact.observed_at, minimum=5)
                     if pre is not None:
                         self.dwells[subject_id] = _Dwell(fact.observed_at, fact.received_at_monotonic, pre[0])
@@ -456,21 +460,24 @@ class EatingState:
         camera = self.camera_fact
         latest_food = self.food_facts[-1] if self.food_facts else None
         if self.open_subject_id is not None:
-            if not self._fresh(camera.observed_at if camera else None, now_utc) or not self._fresh(
-                latest_food.observed_at if latest_food else None, now_utc
-            ):
-                candidates = [value for value in (self.last_inside_at, latest_food.observed_at if latest_food else None) if value]
-                return [CloseEating(min(candidates))] if candidates else []
+            camera_fresh = self._fresh(camera.observed_at if camera else None, now_utc)
+            food_fresh = self._fresh(latest_food.observed_at if latest_food else None, now_utc)
+            if not camera_fresh or not food_fresh:
+                return [CloseEating(self.last_jointly_fresh_at)] if self.last_jointly_fresh_at is not None else []
+            assert camera is not None and latest_food is not None
+            self.last_jointly_fresh_at = max(camera.observed_at, latest_food.observed_at)
             if self.outside_started_monotonic is not None and now_monotonic - self.outside_started_monotonic >= 5.0:
                 assert self.last_inside_at is not None
                 return [CloseEating(self.last_inside_at)]
             return []
-        if not self.armed:
-            if self.empty_started_monotonic is not None and now_monotonic - self.empty_started_monotonic >= 10.0:
+        if (not self.armed or self.blocked_subjects) and self.empty_started_monotonic is not None:
+            if now_monotonic - self.empty_started_monotonic >= 10.0:
                 assert self.empty_started_at is not None
                 if len([fact for fact in self.food_facts if self.empty_started_at < fact.observed_at <= now_utc]) >= 5:
                     self.armed = True
+                    self.blocked_subjects.clear()
                     self.dwells.clear()
+        if not self.armed:
             return []
         if camera is None or latest_food is None or not self._fresh(camera.observed_at, now_utc) or not self._fresh(
             latest_food.observed_at, now_utc
@@ -488,9 +495,9 @@ class EatingState:
                 continue
             elapsed = now_monotonic - dwell.started_monotonic
             if elapsed > 120.0:
-                self.armed = False
-                self.dwells.clear()
-                return []
+                self.dwells.pop(subject_id, None)
+                self.blocked_subjects.add(subject_id)
+                continue
             if elapsed >= 30.0 and dwell.pre_entry_weight_g - current_weight >= 5.0:
                 candidates.append((dwell.started_at, subject_id, dwell))
         if not candidates:
@@ -513,16 +520,29 @@ class EatingState:
         self.open_subject_id = action.subject_id
         self.open_started_at = action.started_at
         self.last_inside_at = self.camera_fact.observed_at if self.camera_fact else action.started_at
+        latest_food = self.food_facts[-1] if self.food_facts else None
+        self.last_jointly_fresh_at = max(
+            self.last_inside_at,
+            latest_food.observed_at if latest_food is not None else action.started_at,
+        )
         self.outside_started_monotonic = None
         self.dwells.clear()
+        self.blocked_subjects.clear()
 
     def mark_closed(self) -> None:
         self.open_subject_id = None
         self.open_started_at = None
         self.last_inside_at = None
+        self.last_jointly_fresh_at = None
         self.outside_started_monotonic = None
         self.armed = False
         self.dwells.clear()
+        self.blocked_subjects.clear()
+
+    def expire_dwell(self, subject_id: SubjectId) -> None:
+        if subject_id in self.dwells:
+            self.dwells.pop(subject_id)
+            self.blocked_subjects.add(subject_id)
 
     def _median_window(self, start_exclusive: datetime, end_inclusive: datetime, *, minimum: int) -> tuple[float, int] | None:
         selected = [fact for fact in self.food_facts if start_exclusive < fact.observed_at <= end_inclusive]
@@ -725,13 +745,17 @@ class RuleEngine:
         received_at_monotonic: float,
         scheduler: object,
     ) -> None:
+        rollback_snapshot = self._state_snapshot()
+        processed_sensor_id: int | None = None
+        processed_frame: tuple[str, datetime] | None = None
+        processed_status: tuple[str, str, datetime] | None = None
         if isinstance(event, SensorReadingCommitted):
             if event.reading_id in self._processed_sensor_ids:
                 return
             row = session.get(SensorReading, event.reading_id)
             if row is None:
                 return
-            self._processed_sensor_ids.add(event.reading_id)
+            processed_sensor_id = event.reading_id
             device = session.get(Device, event.device_id)
             if device is not None:
                 device.status = "online"
@@ -751,7 +775,7 @@ class RuleEngine:
             identity = (event.device_id, event.status, event.observed_at)
             if identity in self._processed_status:
                 return
-            self._processed_status.add(identity)
+            processed_status = identity
             device = session.get(Device, event.device_id)
             if device is not None:
                 device.status = event.status
@@ -765,7 +789,7 @@ class RuleEngine:
             identity = (event.camera_id, event.observed_at)
             if identity in self._processed_frames:
                 return
-            self._processed_frames.add(identity)
+            processed_frame = identity
             rows = session.execute(select(CameraEvent).where(CameraEvent.id.in_(event.detection_ids))).scalars().all()
             by_subject = {row.subject_id: row for row in rows if row.subject_id in {"dog_001", "cat_001"}}
             bowl_ids = {
@@ -793,7 +817,19 @@ class RuleEngine:
             )
         else:
             raise TypeError("unsupported domain event")
-        self._evaluate(session, received_at_utc, received_at_monotonic, scheduler)
+        self._evaluate(
+            session,
+            received_at_utc,
+            received_at_monotonic,
+            scheduler,
+            rollback_snapshot=rollback_snapshot,
+        )
+        if processed_sensor_id is not None:
+            self._processed_sensor_ids.add(processed_sensor_id)
+        if processed_frame is not None:
+            self._processed_frames.add(processed_frame)
+        if processed_status is not None:
+            self._processed_status.add(processed_status)
 
     def deadline(
         self,
@@ -814,7 +850,16 @@ class RuleEngine:
         if kind == "no_meal":
             self._emit_no_meal(session, key, effective_at)
             return
-        self._evaluate(session, effective_at, now_monotonic, scheduler)
+        rollback_snapshot = self._state_snapshot()
+        if kind == "rule_state" and key.startswith("eating_timeout:"):
+            self.eating.expire_dwell(key.removeprefix("eating_timeout:"))
+        self._evaluate(
+            session,
+            effective_at,
+            now_monotonic,
+            scheduler,
+            rollback_snapshot=rollback_snapshot,
+        )
 
     def controlled_shutdown(self, session: Session, effective_at: datetime, scheduler: object) -> None:
         now_monotonic = getattr(scheduler, "effective_monotonic")
@@ -833,19 +878,54 @@ class RuleEngine:
                 self.eating.mark_closed()
         session.commit()
 
-    def _evaluate(self, session: Session, now_utc: datetime, now_monotonic: float, scheduler: object) -> None:
+    def _evaluate(
+        self,
+        session: Session,
+        now_utc: datetime,
+        now_monotonic: float,
+        scheduler: object,
+        *,
+        rollback_snapshot: tuple[object, ...] | None = None,
+    ) -> None:
+        snapshot = self._state_snapshot() if rollback_snapshot is None else rollback_snapshot
+        try:
+            pending_publish, pending_no_meal = self._evaluate_and_commit(
+                session,
+                now_utc,
+                now_monotonic,
+            )
+        except BaseException:
+            session.rollback()
+            self._restore_state(snapshot)
+            raise
+        for operation, subject_id in pending_no_meal:
+            if operation == "cancel":
+                scheduler.cancel("no_meal", subject_id)
+            else:
+                self._schedule_no_meal(session, scheduler, subject_id, now_utc, now_monotonic)
+        for row in pending_publish:
+            self._publish_anomaly(row)
+        self._sync_state_deadlines(scheduler)
+
+    def _evaluate_and_commit(
+        self,
+        session: Session,
+        now_utc: datetime,
+        now_monotonic: float,
+    ) -> tuple[list[AnomalyEvent], list[tuple[str, SubjectId]]]:
         pending_publish: list[AnomalyEvent] = []
+        pending_no_meal: list[tuple[str, SubjectId]] = []
         for action in self.eating.evaluate(now_utc, now_monotonic):
             if isinstance(action, OpenEating):
                 if self._open_eating(session, action):
                     self.eating.mark_open(action)
-                    scheduler.cancel("no_meal", action.subject_id)
+                    pending_no_meal.append(("cancel", action.subject_id))
             else:
                 subject_id = self.eating.open_subject_id
                 if self._close_eating(session, action):
                     self.eating.mark_closed()
                     if subject_id is not None:
-                        self._schedule_no_meal(session, scheduler, subject_id, now_utc, now_monotonic)
+                        pending_no_meal.append(("schedule", subject_id))
         bed = self.bed.evaluate(now_utc, now_monotonic)
         rest_actions = self.rest.evaluate(
             bed,
@@ -877,9 +957,29 @@ class RuleEngine:
             if row is not None:
                 pending_publish.append(row)
         session.commit()
-        for row in pending_publish:
-            self._publish_anomaly(row)
-        self._sync_state_deadlines(scheduler)
+        return pending_publish, pending_no_meal
+
+    def _state_snapshot(self) -> tuple[object, ...]:
+        return deepcopy(
+            (
+                self.eating,
+                self.bed,
+                self.rest,
+                self.mismatch,
+                self._camera_event_ids,
+                self._state_deadline_keys,
+            )
+        )
+
+    def _restore_state(self, snapshot: tuple[object, ...]) -> None:
+        (
+            self.eating,
+            self.bed,
+            self.rest,
+            self.mismatch,
+            self._camera_event_ids,
+            self._state_deadline_keys,
+        ) = snapshot
 
     def _open_eating(self, session: Session, action: OpenEating) -> bool:
         if session.execute(
@@ -1091,21 +1191,23 @@ class RuleEngine:
         ).scalar_one_or_none()
         if row is None:
             return
-        camera_at = session.execute(
-            select(func.max(CameraEvent.observed_at)).where(
+        jointly_fresh_at = session.execute(
+            select(func.max(func.greatest(CameraEvent.observed_at, SensorReading.observed_at)))
+            .select_from(CameraEvent)
+            .join(
+                SensorReading,
+                func.abs(func.extract("epoch", CameraEvent.observed_at - SensorReading.observed_at)) <= 3,
+            )
+            .where(
                 CameraEvent.subject_id == row.subject_id,
                 CameraEvent.zone_name == "food_bowl",
                 CameraEvent.observed_at <= now,
-            )
-        ).scalar_one_or_none()
-        food_at = session.execute(
-            select(func.max(SensorReading.observed_at)).where(
                 SensorReading.device_id == "petzone-01",
                 SensorReading.sensor_type == "food_weight",
                 SensorReading.observed_at <= now,
             )
         ).scalar_one_or_none()
-        ended_at = max(row.started_at, min(value for value in (camera_at, food_at, now) if value is not None))
+        ended_at = max(row.started_at, min(jointly_fresh_at or row.started_at, now))
         row.ended_at = ended_at
         row.duration_seconds = _duration(row.started_at, ended_at)
         row.updated_at = ended_at

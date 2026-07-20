@@ -46,3 +46,22 @@ def test_local_day_metrics_use_complete_seoul_days_and_half_up_rounding() -> Non
     assert metrics.seven_day.status == "ready"
     assert (metrics.seven_day.baseline_seconds, metrics.seven_day.difference_seconds) == (14, 46)
     assert metrics.seven_day.percent_change == 328.6
+
+
+def test_open_rest_is_clipped_to_today_and_never_enters_prior_day_baseline() -> None:
+    rules = importlib.import_module("app.rules")
+    seoul = ZoneInfo("Asia/Seoul")
+    now = datetime(2026, 7, 20, 0, 0, tzinfo=UTC)
+    local_midnight = datetime(2026, 7, 20, tzinfo=seoul)
+    history_start = (local_midnight - timedelta(days=7)).astimezone(UTC)
+
+    metrics = rules.local_day_metrics(
+        [rules.MetricSession(history_start, None, None)],
+        earliest_pressure_at=history_start,
+        now=now,
+        timezone=seoul,
+    )
+
+    assert metrics.today_seconds == 9 * 60 * 60
+    assert metrics.seven_day.status == "zero_baseline"
+    assert metrics.seven_day.baseline_seconds == 0

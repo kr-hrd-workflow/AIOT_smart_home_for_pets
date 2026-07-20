@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from .camera_service import CameraService
+from .camera_service import CameraService, build_camera_service
 from .config import load_config
 from .db import configure_database, dispose_database, session_factory
 from .mqtt_ingest import MqttIngestor, load_mqtt_endpoint
@@ -20,7 +20,7 @@ async def lifespan(application: FastAPI):
     clock = SystemRuleClock()
     ingress = RuleIngress(clock)
     ingestor = MqttIngestor.disabled()
-    camera_service = CameraService.disabled()
+    camera_service: CameraService | None = None
     worker: RuleWorker | None = None
     try:
         if config.mqtt_enabled:
@@ -32,6 +32,7 @@ async def lifespan(application: FastAPI):
                 username=config.mqtt_username.get_secret_value(),
                 password=config.mqtt_password.get_secret_value(),
             )
+        camera_service = build_camera_service(config, ingress, session_factory)
         engine = RuleEngine(config=config, camera_service=camera_service)
         worker = RuleWorker(
             ingress=ingress,
@@ -55,7 +56,8 @@ async def lifespan(application: FastAPI):
         except Exception:
             pass
         try:
-            camera_service.shutdown()
+            if camera_service is not None:
+                camera_service.shutdown()
         except Exception:
             pass
         if worker is not None:

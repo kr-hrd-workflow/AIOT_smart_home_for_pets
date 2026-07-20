@@ -93,6 +93,7 @@ class RuleWorker:
         self._deadlines: list[_Deadline] = []
         self._active: dict[tuple[str, str], int] = {}
         self._current: dict[tuple[str, str], _Deadline] = {}
+        self._fired: dict[tuple[str, str], tuple[float, datetime]] = {}
         self._next_insertion_order = 1
         self._effective_monotonic: float | None = None
 
@@ -127,6 +128,8 @@ class RuleWorker:
         if not kind or not key:
             raise ValueError("deadline kind and key must not be empty")
         identity = (kind, key)
+        if self._fired.get(identity) == (due_monotonic, effective_at_utc):
+            return
         current = self._current.get(identity)
         if current is not None and (current.due_monotonic, current.effective_at_utc) == (
             due_monotonic,
@@ -141,8 +144,10 @@ class RuleWorker:
         heapq.heappush(self._deadlines, deadline)
 
     def cancel(self, kind: str, key: str) -> None:
-        self._active.pop((kind, key), None)
-        self._current.pop((kind, key), None)
+        identity = (kind, key)
+        self._active.pop(identity, None)
+        self._current.pop(identity, None)
+        self._fired.pop(identity, None)
 
     def shutdown(self) -> None:
         thread = self._thread
@@ -190,6 +195,9 @@ class RuleWorker:
                 self._fire_through(item.received_at_monotonic)
             elif isinstance(item, IngressCommand):
                 self._fire_before(item.received_at_monotonic)
+                if not item.future.set_running_or_notify_cancel():
+                    self._fire_through(item.received_at_monotonic)
+                    continue
                 try:
                     result = self._with_session(
                         lambda session: self._engine.command(
@@ -240,6 +248,10 @@ class RuleWorker:
                 continue
             self._active.pop((deadline.kind, deadline.key), None)
             self._current.pop((deadline.kind, deadline.key), None)
+            self._fired[(deadline.kind, deadline.key)] = (
+                deadline.due_monotonic,
+                deadline.effective_at_utc,
+            )
             self._effective_monotonic = deadline.due_monotonic
             try:
                 self._with_session(

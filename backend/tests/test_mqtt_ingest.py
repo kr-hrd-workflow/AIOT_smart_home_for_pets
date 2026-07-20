@@ -351,6 +351,7 @@ async def test_lifespan_defers_mqtt_intake_until_rule_worker_exists(monkeypatch:
         mqtt_profile="local_live",
         mqtt_username="petcare",
         mqtt_password="secret",
+        camera_source="disabled",
     )
 
     class FakeIngestor:

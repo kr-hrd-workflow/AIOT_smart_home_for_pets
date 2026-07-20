@@ -61,6 +61,7 @@ class BedState:
         self.calibration: CalibrationSnapshot | None = None
         self.pressure_facts: dict[ChannelName, PressureFact] = {}
         self.camera_fact: CameraFact | None = None
+        self._calibration_ready_until: datetime | None = None
         self._stable_pressure: Literal["empty", "occupied"] | None = None
         self._bootstrapped = False
         self._occupied_candidate: tuple[datetime, float] | None = None
@@ -71,6 +72,7 @@ class BedState:
         self.calibration = calibration
         self.pressure_facts.clear()
         self.camera_fact = None
+        self._calibration_ready_until = None if restart else calibration.window_end + timedelta(seconds=3)
         self._stable_pressure = None if restart else "empty"
         self._bootstrapped = not restart
         self.pressure_transition_at = None if restart else calibration.window_end
@@ -118,8 +120,12 @@ class BedState:
             return "uncalibrated", "uncalibrated", None
         if any(channel not in self.pressure_facts for channel in CHANNELS):
             self._reset_pressure_candidates()
+            if self._calibration_ready_until is not None and now_utc <= self._calibration_ready_until:
+                return "ready", "empty", 0.0
+            self._calibration_ready_until = None
             return "unavailable", "unavailable", None
         facts = tuple(self.pressure_facts[channel] for channel in CHANNELS)
+        self._calibration_ready_until = None
         if any(not timedelta(0) <= now_utc - fact.observed_at <= timedelta(seconds=3) for fact in facts):
             self._reset_pressure_candidates()
             return "unavailable", "unavailable", None

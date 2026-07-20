@@ -11,6 +11,7 @@ import cv2
 from fastapi import FastAPI
 
 import app.main as main_module
+import app.camera_service as camera_module
 from app.camera_service import CameraService
 from app.config import AppConfig
 from app.contracts import CameraStatus
@@ -291,6 +292,47 @@ def test_each_frame_uses_a_fresh_session_and_constructor_replays_nothing() -> No
     assert len(sessions) == 2 and sessions[0] is not sessions[1]
 
 
+def test_configured_file_camera_builds_real_pipeline_from_enabled_database_zones(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    detector = object()
+    source = object()
+    ingress = RuleIngress()
+    calls: list[str] = []
+
+    class ZoneRow:
+        def __init__(self, name: str, box: tuple[int, int, int, int]) -> None:
+            self.zone_name = name
+            self.x1, self.y1, self.x2, self.y2 = box
+
+    class Result:
+        def scalars(self) -> list[ZoneRow]:
+            return [ZoneRow(name, box) for name, box in ZONES.items()]
+
+    class Session:
+        def execute(self, _query: object) -> Result:
+            calls.append("zones")
+            return Result()
+
+        def close(self) -> None:
+            calls.append("close")
+
+    factory = Session
+    config = AppConfig(
+        database_url="postgresql+psycopg://petcare:secret@127.0.0.1:55432/petcare",
+        camera_source="file",
+        camera_file_path="camera.jpg",
+    )
+    monkeypatch.setattr(camera_module, "YoloDetector", lambda path: detector if path == config.camera_model_path else None)
+    monkeypatch.setattr(camera_module, "FileFrameSource", lambda path: source if path == "camera.jpg" else None)
+
+    service = camera_module.build_camera_service(config, ingress, factory)
+
+    assert calls == ["zones", "close"]
+    assert service.pipeline is not None
+    assert (service.pipeline.detector, service.pipeline.source, service.pipeline.zones) == (detector, source, ZONES)
+
+
 def test_full_ingress_retains_same_committed_ticket_until_capacity_frees() -> None:
     ingress = RuleIngress(capacity=1)
     first = ingress.begin("mqtt")
@@ -390,11 +432,18 @@ async def test_lifespan_owns_disabled_camera_until_rule_worker_can_drain(monkeyp
     monkeypatch.setattr(
         main_module,
         "load_config",
-        lambda: AppConfig(database_url="postgresql+psycopg://petcare:secret@127.0.0.1:55432/petcare"),
+        lambda: AppConfig(
+            database_url="postgresql+psycopg://petcare:secret@127.0.0.1:55432/petcare",
+            camera_source="disabled",
+        ),
     )
     monkeypatch.setattr(main_module, "configure_database", lambda _url: calls.append("database:configure"))
     monkeypatch.setattr(main_module, "dispose_database", lambda: calls.append("database:dispose"))
-    monkeypatch.setattr(main_module, "CameraService", FakeCameraService)
+    monkeypatch.setattr(
+        main_module,
+        "build_camera_service",
+        lambda *_args: FakeCameraService.disabled(),
+    )
     monkeypatch.setattr(main_module, "RuleEngine", lambda **_kwargs: object())
     monkeypatch.setattr(main_module, "RuleWorker", FakeRuleWorker)
 
@@ -432,14 +481,71 @@ async def test_lifespan_disposes_database_when_camera_shutdown_fails(monkeypatch
     monkeypatch.setattr(
         main_module,
         "load_config",
-        lambda: AppConfig(database_url="postgresql+psycopg://petcare:secret@127.0.0.1:55432/petcare"),
+        lambda: AppConfig(
+            database_url="postgresql+psycopg://petcare:secret@127.0.0.1:55432/petcare",
+            camera_source="disabled",
+        ),
     )
     monkeypatch.setattr(main_module, "configure_database", lambda _url: calls.append("database:configure"))
     monkeypatch.setattr(main_module, "dispose_database", lambda: calls.append("database:dispose"))
-    monkeypatch.setattr(main_module, "CameraService", FailingCameraService)
+    monkeypatch.setattr(main_module, "build_camera_service", lambda *_args: FailingCameraService())
     monkeypatch.setattr(main_module, "RuleEngine", lambda **_kwargs: object())
     monkeypatch.setattr(main_module, "RuleWorker", FakeRuleWorker)
 
     async with main_module.lifespan(FastAPI()):
         pass
     assert calls == ["database:configure", "camera:shutdown", "database:dispose"]
+
+
+@pytest.mark.asyncio
+async def test_lifespan_builds_and_starts_configured_camera_after_rule_worker(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    config = AppConfig(
+        database_url="postgresql+psycopg://petcare:secret@127.0.0.1:55432/petcare"
+    ).model_copy(update={"camera_source": "file", "camera_file_path": "camera.jpg"})
+
+    class Camera:
+        pipeline = object()
+
+        def start(self) -> None:
+            calls.append("camera:start")
+
+        def shutdown(self) -> None:
+            calls.append("camera:shutdown")
+
+    class Worker:
+        def __init__(self, **_kwargs: object) -> None:
+            calls.append("worker")
+
+        def start(self) -> None:
+            calls.append("worker:start")
+
+        def shutdown(self) -> None:
+            calls.append("worker:shutdown")
+
+    def build_camera(received_config: object, _ingress: object, _factory: object) -> Camera:
+        assert received_config is config
+        calls.append("camera:build")
+        return Camera()
+
+    monkeypatch.setattr(main_module, "load_config", lambda: config)
+    monkeypatch.setattr(main_module, "configure_database", lambda _url: calls.append("database"))
+    monkeypatch.setattr(main_module, "dispose_database", lambda: calls.append("dispose"))
+    monkeypatch.setattr(main_module, "build_camera_service", build_camera, raising=False)
+    monkeypatch.setattr(main_module, "RuleEngine", lambda **_kwargs: object())
+    monkeypatch.setattr(main_module, "RuleWorker", Worker)
+
+    async with main_module.lifespan(FastAPI()):
+        calls.append("yield")
+
+    assert calls == [
+        "database",
+        "camera:build",
+        "worker",
+        "worker:start",
+        "camera:start",
+        "yield",
+        "camera:shutdown",
+        "worker:shutdown",
+        "dispose",
+    ]

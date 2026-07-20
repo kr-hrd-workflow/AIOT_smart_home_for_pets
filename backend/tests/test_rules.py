@@ -49,6 +49,56 @@ def test_eating_confirms_only_at_exact_dwell_and_weight_boundaries() -> None:
     ]
 
 
+def test_eating_subject_timeout_preserves_the_other_subject_dwell() -> None:
+    rules = importlib.import_module("app.rules")
+    state = rules.EatingState()
+
+    for index, seconds in enumerate(range(-4, 1), 1):
+        at = NOW + timedelta(seconds=seconds)
+        state.observe_food(rules.FoodFact(index, 100.0, at, at, 100.0 + seconds))
+    state.observe_camera(rules.BowlCameraFact(NOW, NOW, 100.0, {"dog_001": 1}))
+    for index, seconds in enumerate(range(96, 101), 10):
+        at = NOW + timedelta(seconds=seconds)
+        state.observe_food(rules.FoodFact(index, 100.0, at, at, 100.0 + seconds))
+    at = NOW + timedelta(seconds=100)
+    state.observe_camera(rules.BowlCameraFact(at, at, 200.0, {"dog_001": 2, "cat_001": 3}))
+    for index, seconds in enumerate(range(116, 121), 20):
+        at = NOW + timedelta(seconds=seconds)
+        state.observe_food(rules.FoodFact(index, 100.0, at, at, 100.0 + seconds))
+    timeout = NOW + timedelta(seconds=120, microseconds=1)
+    state.observe_camera(rules.BowlCameraFact(timeout, timeout, 220.000001, {"dog_001": 4, "cat_001": 5}))
+
+    assert state.evaluate(timeout, 220.000001) == []
+    assert "dog_001" not in state.dwells
+    assert "cat_001" in state.dwells
+    assert state.armed
+
+    for index, seconds in enumerate(range(126, 131), 30):
+        at = NOW + timedelta(seconds=seconds)
+        state.observe_food(rules.FoodFact(index, 95.0, at, at, 100.0 + seconds))
+    boundary = NOW + timedelta(seconds=130)
+    state.observe_camera(rules.BowlCameraFact(boundary, boundary, 230.0, {"dog_001": 6, "cat_001": 7}))
+
+    assert state.evaluate(boundary, 230.0) == [
+        rules.OpenEating("cat_001", NOW + timedelta(seconds=100), 7, 34, "eating:cat_001:7:34")
+    ]
+
+
+def test_eating_sensor_loss_closes_at_latest_jointly_fresh_evidence() -> None:
+    rules = importlib.import_module("app.rules")
+    state = rules.EatingState()
+    state.observe_food(rules.FoodFact(1, 100.0, NOW, NOW, 10.0))
+    state.observe_camera(rules.BowlCameraFact(NOW, NOW, 10.0, {"dog_001": 1}))
+    state.mark_open(rules.OpenEating("dog_001", NOW, 1, 1, "eating:dog_001:1:1"))
+    later_food = NOW + timedelta(seconds=2)
+    state.observe_food(rules.FoodFact(2, 95.0, later_food, later_food, 12.0))
+    assert state.evaluate(later_food, 12.0) == []
+
+    lost = NOW + timedelta(seconds=3, microseconds=1)
+
+    assert state.evaluate(lost, 13.000001) == [rules.CloseEating(later_food)]
+
+
 def test_rest_owner_is_retained_then_hands_off_after_exact_absence() -> None:
     rules = importlib.import_module("app.rules")
     bed = importlib.import_module("app.bed")
@@ -83,6 +133,38 @@ def test_rest_owner_is_retained_then_hands_off_after_exact_absence() -> None:
         rules.CloseRest(NOW + timedelta(seconds=3), "camera_exit"),
         rules.OpenRest("cat_001", NOW + timedelta(seconds=5), 37, 46, "resting:cat_001:37:46"),
     ]
+
+
+@pytest.mark.parametrize(
+    ("evaluation", "pressure_exit_at", "reason", "ended_at"),
+    (
+        (("unavailable", "unavailable", "unavailable"), None, "sensor_loss", NOW),
+        (("ready", "occupied", "unavailable"), None, "camera_loss", NOW),
+        (("ready", "empty", "empty"), NOW + timedelta(seconds=1), "pressure_exit", NOW + timedelta(seconds=1)),
+    ),
+)
+def test_rest_loss_close_reasons_use_exact_evidence_boundary(
+    evaluation: tuple[str, str, str],
+    pressure_exit_at: datetime | None,
+    reason: str,
+    ended_at: datetime,
+) -> None:
+    rules = importlib.import_module("app.rules")
+    bed = importlib.import_module("app.bed")
+    state = rules.RestState()
+    state.mark_open(rules.OpenRest("dog_001", NOW - timedelta(seconds=10), 1, 2, "resting:proof"))
+    state.last_confirmed_at = NOW
+    sensor_state, pressure_state, fusion_state = evaluation
+    result = state.evaluate(
+        bed.BedEvaluation(sensor_state, pressure_state, fusion_state, False, None, (), None),
+        NOW + timedelta(seconds=2),
+        12.0,
+        {},
+        None,
+        pressure_exit_at,
+    )
+
+    assert result == [rules.CloseRest(ended_at, reason)]
 
 
 def test_rule_engine_calibration_persists_one_atomic_snapshot(database_url: str) -> None:
@@ -601,3 +683,433 @@ def test_rule_engine_persists_one_warning_for_a_continuous_pressure_mismatch(dat
         (None, "unconfirmed_pressure", NOW + timedelta(seconds=32)),
         (None, "unconfirmed_pressure", NOW + timedelta(seconds=32, minutes=15)),
     ]
+
+
+def test_eating_memory_rolls_back_with_failed_commit_and_retry_succeeds(
+    database_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rules = importlib.import_module("app.rules")
+    database = create_engine(database_url)
+    sessions = sessionmaker(bind=database, expire_on_commit=False)
+    with database.begin() as connection:
+        connection.execute(
+            text(
+                "TRUNCATE TABLE anomaly_events, rest_sessions, behavior_events, bed_calibrations, "
+                "camera_events, sensor_readings, cameras, devices CASCADE"
+            )
+        )
+    confirmation = NOW + timedelta(seconds=30)
+    with sessions() as session:
+        session.add_all([Device(device_id="petzone-01"), Camera(camera_id="pc-webcam-01")])
+        sensor = SensorReading(
+            device_id="petzone-01",
+            sensor_type="food_weight",
+            value_number=95.0,
+            value_boolean=None,
+            unit="g",
+            observed_at=confirmation,
+            received_at=confirmation,
+        )
+        camera = CameraEvent(
+            camera_id="pc-webcam-01",
+            subject_id="dog_001",
+            detected_type="dog",
+            confidence=0.9,
+            bbox_x=40,
+            bbox_y=260,
+            bbox_width=100,
+            bbox_height=100,
+            center_x=90,
+            center_y=310,
+            zone_name="food_bowl",
+            observed_at=confirmation,
+        )
+        session.add_all([sensor, camera])
+        session.commit()
+
+    class CameraAvailability:
+        def available_for(self, _start: datetime, _end: datetime) -> bool:
+            return True
+
+    class Scheduler:
+        effective_monotonic = 130.0
+
+        def schedule(self, *_args: object) -> None:
+            pass
+
+        def cancel(self, *_args: object) -> None:
+            pass
+
+    engine = rules.RuleEngine(config=AppConfig(database_url=database_url), camera_service=CameraAvailability())
+    engine.eating.dwells["dog_001"] = rules._Dwell(NOW, 100.0, 100.0)
+    for index, seconds in enumerate(range(27, 31)):
+        at = NOW + timedelta(seconds=seconds)
+        engine.eating.observe_food(rules.FoodFact(sensor.id, 95.0, at, at, 100.0 + seconds))
+    engine.eating.observe_camera(
+        rules.BowlCameraFact(confirmation, confirmation, 130.0, {"dog_001": camera.id})
+    )
+
+    with sessions() as session:
+        monkeypatch.setattr(session, "commit", lambda: (_ for _ in ()).throw(RuntimeError("commit failed")))
+        with pytest.raises(RuntimeError, match="commit failed"):
+            engine._evaluate(session, confirmation, 130.0, Scheduler())
+
+    assert engine.eating.open_subject_id is None
+    assert "dog_001" in engine.eating.dwells
+    with sessions() as session:
+        assert session.execute(select(BehaviorEvent)).scalars().all() == []
+        engine._evaluate(session, confirmation, 130.0, Scheduler())
+    with sessions() as session:
+        rows = session.execute(select(BehaviorEvent).where(BehaviorEvent.behavior_type == "eating")).scalars().all()
+    database.dispose()
+
+    assert len(rows) == 1
+    assert engine.eating.open_subject_id == "dog_001"
+
+
+def test_rest_owner_rolls_back_with_failed_commit_and_retry_succeeds(
+    database_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rules = importlib.import_module("app.rules")
+    bed = importlib.import_module("app.bed")
+    database = create_engine(database_url)
+    sessions = sessionmaker(bind=database, expire_on_commit=False)
+    with database.begin() as connection:
+        connection.execute(
+            text(
+                "TRUNCATE TABLE anomaly_events, rest_sessions, behavior_events, bed_calibrations, "
+                "camera_events, sensor_readings, cameras, devices CASCADE"
+            )
+        )
+    with sessions() as session:
+        session.add_all([Device(device_id="petzone-01"), Camera(camera_id="pc-webcam-01")])
+        sensors = [
+            SensorReading(
+                device_id="petzone-01",
+                sensor_type=f"bed_pressure_{channel}",
+                value_number=300.0,
+                value_boolean=None,
+                unit="adc",
+                observed_at=NOW,
+                received_at=NOW,
+            )
+            for channel in ("left", "center", "right")
+        ]
+        camera = CameraEvent(
+            camera_id="pc-webcam-01",
+            subject_id="dog_001",
+            detected_type="dog",
+            confidence=0.9,
+            bbox_x=320,
+            bbox_y=180,
+            bbox_width=100,
+            bbox_height=100,
+            center_x=370,
+            center_y=230,
+            zone_name="pet_bed",
+            observed_at=NOW,
+        )
+        session.add_all([*sensors, camera])
+        session.commit()
+
+    class CameraAvailability:
+        def available_for(self, _start: datetime, _end: datetime) -> bool:
+            return True
+
+    class Scheduler:
+        effective_monotonic = 100.0
+
+        def schedule(self, *_args: object) -> None:
+            pass
+
+        def cancel(self, *_args: object) -> None:
+            pass
+
+    engine = rules.RuleEngine(config=AppConfig(database_url=database_url), camera_service=CameraAvailability())
+    engine.bed.load_calibration(
+        bed.CalibrationSnapshot(NOW - timedelta(seconds=60), NOW, (45, 45, 45), (100.0, 100.0, 100.0), (1, 1, 1), (40, 40, 40), 450, 250),
+        restart=True,
+    )
+    for channel, sensor in zip(("left", "center", "right"), sensors, strict=True):
+        engine.bed.observe_pressure(bed.PressureFact(sensor.id, channel, 300, NOW, NOW, 100.0))
+    engine.bed.observe_camera(bed.CameraFact(NOW, NOW, 100.0, ("dog_001",), "dog_001", {"dog_001": camera.id}))
+    engine._camera_event_ids = {"dog_001": camera.id}
+    engine.rest.candidate = rules._RestCandidate("dog_001", NOW - timedelta(seconds=2), 98.0)
+
+    with sessions() as session:
+        monkeypatch.setattr(session, "commit", lambda: (_ for _ in ()).throw(RuntimeError("commit failed")))
+        with pytest.raises(RuntimeError, match="commit failed"):
+            engine._evaluate(session, NOW, 100.0, Scheduler())
+
+    assert engine.rest.owner is None
+    assert engine.rest.candidate is not None
+    with sessions() as session:
+        assert session.execute(select(RestSession)).scalars().all() == []
+        engine._evaluate(session, NOW, 100.0, Scheduler())
+    with sessions() as session:
+        rows = session.execute(select(RestSession)).scalars().all()
+    database.dispose()
+
+    assert len(rows) == 1
+    assert engine.rest.owner == "dog_001"
+
+
+def test_mismatch_handled_flag_rolls_back_with_failed_commit_and_retry_succeeds(
+    database_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rules = importlib.import_module("app.rules")
+    bed = importlib.import_module("app.bed")
+    database = create_engine(database_url)
+    sessions = sessionmaker(bind=database, expire_on_commit=False)
+    with database.begin() as connection:
+        connection.execute(text("TRUNCATE TABLE anomaly_events CASCADE"))
+
+    class CameraAvailability:
+        def available_for(self, _start: datetime, _end: datetime) -> bool:
+            return True
+
+    class Scheduler:
+        effective_monotonic = 100.0
+
+        def schedule(self, *_args: object) -> None:
+            pass
+
+        def cancel(self, *_args: object) -> None:
+            pass
+
+    engine = rules.RuleEngine(config=AppConfig(database_url=database_url), camera_service=CameraAvailability())
+    engine.bed.load_calibration(
+        bed.CalibrationSnapshot(NOW - timedelta(seconds=60), NOW, (45, 45, 45), (100.0, 100.0, 100.0), (1, 1, 1), (40, 40, 40), 450, 250),
+        restart=True,
+    )
+    for reading_id, channel in enumerate(("left", "center", "right"), 1):
+        engine.bed.observe_pressure(bed.PressureFact(reading_id, channel, 300, NOW, NOW, 100.0))
+    engine.bed.observe_camera(bed.CameraFact(NOW, NOW, 100.0, (), None, {}))
+    engine.mismatch.observe("unconfirmed_pressure", None, NOW - timedelta(seconds=30), 70.0)
+
+    with sessions() as session:
+        monkeypatch.setattr(session, "commit", lambda: (_ for _ in ()).throw(RuntimeError("commit failed")))
+        with pytest.raises(RuntimeError, match="commit failed"):
+            engine._evaluate(session, NOW, 100.0, Scheduler())
+
+    assert not engine.mismatch.handled
+    with sessions() as session:
+        assert session.execute(select(AnomalyEvent)).scalars().all() == []
+        engine._evaluate(session, NOW, 100.0, Scheduler())
+    with sessions() as session:
+        rows = session.execute(select(AnomalyEvent)).scalars().all()
+    database.dispose()
+
+    assert len(rows) == 1
+    assert engine.mismatch.handled
+
+
+def test_exact_120_second_deadline_expires_only_the_unconfirmed_subject(database_url: str) -> None:
+    rules = importlib.import_module("app.rules")
+    database = create_engine(database_url)
+    sessions = sessionmaker(bind=database, expire_on_commit=False)
+
+    class CameraAvailability:
+        def available_for(self, _start: datetime, _end: datetime) -> bool:
+            return True
+
+    class Scheduler:
+        effective_monotonic = 220.0
+
+        def schedule(self, *_args: object) -> None:
+            pass
+
+        def cancel(self, *_args: object) -> None:
+            pass
+
+    engine = rules.RuleEngine(config=AppConfig(database_url=database_url), camera_service=CameraAvailability())
+    engine.eating.dwells["dog_001"] = rules._Dwell(NOW, 100.0, 100.0)
+    engine.eating.dwells["cat_001"] = rules._Dwell(NOW + timedelta(seconds=100), 200.0, 100.0)
+    for reading_id, seconds in enumerate(range(117, 121), 1):
+        at = NOW + timedelta(seconds=seconds)
+        engine.eating.observe_food(rules.FoodFact(reading_id, 100.0, at, at, 100.0 + seconds))
+    boundary = NOW + timedelta(seconds=120)
+    engine.eating.observe_camera(
+        rules.BowlCameraFact(boundary, boundary, 220.0, {"dog_001": 1, "cat_001": 2})
+    )
+
+    with sessions() as session:
+        engine.deadline(
+            session,
+            "rule_state",
+            "eating_timeout:dog_001",
+            boundary,
+            Scheduler(),
+        )
+    database.dispose()
+
+    assert "dog_001" not in engine.eating.dwells
+    assert "dog_001" in engine.eating.blocked_subjects
+    assert "cat_001" in engine.eating.dwells
+
+
+def test_failed_deadline_commit_restores_expired_subject_state(
+    database_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rules = importlib.import_module("app.rules")
+    database = create_engine(database_url)
+    sessions = sessionmaker(bind=database, expire_on_commit=False)
+
+    class CameraAvailability:
+        def available_for(self, _start: datetime, _end: datetime) -> bool:
+            return True
+
+    class Scheduler:
+        effective_monotonic = 220.0
+
+        def schedule(self, *_args: object) -> None:
+            pass
+
+        def cancel(self, *_args: object) -> None:
+            pass
+
+    engine = rules.RuleEngine(config=AppConfig(database_url=database_url), camera_service=CameraAvailability())
+    engine.eating.dwells["dog_001"] = rules._Dwell(NOW, 100.0, 100.0)
+    engine.eating.dwells["cat_001"] = rules._Dwell(NOW + timedelta(seconds=100), 200.0, 100.0)
+    boundary = NOW + timedelta(seconds=120)
+    for reading_id, seconds in enumerate(range(117, 121), 1):
+        at = NOW + timedelta(seconds=seconds)
+        engine.eating.observe_food(rules.FoodFact(reading_id, 100.0, at, at, 100.0 + seconds))
+    engine.eating.observe_camera(
+        rules.BowlCameraFact(boundary, boundary, 220.0, {"dog_001": 1, "cat_001": 2})
+    )
+
+    with sessions() as session:
+        monkeypatch.setattr(session, "commit", lambda: (_ for _ in ()).throw(RuntimeError("commit failed")))
+        with pytest.raises(RuntimeError, match="commit failed"):
+            engine.deadline(
+                session,
+                "rule_state",
+                "eating_timeout:dog_001",
+                boundary,
+                Scheduler(),
+            )
+    database.dispose()
+
+    assert "dog_001" in engine.eating.dwells
+    assert "dog_001" not in engine.eating.blocked_subjects
+    assert "cat_001" in engine.eating.dwells
+
+
+def test_startup_closes_orphan_eating_and_rest_at_exact_persisted_evidence(database_url: str) -> None:
+    rules = importlib.import_module("app.rules")
+    database = create_engine(database_url)
+    sessions = sessionmaker(bind=database, expire_on_commit=False)
+    with database.begin() as connection:
+        connection.execute(
+            text(
+                "TRUNCATE TABLE anomaly_events, rest_sessions, behavior_events, bed_calibrations, "
+                "camera_events, sensor_readings, cameras, devices CASCADE"
+            )
+        )
+    eating_camera_at = NOW + timedelta(seconds=5)
+    eating_food_at = NOW + timedelta(seconds=7)
+    rest_confirmed_at = NOW + timedelta(seconds=8)
+    with sessions() as session:
+        session.add_all([Device(device_id="petzone-01"), Camera(camera_id="pc-webcam-01")])
+        eating_sensor = SensorReading(
+            device_id="petzone-01",
+            sensor_type="food_weight",
+            value_number=95.0,
+            value_boolean=None,
+            unit="g",
+            observed_at=eating_food_at,
+            received_at=eating_food_at,
+        )
+        rest_sensor = SensorReading(
+            device_id="petzone-01",
+            sensor_type="bed_pressure_left",
+            value_number=300.0,
+            value_boolean=None,
+            unit="adc",
+            observed_at=rest_confirmed_at,
+            received_at=rest_confirmed_at,
+        )
+        eating_camera = CameraEvent(
+            camera_id="pc-webcam-01",
+            subject_id="dog_001",
+            detected_type="dog",
+            confidence=0.9,
+            bbox_x=40,
+            bbox_y=260,
+            bbox_width=100,
+            bbox_height=100,
+            center_x=90,
+            center_y=310,
+            zone_name="food_bowl",
+            observed_at=eating_camera_at,
+        )
+        rest_camera = CameraEvent(
+            camera_id="pc-webcam-01",
+            subject_id="dog_001",
+            detected_type="dog",
+            confidence=0.9,
+            bbox_x=320,
+            bbox_y=180,
+            bbox_width=100,
+            bbox_height=100,
+            center_x=370,
+            center_y=230,
+            zone_name="pet_bed",
+            observed_at=rest_confirmed_at,
+        )
+        session.add_all([eating_sensor, rest_sensor, eating_camera, rest_camera])
+        session.flush()
+        eating = BehaviorEvent(
+            subject_id="dog_001",
+            behavior_type="eating",
+            source_camera_event_id=eating_camera.id,
+            source_sensor_reading_id=eating_sensor.id,
+            source_key="eating:restart-proof",
+            started_at=NOW,
+        )
+        rest_behavior = BehaviorEvent(
+            subject_id="dog_001",
+            behavior_type="resting",
+            source_camera_event_id=rest_camera.id,
+            source_sensor_reading_id=rest_sensor.id,
+            source_key="resting:restart-proof",
+            started_at=NOW,
+        )
+        session.add_all([eating, rest_behavior])
+        session.flush()
+        session.add(
+            RestSession(
+                subject_id="dog_001",
+                behavior_event_id=rest_behavior.id,
+                started_at=NOW,
+                last_confirmed_at=rest_confirmed_at,
+            )
+        )
+        session.commit()
+
+    class CameraAvailability:
+        def available_for(self, _start: datetime, _end: datetime) -> bool:
+            return True
+
+    class Scheduler:
+        effective_monotonic = 100.0
+
+        def schedule(self, *_args: object) -> None:
+            pass
+
+        def cancel(self, *_args: object) -> None:
+            pass
+
+    engine = rules.RuleEngine(config=AppConfig(database_url=database_url), camera_service=CameraAvailability())
+    with sessions() as session:
+        engine.startup(session, Scheduler(), NOW + timedelta(seconds=20))
+    with sessions() as session:
+        eating_row = session.execute(
+            select(BehaviorEvent).where(BehaviorEvent.behavior_type == "eating")
+        ).scalar_one()
+        rest_row = session.execute(select(RestSession)).scalar_one()
+    database.dispose()
+
+    assert eating_row.ended_at == eating_food_at
+    assert (rest_row.ended_at, rest_row.close_reason) == (rest_confirmed_at, "restart")
