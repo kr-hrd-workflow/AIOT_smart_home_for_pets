@@ -367,15 +367,27 @@ async def test_lifespan_defers_mqtt_intake_until_rule_worker_exists(monkeypatch:
         def stop(self) -> None:
             calls.append("stop")
 
+    class FakeRuleWorker:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        def start(self) -> None:
+            calls.append("worker:start")
+
+        def shutdown(self) -> None:
+            calls.append("worker:shutdown")
+
     monkeypatch.setattr(main_module, "load_config", lambda: config)
     monkeypatch.setattr(main_module, "configure_database", lambda _url: None)
     monkeypatch.setattr(main_module, "dispose_database", lambda: None)
     monkeypatch.setattr(main_module, "load_mqtt_endpoint", lambda *_args: MqttEndpoint("127.0.0.1", 18883))
     monkeypatch.setattr(main_module, "MqttIngestor", FakeIngestor)
+    monkeypatch.setattr(main_module, "RuleEngine", lambda **_kwargs: object())
+    monkeypatch.setattr(main_module, "RuleWorker", FakeRuleWorker)
 
     async with main_module.lifespan(FastAPI()):
-        assert calls == []
-    assert calls == ["stop"]
+        assert calls == ["worker:start", "start"]
+    assert calls == ["worker:start", "start", "stop", "worker:shutdown"]
 
 
 class FakeClient:

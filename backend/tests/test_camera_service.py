@@ -367,6 +367,8 @@ async def test_lifespan_owns_disabled_camera_until_rule_worker_can_drain(monkeyp
     calls: list[str] = []
 
     class FakeCameraService:
+        pipeline = None
+
         @classmethod
         def disabled(cls) -> "FakeCameraService":
             calls.append("camera:disabled")
@@ -374,6 +376,16 @@ async def test_lifespan_owns_disabled_camera_until_rule_worker_can_drain(monkeyp
 
         def shutdown(self) -> None:
             calls.append("camera:shutdown")
+
+    class FakeRuleWorker:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        def start(self) -> None:
+            pass
+
+        def shutdown(self) -> None:
+            pass
 
     monkeypatch.setattr(
         main_module,
@@ -383,6 +395,8 @@ async def test_lifespan_owns_disabled_camera_until_rule_worker_can_drain(monkeyp
     monkeypatch.setattr(main_module, "configure_database", lambda _url: calls.append("database:configure"))
     monkeypatch.setattr(main_module, "dispose_database", lambda: calls.append("database:dispose"))
     monkeypatch.setattr(main_module, "CameraService", FakeCameraService)
+    monkeypatch.setattr(main_module, "RuleEngine", lambda **_kwargs: object())
+    monkeypatch.setattr(main_module, "RuleWorker", FakeRuleWorker)
 
     application = FastAPI()
     async with main_module.lifespan(application):
@@ -395,6 +409,8 @@ async def test_lifespan_disposes_database_when_camera_shutdown_fails(monkeypatch
     calls: list[str] = []
 
     class FailingCameraService:
+        pipeline = None
+
         @classmethod
         def disabled(cls) -> "FailingCameraService":
             return cls()
@@ -402,6 +418,16 @@ async def test_lifespan_disposes_database_when_camera_shutdown_fails(monkeypatch
         def shutdown(self) -> None:
             calls.append("camera:shutdown")
             raise RuntimeError("close failed")
+
+    class FakeRuleWorker:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        def start(self) -> None:
+            pass
+
+        def shutdown(self) -> None:
+            pass
 
     monkeypatch.setattr(
         main_module,
@@ -411,6 +437,8 @@ async def test_lifespan_disposes_database_when_camera_shutdown_fails(monkeypatch
     monkeypatch.setattr(main_module, "configure_database", lambda _url: calls.append("database:configure"))
     monkeypatch.setattr(main_module, "dispose_database", lambda: calls.append("database:dispose"))
     monkeypatch.setattr(main_module, "CameraService", FailingCameraService)
+    monkeypatch.setattr(main_module, "RuleEngine", lambda **_kwargs: object())
+    monkeypatch.setattr(main_module, "RuleWorker", FakeRuleWorker)
 
     async with main_module.lifespan(FastAPI()):
         pass
