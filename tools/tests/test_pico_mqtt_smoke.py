@@ -58,8 +58,11 @@ PETZONE = {
 }
 
 
+WireMessage = tuple[str, bytes, int, bool]
+
+
 class FakeClient:
-    def __init__(self, messages: list[tuple[str, bytes]]) -> None:
+    def __init__(self, messages: list[WireMessage]) -> None:
         self.messages = messages
         self.subscriptions: list[tuple[str, int]] = []
         self.auth: tuple[str, str] | None = None
@@ -81,8 +84,8 @@ class FakeClient:
     def loop_start(self) -> None:
         assert self.on_connect is not None and self.on_message is not None
         self.on_connect(self, None, None, 0, None)
-        for topic, payload in self.messages:
-            self.on_message(self, None, SimpleNamespace(topic=topic, payload=payload))
+        for topic, payload, qos, retain in self.messages:
+            self.on_message(self, None, SimpleNamespace(topic=topic, payload=payload, qos=qos, retain=retain))
 
     def loop_stop(self) -> None:
         self.stopped = True
@@ -91,13 +94,17 @@ class FakeClient:
         pass
 
 
-def complete_messages(device_id: str, sensors: dict[str, tuple[object, str]]) -> list[tuple[str, bytes]]:
+def wire(topic: str, payload: bytes, *, qos: int = 1, retain: bool = False) -> WireMessage:
+    return topic, payload, qos, retain
+
+
+def complete_messages(device_id: str, sensors: dict[str, tuple[object, str]]) -> list[WireMessage]:
     messages = [
-        (f"home/pico/{device_id}/status", status(device_id, "online", -20)),
-        (f"home/pico/{device_id}/status", status(device_id, "online", -10)),
+        wire(f"home/pico/{device_id}/status", status(device_id, "online", -20), retain=True),
+        wire(f"home/pico/{device_id}/status", status(device_id, "online", -10)),
     ]
     messages.extend(
-        (f"home/pico/{device_id}/sensor/{name}", sensor(device_id, name, value, unit, -1))
+        wire(f"home/pico/{device_id}/sensor/{name}", sensor(device_id, name, value, unit, -1))
         for name, (value, unit) in sensors.items()
     )
     return messages
@@ -227,7 +234,7 @@ def test_petzone_requires_all_nine_sensors_and_returns_nonzero_result_when_missi
 )
 def test_malformed_or_stale_messages_fail(topic: str, payload: bytes, message: str) -> None:
     verifier = SmokeVerifier("entrance-01", now=lambda: NOW)
-    client = FakeClient([(topic, payload)])
+    client = FakeClient([wire(topic, payload)])
 
     result = run_smoke(
         client,
@@ -250,6 +257,8 @@ def test_duplicate_json_key_is_malformed() -> None:
     verifier.process(
         "home/pico/entrance-01/sensor/temperature",
         b'{"device_id":"entrance-01","sensor_type":"temperature","value":22.5,"unit":"F","unit":"C","observed_at":"2026-07-20T06:00:29.000Z"}',
+        qos=1,
+        retain=False,
     )
 
     assert verifier.errors == ["duplicate JSON field on home/pico/entrance-01/sensor/temperature"]
@@ -278,15 +287,15 @@ def test_delayed_online_payloads_do_not_count_as_live_heartbeat() -> None:
     assert "missing 10-second heartbeat evidence" in format_report(result)
 
 
-def test_required_cycle_reports_offline_lwt_and_reconnect_evidence() -> None:
+def test_non_retained_offline_does_not_count_as_lwt_or_reconnect() -> None:
     device = "entrance-01"
     messages = complete_messages(device, ENTRANCE)
-    messages.insert(1, (f"home/pico/{device}/status", status(device, "offline", -200)))
-    messages.append((f"home/pico/{device}/status", status(device, "online", 0)))
+    messages.append(wire(f"home/pico/{device}/status", status(device, "offline", -200)))
+    messages.extend(complete_messages(device, ENTRANCE))
     verifier = SmokeVerifier(
         device,
         now=lambda: NOW,
-        monotonic=monotonic_values(100, 101, 110, 120),
+        monotonic=monotonic_values(100, 110, 111, 120, 130),
         require_reconnect=True,
     )
     client = FakeClient(messages)
@@ -302,10 +311,83 @@ def test_required_cycle_reports_offline_lwt_and_reconnect_evidence() -> None:
         wait=immediate_wait,
     )
 
+    assert not result.ok
+    report = format_report(result)
+    assert "lwt=NOT_CONFIRMED" in report
+    assert "reconnect=NOT_OBSERVED" in report
+    assert client.subscriptions.count((f"home/pico/{device}/status", 1)) == 2
+
+
+def test_confirmed_lwt_discards_pre_outage_evidence() -> None:
+    device = "entrance-01"
+    offline = status(device, "offline", -200)
+    messages = complete_messages(device, ENTRANCE)
+    messages.extend(
+        [
+            wire(f"home/pico/{device}/status", offline),
+            wire(f"home/pico/{device}/status", offline, retain=True),
+            wire(f"home/pico/{device}/status", status(device, "online", -10)),
+            wire(f"home/pico/{device}/status", status(device, "online", 0)),
+        ]
+    )
+    verifier = SmokeVerifier(
+        device,
+        now=lambda: NOW,
+        monotonic=monotonic_values(100, 110, 111, 112, 120, 130),
+        require_reconnect=True,
+    )
+
+    result = run_smoke(
+        FakeClient(messages),
+        host="192.168.10.8",
+        port=18883,
+        username="u",
+        password="secret",
+        verifier=verifier,
+        timeout=90,
+        wait=immediate_wait,
+    )
+
+    assert not result.ok
+    assert "lwt=CONFIRMED" in format_report(result)
+    assert "sensors=0/4" in format_report(result)
+
+
+def test_required_cycle_reports_post_reconnect_profile_and_heartbeat() -> None:
+    device = "entrance-01"
+    offline = status(device, "offline", -200)
+    messages = complete_messages(device, ENTRANCE)
+    messages.extend(
+        [
+            wire(f"home/pico/{device}/status", offline),
+            wire(f"home/pico/{device}/status", offline, retain=True),
+            *complete_messages(device, ENTRANCE),
+        ]
+    )
+    verifier = SmokeVerifier(
+        device,
+        now=lambda: NOW,
+        monotonic=monotonic_values(100, 110, 111, 112, 120, 130),
+        require_reconnect=True,
+    )
+
+    result = run_smoke(
+        FakeClient(messages),
+        host="192.168.10.8",
+        port=18883,
+        username="u",
+        password="secret",
+        verifier=verifier,
+        timeout=90,
+        wait=immediate_wait,
+    )
+
     assert result.ok
     report = format_report(result)
-    assert "offline_status=OBSERVED" in report
+    assert "lwt=CONFIRMED" in report
     assert "reconnect=PASS" in report
+    assert "heartbeat=PASS" in report
+    assert "sensors=4/4" in report
 
 
 def test_wait_is_bounded_by_configured_timeout() -> None:

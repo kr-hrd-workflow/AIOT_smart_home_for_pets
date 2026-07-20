@@ -18,9 +18,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\bootstrap_servic
 # 자격 증명 값은 명령 인수나 로그에 쓰지 말고 현재 프로세스의 환경변수로만 제공한다.
 $env:PETCARE_MQTT_USERNAME = '<secret-manager-or-private-input>'
 $env:PETCARE_MQTT_PASSWORD = '<secret-manager-or-private-input>'
+$env:PETCARE_POSTGRES_PASSWORD = '<secret-manager-or-private-input>'
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\services.ps1 `
   -Action Start -Provider native -Profile hardware -HardwareAddress $BrokerAddress
+
+Remove-Item Env:PETCARE_POSTGRES_PASSWORD -ErrorAction SilentlyContinue
 ```
 
 `services.ps1`가 기존 방화벽에서 위 범위를 증명하지 못하면 `hardware NOT_RUN`으로 중단되는 것이 정상이다. 방화벽과 DHCP 예약은 라우터/Windows 관리자가 먼저 설정한다.
@@ -95,7 +98,7 @@ $env:PETCARE_MQTT_PASSWORD = '<secret-manager-or-private-input>'
 & .\.runtime\managed\python\python\python.exe .\tools\pico_mqtt_smoke.py petzone-01
 ```
 
-성공 기준은 `PASS Pico MQTT smoke`, 전체 센서 수, `heartbeat=PASS`다. 정상 상태에서는 `offline_status`와 `reconnect`가 `NOT_OBSERVED`여도 된다.
+성공 기준은 `PASS Pico MQTT smoke`, 전체 센서 수, `heartbeat=PASS`다. 정상 상태에서는 `lwt=NOT_CONFIRMED`와 `reconnect=NOT_OBSERVED`여도 된다.
 
 ## 6. 장애 복구 검증
 
@@ -109,11 +112,11 @@ $env:PETCARE_MQTT_SMOKE_TIMEOUT = '120'
 & .\.runtime\managed\python\python\python.exe .\tools\pico_mqtt_smoke.py entrance-01
 ```
 
-`offline_status=OBSERVED`, `reconnect=PASS`, `heartbeat=PASS`가 모두 나와야 한다. 이 offline 상태는 강제 전원 차단에서 브로커가 받은 retained LWT 증거다. 테스트 후 두 환경변수를 제거한다.
+`lwt=CONFIRMED`, `reconnect=PASS`, `heartbeat=PASS`, 전체 센서 수가 모두 나와야 한다. 도구는 실시간 offline을 받은 뒤 status 토픽을 다시 구독하고, 브로커가 QoS 1 `retain=true`로 되돌려 준 offline만 retained LWT로 확인한다. 확인 시 장애 전 센서와 heartbeat 증거를 모두 버리므로, PASS는 재접속 뒤 전체 프로필과 새 10초 heartbeat가 다시 들어왔다는 뜻이다. 테스트 후 두 환경변수를 제거한다.
 
 ### AP/Wi-Fi 차단
 
-같은 재접속 요구 모드를 180초로 실행한다. Pico가 online인 것을 확인한 후 AP를 끄고 MQTT keepalive 30초보다 길게 기다렸다가 AP를 다시 켠다. offline LWT, 새 online, 10초 heartbeat, 전체 센서 재개를 모두 확인한다.
+같은 재접속 요구 모드를 180초로 실행한다. 검증 PC와 MQTT 브로커는 유선 LAN 등 AP와 독립된 경로에 둔 채 Pico가 사용하는 Wi-Fi/AP만 차단한다. 검증 PC까지 같은 AP에서 끊으면 LWT를 관찰할 수 없으므로 이 시험이 성립하지 않는다. Pico가 online인 것을 확인한 후 Pico Wi-Fi를 끄고 MQTT keepalive 30초보다 길게 기다렸다가 다시 켠다. 확인된 retained offline LWT, 새 online, 새 10초 heartbeat, 전체 센서 재개를 모두 확인한다.
 
 ### MQTT 브로커 중단
 

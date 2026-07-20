@@ -70,7 +70,7 @@ class SmokeResult:
     required_sensors: frozenset[str]
     seen_sensors: frozenset[str]
     heartbeat: bool
-    offline_status: bool
+    lwt_confirmed: bool
     reconnect: bool
     errors: tuple[str, ...]
 
@@ -110,7 +110,7 @@ class SmokeVerifier:
         self.required_sensors = frozenset(DEVICE_SENSORS[device_id])
         self.seen_sensors: set[str] = set()
         self.heartbeat = False
-        self.offline_status = False
+        self.lwt_confirmed = False
         self.reconnect = False
         self.errors: list[str] = []
         self._now = now
@@ -119,6 +119,7 @@ class SmokeVerifier:
         self._last_status: str | None = None
         self._last_online_at: datetime | None = None
         self._last_online_received: float | None = None
+        self._offline_confirmation_requested = False
 
     @property
     def complete(self) -> bool:
@@ -129,7 +130,7 @@ class SmokeVerifier:
             and (not self._require_reconnect or self.reconnect)
         )
 
-    def process(self, topic: str, payload: bytes) -> None:
+    def process(self, topic: str, payload: bytes, *, qos: int, retain: bool) -> bool:
         def object_without_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
             value = dict(pairs)
             if len(value) != len(pairs):
@@ -140,25 +141,26 @@ class SmokeVerifier:
             value = json.loads(payload, object_pairs_hook=object_without_duplicates)
         except DuplicateJsonField:
             self.errors.append(f"duplicate JSON field on {topic}")
-            return
+            return False
         except (UnicodeDecodeError, json.JSONDecodeError):
             self.errors.append(f"malformed JSON on {topic}")
-            return
+            return False
         if not isinstance(value, dict):
             self.errors.append(f"payload must be a JSON object on {topic}")
-            return
+            return False
 
         status_topic = f"home/pico/{self.device_id}/status"
         sensor_prefix = f"home/pico/{self.device_id}/sensor/"
         try:
             if topic == status_topic:
-                self._status(value, topic)
+                return self._status(value, topic, qos=qos, retain=retain)
             elif topic.startswith(sensor_prefix):
-                self._sensor(topic[len(sensor_prefix):], value, topic)
+                self._sensor(topic[len(sensor_prefix):], value, topic, qos=qos, retain=retain)
             else:
                 raise ValueError(f"unexpected topic {topic}")
         except ValueError as exc:
             self.errors.append(str(exc))
+        return False
 
     def result(self, timed_out: bool = False) -> SmokeResult:
         errors = list(self.errors)
@@ -169,19 +171,32 @@ class SmokeVerifier:
             errors.append(f"missing sensors: {', '.join(missing)}")
         if not self.heartbeat:
             errors.append("missing 10-second heartbeat evidence")
-        if self._require_reconnect and not self.reconnect:
-            errors.append("missing offline-to-online reconnect evidence")
+        if self._require_reconnect:
+            if not self.lwt_confirmed:
+                errors.append("missing retained QoS 1 offline/LWT evidence")
+            if not self.reconnect:
+                errors.append("missing offline-to-online reconnect evidence")
         return SmokeResult(
             device_id=self.device_id,
             required_sensors=self.required_sensors,
             seen_sensors=frozenset(self.seen_sensors),
             heartbeat=self.heartbeat,
-            offline_status=self.offline_status,
+            lwt_confirmed=self.lwt_confirmed,
             reconnect=self.reconnect,
             errors=tuple(dict.fromkeys(errors)),
         )
 
-    def _sensor(self, sensor_type: str, payload: dict[str, object], topic: str) -> None:
+    def _sensor(
+        self,
+        sensor_type: str,
+        payload: dict[str, object],
+        topic: str,
+        *,
+        qos: int,
+        retain: bool,
+    ) -> None:
+        if qos != 1 or retain:
+            raise ValueError(f"invalid MQTT metadata on {topic}")
         if list(payload) != SENSOR_KEYS:
             raise ValueError(f"malformed sensor fields on {topic}")
         if sensor_type not in DEVICE_SENSORS[self.device_id]:
@@ -203,8 +218,17 @@ class SmokeVerifier:
         self._fresh(payload["observed_at"], topic)
         self.seen_sensors.add(sensor_type)
 
-    def _status(self, payload: dict[str, object], topic: str) -> None:
+    def _status(
+        self,
+        payload: dict[str, object],
+        topic: str,
+        *,
+        qos: int,
+        retain: bool,
+    ) -> bool:
         received_at = self._monotonic()
+        if qos != 1:
+            raise ValueError(f"invalid MQTT QoS on {topic}")
         if list(payload) != STATUS_KEYS:
             raise ValueError(f"malformed status fields on {topic}")
         if payload["device_id"] != self.device_id or payload["status"] not in ("online", "offline"):
@@ -225,13 +249,24 @@ class SmokeVerifier:
                 payload_interval = (observed_at - self._last_online_at).total_seconds()
                 receipt_interval = received_at - self._last_online_received
                 self.heartbeat |= 8 <= payload_interval <= 12 and 8 <= receipt_interval <= 12
-            if self.offline_status:
+            if self.lwt_confirmed:
                 self.reconnect = True
             self._last_online_at = observed_at
             self._last_online_received = received_at
         else:
-            self.offline_status = True
+            if not retain:
+                if not self._offline_confirmation_requested:
+                    self._offline_confirmation_requested = True
+                    return True
+                return False
+            self.lwt_confirmed = True
+            self.seen_sensors.clear()
+            self.heartbeat = False
+            self.reconnect = False
+            self._last_online_at = None
+            self._last_online_received = None
         self._last_status = state
+        return False
 
     def _fresh(self, value: object, topic: str) -> datetime:
         observed_at = self._timestamp(value, topic)
@@ -321,8 +356,18 @@ def run_smoke(
                 verifier.errors.append(f"MQTT subscription failed for {topic}")
                 done.set()
 
-    def on_message(_client: MqttClient, _userdata: Any, message: Any) -> None:
-        verifier.process(str(message.topic), bytes(message.payload))
+    def on_message(connected: MqttClient, _userdata: Any, message: Any) -> None:
+        confirm_retained = verifier.process(
+            str(message.topic),
+            bytes(message.payload),
+            qos=int(message.qos),
+            retain=bool(message.retain),
+        )
+        if confirm_retained:
+            topic = f"home/pico/{verifier.device_id}/status"
+            subscription = connected.subscribe(topic, qos=1)
+            if isinstance(subscription, tuple) and subscription[0] != 0:
+                verifier.errors.append(f"MQTT subscription failed for {topic}")
         if verifier.complete or verifier.errors:
             done.set()
 
@@ -354,7 +399,7 @@ def format_report(result: SmokeResult) -> str:
         f"{'PASS' if result.ok else 'FAIL'} Pico MQTT smoke: device={result.device_id}",
         f"sensors={len(result.seen_sensors)}/{len(result.required_sensors)}",
         f"heartbeat={'PASS' if result.heartbeat else 'FAIL'}",
-        f"offline_status={'OBSERVED' if result.offline_status else 'NOT_OBSERVED'}",
+        f"lwt={'CONFIRMED' if result.lwt_confirmed else 'NOT_CONFIRMED'}",
         f"reconnect={'PASS' if result.reconnect else 'NOT_OBSERVED'}",
     ]
     if missing:
