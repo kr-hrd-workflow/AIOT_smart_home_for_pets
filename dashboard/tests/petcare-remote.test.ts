@@ -33,6 +33,41 @@ describe("createPetCareRemote", () => {
     );
   });
 
+  it("uses exact same-origin mutation routes", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: "enrollment-code",
+            expiresAt: "2026-07-20T01:10:00Z",
+          }),
+          { status: 201 },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createPetCareRemoteClient();
+
+    await client.enroll();
+    await client.deleteClip("clip/one");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/petcare/enrollment", {
+      credentials: "same-origin",
+      headers: { accept: "application/json" },
+      method: "POST",
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/petcare/clips/clip%2Fone",
+      {
+        credentials: "same-origin",
+        headers: { accept: "application/json" },
+        method: "DELETE",
+      },
+    );
+  });
+
   it("maps BFF agent_offline to structured error", async () => {
     vi.stubGlobal(
       "fetch",
