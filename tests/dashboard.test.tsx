@@ -31,6 +31,30 @@ function contrastRatio(foreground: string, background: string) {
 }
 
 describe("dashboard demo surface", () => {
+  it("renders injected authenticated camera source without fetching", () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(
+      <Dashboard
+        data={demoDashboardData}
+        mode="connected"
+        camera={{
+          src: "/api/petcare/cameras/camera-1/stream.mjpeg",
+          alt: "실시간 반려동물 카메라",
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByRole("img", { name: "실시간 반려동물 카메라" }),
+    ).toHaveAttribute(
+      "src",
+      "/api/petcare/cameras/camera-1/stream.mjpeg",
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("renders the operational evidence in the required mobile DOM order", () => {
     const { container } = render(<Dashboard data={demoDashboardData} />);
 
