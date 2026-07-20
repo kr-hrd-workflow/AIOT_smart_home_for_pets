@@ -96,6 +96,89 @@ describe("createPetCareRemote", () => {
     });
   });
 
+  it("rejects malformed status, clips, and enrollment success bodies", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ home: null }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ clips: [{}] }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ code: "enrollment-code" }), {
+          status: 201,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createPetCareRemoteClient();
+
+    await expect(client.getStatus()).rejects.toMatchObject({ status: 200 });
+    await expect(client.getClips()).rejects.toMatchObject({ status: 200 });
+    await expect(client.enroll()).rejects.toMatchObject({ status: 201 });
+  });
+
+  it("rejects otherwise valid bodies returned with the wrong success status", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            home: { id: "home-1", state: "needs_enrollment" },
+            agent: null,
+            camera: null,
+            dashboard: null,
+          }),
+          { status: 201 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ clips: [] }), { status: 201 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: "enrollment-code",
+            expiresAt: "2026-07-20T01:10:00Z",
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "deleted" }), { status: 200 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createPetCareRemoteClient();
+
+    await expect(client.getStatus()).rejects.toMatchObject({ status: 201 });
+    await expect(client.getClips()).rejects.toMatchObject({ status: 201 });
+    await expect(client.enroll()).rejects.toMatchObject({ status: 200 });
+    await expect(client.deleteClip("clip-1")).rejects.toMatchObject({
+      status: 200,
+    });
+  });
+
+  it("does not trust a malformed agent_offline body", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            code: "agent_offline",
+            agent_id: 7,
+            camera_id: "camera-1",
+            last_seen_at: null,
+          }),
+          { status: 503 },
+        ),
+      ),
+    );
+
+    await expect(
+      createPetCareRemoteClient().getStatus(),
+    ).rejects.toMatchObject({ status: 503, offline: undefined });
+  });
+
   it("forwards polling abort and sends the password only to account deletion", async () => {
     const fetchMock = vi
       .fn()
@@ -137,5 +220,27 @@ describe("createPetCareRemote", () => {
     await expect(
       createPetCareAccountClient().deleteAccount("current-password"),
     ).resolves.toEqual({ status: "complete" });
+  });
+
+  it("accepts only cleanup_pending at 202 for account deletion", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "complete" }), { status: 202 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "cleanup_pending" }), {
+          status: 200,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const account = createPetCareAccountClient();
+
+    await expect(account.deleteAccount("current-password")).rejects.toMatchObject(
+      { status: 202 },
+    );
+    await expect(account.deleteAccount("current-password")).rejects.toMatchObject(
+      { status: 200 },
+    );
   });
 });
