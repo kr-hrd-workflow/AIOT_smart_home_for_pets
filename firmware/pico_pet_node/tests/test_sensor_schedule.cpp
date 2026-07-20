@@ -171,6 +171,39 @@ int main() {
     bad_ld2410c[7] = 0;
     assert(!petcare::decode_ld2410c(bad_ld2410c, moving, stationary));
 
+    auto old_presence = ld2410c;
+    old_presence[8] = 1;
+    auto newest_presence = ld2410c;
+    newest_presence[8] = 2;
+    petcare::Ld2410cStream presence_stream;
+    const auto presence_allocations = allocations;
+    const auto feed_presence = [&](std::uint8_t value) {
+        presence_stream.push(value);
+    };
+    for (const auto value : std::array<std::uint8_t, 5>{{0x00, 0xff, 0xf4, 0x42, 0x13}}) {
+        feed_presence(value);
+    }
+    for (std::size_t index = 0; index < 12; ++index) {
+        feed_presence(ld2410c[index]);
+    }
+    for (const auto value : old_presence) {
+        feed_presence(value);
+    }
+    bool latest_moving = false;
+    bool latest_stationary = false;
+    assert(presence_stream.take_latest(latest_moving, latest_stationary));
+    assert(latest_moving && !latest_stationary);
+    for (const auto value : old_presence) {
+        feed_presence(value);
+    }
+    for (const auto value : newest_presence) {
+        feed_presence(value);
+    }
+    assert(presence_stream.take_latest(latest_moving, latest_stationary));
+    assert(!latest_moving && latest_stationary);
+    assert(!presence_stream.take_latest(latest_moving, latest_stationary));
+    assert(allocations == presence_allocations);
+
     FakeSensors fake;
     petcare::SensorSchedule petzone{DeviceProfile::petzone_01, fake.source()};
     petzone.start(0);

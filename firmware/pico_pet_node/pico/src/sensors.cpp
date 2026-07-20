@@ -71,6 +71,64 @@ bool decode_ld2410c(const std::array<std::uint8_t, 23>& frame, bool& moving, boo
     return true;
 }
 
+void Ld2410cStream::push(std::uint8_t value) {
+    constexpr std::array<std::uint8_t, 4> header{{0xf4, 0xf3, 0xf2, 0xf1}};
+    if (size_ < header.size()) {
+        if (value == header[size_]) {
+            frame_[size_++] = value;
+        } else {
+            size_ = value == header[0] ? 1 : 0;
+            if (size_ != 0) {
+                frame_[0] = value;
+            }
+        }
+        return;
+    }
+
+    frame_[size_++] = value;
+    if (value == header[nested_header_size_]) {
+        ++nested_header_size_;
+    } else {
+        nested_header_size_ = value == header[0] ? 1 : 0;
+    }
+    if (nested_header_size_ == header.size()) {
+        for (std::size_t index = 0; index < header.size(); ++index) {
+            frame_[index] = header[index];
+        }
+        size_ = header.size();
+        nested_header_size_ = 0;
+        return;
+    }
+    if (size_ != frame_.size()) {
+        return;
+    }
+
+    const auto trailing_header_size = nested_header_size_;
+    bool moving = false;
+    bool stationary = false;
+    const bool decoded = decode_ld2410c(frame_, moving, stationary);
+    if (decoded) {
+        latest_moving_ = moving;
+        latest_stationary_ = stationary;
+        latest_ready_ = true;
+    }
+    size_ = decoded ? 0 : trailing_header_size;
+    for (std::size_t index = 0; index < size_; ++index) {
+        frame_[index] = header[index];
+    }
+    nested_header_size_ = 0;
+}
+
+bool Ld2410cStream::take_latest(bool& moving, bool& stationary) {
+    if (!latest_ready_) {
+        return false;
+    }
+    moving = latest_moving_;
+    stationary = latest_stationary_;
+    latest_ready_ = false;
+    return true;
+}
+
 void SensorSchedule::start(std::uint32_t now_ms) {
     next_sht_ms_ = now_ms + config::sht31_cadence_ms;
     next_fast_ms_ = now_ms + config::presence_cadence_ms;
@@ -225,6 +283,16 @@ SensorSource SensorHardware::source() {
     return {this, read_sht31, read_presence, read_weight, read_fsr};
 }
 
+void SensorHardware::drain_presence() {
+    while (uart_is_readable(uart1)) {
+        ld2410c_stream_.push(static_cast<std::uint8_t>(uart_getc(uart1)));
+    }
+}
+
+void SensorHardware::poll() {
+    drain_presence();
+}
+
 bool SensorHardware::read_sht31(void*, double& temperature, double& humidity) {
     constexpr std::array<std::uint8_t, 2> command{{0x24, 0x00}};
     std::array<std::uint8_t, 6> frame{};
@@ -244,34 +312,8 @@ bool SensorHardware::read_sht31(void*, double& temperature, double& humidity) {
 
 bool SensorHardware::read_presence(void* context, bool& moving, bool& stationary) {
     auto& self = *static_cast<SensorHardware*>(context);
-    constexpr std::array<std::uint8_t, 4> header{{0xf4, 0xf3, 0xf2, 0xf1}};
-    const auto started = time_us_64();
-    while (time_us_64() - started < config::ld2410c_timeout_us) {
-        if (!uart_is_readable(uart1)) {
-            tight_loop_contents();
-            continue;
-        }
-        const auto value = static_cast<std::uint8_t>(uart_getc(uart1));
-        if (self.ld2410c_size_ < header.size()) {
-            if (value == header[self.ld2410c_size_]) {
-                self.ld2410c_frame_[self.ld2410c_size_++] = value;
-            } else {
-                self.ld2410c_size_ = value == header[0] ? 1 : 0;
-                if (self.ld2410c_size_) {
-                    self.ld2410c_frame_[0] = value;
-                }
-            }
-            continue;
-        }
-        self.ld2410c_frame_[self.ld2410c_size_++] = value;
-        if (self.ld2410c_size_ == self.ld2410c_frame_.size()) {
-            self.ld2410c_size_ = 0;
-            if (decode_ld2410c(self.ld2410c_frame_, moving, stationary)) {
-                return true;
-            }
-        }
-    }
-    return false;
+    self.drain_presence();
+    return self.ld2410c_stream_.take_latest(moving, stationary);
 }
 
 bool SensorHardware::read_hx711(

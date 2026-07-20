@@ -151,6 +151,7 @@ int main() {
         while (publisher.connected() &&
                cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) == CYW43_LINK_UP) {
             now_ms = monotonic_ms();
+            sensor_hardware.poll();
             if (now_ms >= next_resync_ms) {
                 clock.synchronize(wall_clock_ms(), now_ms);
                 next_resync_ms = now_ms + petcare::UtcClock::resync_ms;

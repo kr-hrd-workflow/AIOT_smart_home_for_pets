@@ -32,6 +32,20 @@ struct ScheduledOutput {
 bool decode_sht31(const std::array<std::uint8_t, 6>& frame, double& temperature, double& humidity);
 bool decode_ld2410c(const std::array<std::uint8_t, 23>& frame, bool& moving, bool& stationary);
 
+class Ld2410cStream {
+public:
+    void push(std::uint8_t value);
+    bool take_latest(bool& moving, bool& stationary);
+
+private:
+    std::array<std::uint8_t, 23> frame_{};
+    std::size_t size_ = 0;
+    std::size_t nested_header_size_ = 0;
+    bool latest_ready_ = false;
+    bool latest_moving_ = false;
+    bool latest_stationary_ = false;
+};
+
 class SensorSchedule {
 public:
     SensorSchedule(DeviceProfile profile, SensorSource source) : profile_(profile), source_(source) {}
@@ -58,9 +72,11 @@ private:
 class SensorHardware {
 public:
     bool init();
+    void poll();
     SensorSource source();
 
 private:
+    void drain_presence();
     static bool read_sht31(void* context, double& temperature, double& humidity);
     static bool read_presence(void* context, bool& moving, bool& stationary);
     static bool read_weight(void* context, Bowl bowl, double& grams);
@@ -73,8 +89,7 @@ private:
         double& grams
     );
 
-    std::array<std::uint8_t, 23> ld2410c_frame_{};
-    std::size_t ld2410c_size_ = 0;
+    Ld2410cStream ld2410c_stream_{};
 };
 #endif
 
