@@ -125,6 +125,11 @@ def test_remote_manifest_pins_are_immutable() -> None:
     assert managed["cloudflared"] == CLOUDFLARED
 
 
+def test_toolchain_runtime_inherits_current_manifest() -> None:
+    runtime = read_json(ROOT / ".runtime" / "toolchain.json")
+    assert runtime["manifest_sha256"] == hashlib.sha256(MANIFEST.read_bytes()).hexdigest().upper()
+
+
 def test_one_shared_wire_fixture_is_cryptographically_exact() -> None:
     fixture = read_json(WIRE_FIXTURE)
     assert fixture == EXPECTED_WIRE
