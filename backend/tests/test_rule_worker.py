@@ -262,15 +262,18 @@ def test_stop_marker_does_not_skip_a_deadline_already_due_at_shutdown() -> None:
     worker.shutdown()
 
     assert calls == ["deadline", "shutdown"]
+    assert worker.thread is None
+    assert worker.last_error is None
 
 
-def test_deadline_failure_is_recorded_and_does_not_skip_controlled_shutdown() -> None:
+def test_persistent_deadline_shutdown_times_out_then_recovery_reaches_controlled_shutdown() -> None:
     rule_worker = importlib.import_module("app.rule_worker")
     clock = FakeClock()
     clock.mono = 10.0
     ingress = RuleIngress(clock)
     calls: list[str] = []
     attempted = threading.Event()
+    recover = threading.Event()
 
     class Session:
         def close(self) -> None:
@@ -283,7 +286,8 @@ def test_deadline_failure_is_recorded_and_does_not_skip_controlled_shutdown() ->
         def deadline(self, *_args: object) -> None:
             calls.append("deadline")
             attempted.set()
-            raise RuntimeError("database write failed")
+            if not recover.is_set():
+                raise RuntimeError("database write failed")
 
         def controlled_shutdown(self, *_args: object) -> None:
             calls.append("shutdown")
@@ -293,10 +297,21 @@ def test_deadline_failure_is_recorded_and_does_not_skip_controlled_shutdown() ->
     clock.mono = 20.0
     ingress.notify_clock_advanced()
     assert attempted.wait(1)
-    worker.shutdown()
+    with pytest.raises(rule_worker.RuleShutdownUnavailable):
+        worker.shutdown(timeout=0.2)
 
-    assert calls == ["deadline", "shutdown"]
+    assert set(calls) == {"deadline"}
     assert isinstance(worker.last_error, RuntimeError)
+    assert worker.thread is not None and worker.thread.is_alive()
+
+    recover.set()
+    deadline = time.monotonic() + 2
+    while worker.thread is not None and worker.thread.is_alive() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    worker.shutdown(timeout=0.5)
+
+    assert list(dict.fromkeys(calls)) == ["deadline", "shutdown"]
+    assert worker.thread is None
 
 
 def test_failed_envelope_retries_before_a_later_ticket_under_silence() -> None:
@@ -409,7 +424,7 @@ def test_failed_deadline_retries_before_a_later_deadline_under_silence() -> None
     assert committed == published == ["first", "later"]
 
 
-def test_shutdown_releases_retained_capacity_ticket_after_persistent_current_failure() -> None:
+def test_shutdown_timeout_preserves_failed_head_and_recovery_drains_retained_tickets_in_order() -> None:
     rule_worker = importlib.import_module("app.rule_worker")
     clock = FakeClock()
     ingress = RuleIngress(clock, capacity=1)
@@ -418,6 +433,7 @@ def test_shutdown_releases_retained_capacity_ticket_after_persistent_current_fai
     calls: list[int | str] = []
     committed: list[int] = []
     resolved: list[int] = []
+    shutdown_errors: list[BaseException] = []
 
     class Session:
         def close(self) -> None:
@@ -449,6 +465,12 @@ def test_shutdown_releases_retained_capacity_ticket_after_persistent_current_fai
         ingress.resolve_committed(third, event(3))
         resolved.append(3)
 
+    def request_shutdown() -> None:
+        try:
+            worker.shutdown(timeout=0.2)
+        except BaseException as error:
+            shutdown_errors.append(error)
+
     worker = rule_worker.RuleWorker(ingress=ingress, clock=clock, session_factory=Session, engine=Engine())
     worker.start()
     first = ingress.begin("mqtt")
@@ -462,21 +484,128 @@ def test_shutdown_releases_retained_capacity_ticket_after_persistent_current_fai
     time.sleep(0.05)
     assert producer.is_alive()
 
-    shutdown = threading.Thread(target=worker.shutdown)
+    shutdown = threading.Thread(target=request_shutdown)
     shutdown.start()
     shutdown.join(1)
-    producer.join(0.1)
-    finished_without_recovery = not shutdown.is_alive() and not producer.is_alive()
-    if not finished_without_recovery:
-        recover.set()
-        shutdown.join(2)
-        producer.join(2)
+    producer.join(0.5)
+    bounded = not shutdown.is_alive()
+    producer_released_before_recovery = not producer.is_alive()
+    committed_before_recovery = list(committed)
+    calls_before_recovery = list(calls)
 
-    assert finished_without_recovery
+    recover.set()
+    producer.join(2)
+    deadline = time.monotonic() + 2
+    while worker.thread is not None and worker.thread.is_alive() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    if worker.thread is not None:
+        worker.shutdown(timeout=0.5)
+
+    assert bounded
+    assert producer_released_before_recovery
+    assert len(shutdown_errors) == 1
+    assert isinstance(shutdown_errors[0], rule_worker.RuleShutdownUnavailable)
+    assert committed_before_recovery == []
+    assert set(calls_before_recovery) == {1}
     assert resolved == [3]
-    assert committed == []
+    assert committed == [1, 2, 3]
     assert list(dict.fromkeys(calls)) == [1, 2, 3, "shutdown"]
-    assert isinstance(worker.last_error, RuntimeError)
+    assert worker.thread is None
+
+
+def test_shutdown_timeout_preserves_failed_deadline_before_retained_envelopes() -> None:
+    rule_worker = importlib.import_module("app.rule_worker")
+    clock = FakeClock()
+    clock.mono = 10.0
+    ingress = RuleIngress(clock, capacity=1)
+    deadline_failed = threading.Event()
+    recover = threading.Event()
+    calls: list[int | str] = []
+    committed: list[int | str] = []
+    resolved: list[int] = []
+    shutdown_errors: list[BaseException] = []
+
+    class Session:
+        def close(self) -> None:
+            pass
+
+    class Engine:
+        def startup(self, _session: object, scheduler: object, _now: datetime) -> None:
+            scheduler.schedule("proof", "head", 20.0, NOW.replace(second=20))
+
+        def deadline(self, *_args: object) -> None:
+            calls.append("deadline")
+            if not recover.is_set():
+                deadline_failed.set()
+                raise RuntimeError("persistent deadline commit failure")
+            committed.append("deadline")
+
+        def apply(self, _session: object, event: SensorReadingCommitted, *_args: object) -> None:
+            calls.append(event.reading_id)
+            committed.append(event.reading_id)
+
+        def controlled_shutdown(self, *_args: object) -> None:
+            calls.append("shutdown")
+
+    def event(reading_id: int) -> SensorReadingCommitted:
+        return SensorReadingCommitted(
+            reading_id=reading_id,
+            device_id="petzone-01",
+            sensor_type="food_weight",
+            observed_at=NOW,
+        )
+
+    worker = rule_worker.RuleWorker(ingress=ingress, clock=clock, session_factory=Session, engine=Engine())
+    worker.start()
+    clock.mono = 20.0
+    ingress.notify_clock_advanced()
+    assert deadline_failed.wait(1)
+    first = ingress.begin("mqtt")
+    ingress.resolve_committed(first, event(1))
+    second = ingress.begin("mqtt")
+
+    def resolve_second() -> None:
+        ingress.resolve_committed(second, event(2))
+        resolved.append(2)
+
+    producer = threading.Thread(target=resolve_second)
+    producer.start()
+    time.sleep(0.05)
+    assert producer.is_alive()
+
+    def request_shutdown() -> None:
+        try:
+            worker.shutdown(timeout=0.2)
+        except BaseException as error:
+            shutdown_errors.append(error)
+
+    shutdown = threading.Thread(target=request_shutdown)
+    shutdown.start()
+    shutdown.join(1)
+    producer.join(0.5)
+    bounded = not shutdown.is_alive()
+    producer_released_before_recovery = not producer.is_alive()
+    committed_before_recovery = list(committed)
+    calls_before_recovery = list(calls)
+
+    recover.set()
+    producer.join(2)
+    deadline = time.monotonic() + 2
+    while worker.thread is not None and worker.thread.is_alive() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    if worker.thread is not None:
+        worker.shutdown(timeout=0.5)
+
+    assert bounded
+    assert producer_released_before_recovery
+    assert len(shutdown_errors) == 1
+    assert isinstance(shutdown_errors[0], rule_worker.RuleShutdownUnavailable)
+    assert committed_before_recovery == []
+    assert set(calls_before_recovery) == {"deadline"}
+    assert resolved == [2]
+    assert committed == ["deadline", 1, 2]
+    assert list(dict.fromkeys(calls)) == ["deadline", 1, 2, "shutdown"]
+    assert worker.thread is None
 
 
 @pytest.mark.parametrize(

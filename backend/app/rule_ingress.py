@@ -167,18 +167,23 @@ class RuleIngress:
             if pending.item is not None:
                 raise RuntimeError("ticket is already resolved")
             pending.item = item
+            self._condition.notify_all()
             self._release_ready_locked()
             while ticket.ticket_id in self._pending:
                 self._condition.wait(ADMISSION_RETRY_SECONDS)
                 self._release_ready_locked()
 
-    def _release_ready_locked(self) -> None:
+    def _release_ready_locked(self, *, ignore_capacity: bool = False) -> None:
         changed = False
         while self._pending:
             ticket_id, pending = next(iter(self._pending.items()))
             if pending.item is None:
                 break
-            if isinstance(pending.item, RuleEnvelope) and self._ready_event_count >= self._capacity:
+            if (
+                not ignore_capacity
+                and isinstance(pending.item, RuleEnvelope)
+                and self._ready_event_count >= self._capacity
+            ):
                 break
             item = pending.item
             self._ready.append(item)
@@ -302,6 +307,21 @@ class RuleIngress:
         deadline = None if timeout is None else time.monotonic() + timeout
         with self._condition:
             while self._pending:
+                remaining = None if deadline is None else deadline - time.monotonic()
+                if remaining is not None and remaining <= 0:
+                    return False
+                self._condition.wait(remaining)
+            return True
+
+    def admit_retained_for_shutdown(self, *, timeout: float | None = None) -> bool:
+        deadline = None if timeout is None else time.monotonic() + timeout
+        with self._condition:
+            if self._accepting:
+                raise RuntimeError("ingress intake must be stopped before shutdown admission")
+            while self._pending:
+                self._release_ready_locked(ignore_capacity=True)
+                if not self._pending:
+                    return True
                 remaining = None if deadline is None else deadline - time.monotonic()
                 if remaining is not None and remaining <= 0:
                     return False

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import heapq
+import time
 from concurrent.futures import Future
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -26,7 +27,12 @@ class RuleQueueUnavailable(RuntimeError):
     pass
 
 
+class RuleShutdownUnavailable(RuntimeError):
+    pass
+
+
 WORK_RETRY_SECONDS = 0.25
+SHUTDOWN_TIMEOUT_SECONDS = 5.0
 
 
 class RuleEngineProtocol(Protocol):
@@ -91,6 +97,7 @@ class RuleWorker:
         self._engine = engine
         self._thread: Thread | None = None
         self._started = Event()
+        self._shutdown_requested = Event()
         self._stopping = Event()
         self._startup_error: BaseException | None = None
         self._last_error: Exception | None = None
@@ -153,19 +160,31 @@ class RuleWorker:
         self._current.pop(identity, None)
         self._fired.pop(identity, None)
 
-    def shutdown(self) -> None:
+    def shutdown(self, *, timeout: float = SHUTDOWN_TIMEOUT_SECONDS) -> None:
+        if timeout <= 0:
+            raise ValueError("shutdown timeout must be positive")
         thread = self._thread
         if thread is None:
             return
+        if not thread.is_alive():
+            self._thread = None
+            return
+        deadline = time.monotonic() + timeout
         self._ingress.stop_accepting()
-        self._stopping.set()
-        self._ingress.wait_until_admitted()
+        self._shutdown_requested.set()
+        if not self._ingress.admit_retained_for_shutdown(timeout=max(0.0, deadline - time.monotonic())):
+            raise RuleShutdownUnavailable("rule worker shutdown timed out admitting retained work")
         try:
             self._ingress.seal_stop()
         except RuntimeError as error:
             if "already sealed" not in str(error):
                 raise
-        thread.join()
+        thread.join(max(0.0, deadline - time.monotonic()))
+        if thread.is_alive():
+            unavailable = RuleShutdownUnavailable("rule worker shutdown timed out with accepted work still retrying")
+            if self._last_error is None:
+                raise unavailable
+            raise unavailable from self._last_error
         self._thread = None
 
     def _run(self) -> None:
@@ -174,6 +193,7 @@ class RuleWorker:
         except BaseException as error:
             self._startup_error = error
             self._started.set()
+            self._stopping.set()
             return
         self._started.set()
         while True:
@@ -185,14 +205,13 @@ class RuleWorker:
                 continue
             elif isinstance(item, RuleEnvelope):
                 self._fire_before(item.received_at_monotonic)
-                if not self._run_with_retry(
+                self._run_with_retry(
                     lambda: self._with_session(
                         lambda session: self._engine.apply(
                             session, item.event, item.received_at_utc, item.received_at_monotonic, self
                         )
                     )
-                ):
-                    continue
+                )
                 self._fire_through(item.received_at_monotonic)
             elif isinstance(item, IngressCommand):
                 self._fire_before(item.received_at_monotonic)
@@ -215,7 +234,10 @@ class RuleWorker:
                     item.future.set_result(result)
                 self._fire_through(item.received_at_monotonic)
             elif isinstance(item, StopMarker):
-                self._controlled_shutdown(item)
+                try:
+                    self._controlled_shutdown(item)
+                finally:
+                    self._stopping.set()
                 return
 
     def _next_deadline_due(self) -> float | None:
@@ -241,7 +263,7 @@ class RuleWorker:
                 continue
             self._effective_monotonic = deadline.due_monotonic
             try:
-                succeeded = self._run_with_retry(
+                self._run_with_retry(
                     lambda: self._with_session(
                         lambda session: self._engine.deadline(
                             session,
@@ -254,12 +276,6 @@ class RuleWorker:
                 )
             finally:
                 self._effective_monotonic = None
-            if not succeeded:
-                identity = (deadline.kind, deadline.key)
-                if self._active.get(identity) == deadline.insertion_order:
-                    self._active.pop(identity, None)
-                    self._current.pop(identity, None)
-                return
             identity = (deadline.kind, deadline.key)
             if self._active.get(identity) == deadline.insertion_order:
                 self._active.pop(identity, None)
@@ -280,16 +296,16 @@ class RuleWorker:
         finally:
             session.close()
 
-    def _run_with_retry(self, operation: Callable[[], object]) -> bool:
+    def _run_with_retry(self, operation: Callable[[], object]) -> None:
         while True:
             try:
                 operation()
             except Exception as error:
                 self._last_error = error
-                if self._stopping.wait(WORK_RETRY_SECONDS):
-                    return False
+                waiter = self._stopping if self._shutdown_requested.is_set() else self._shutdown_requested
+                waiter.wait(WORK_RETRY_SECONDS)
             else:
-                return True
+                return
 
     def _controlled_shutdown(self, marker: StopMarker) -> None:
         self._effective_monotonic = marker.received_at_monotonic
