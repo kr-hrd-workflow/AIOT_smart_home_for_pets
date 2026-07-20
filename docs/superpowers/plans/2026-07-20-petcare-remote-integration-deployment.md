@@ -228,7 +228,7 @@ Add the exact `ffmpeg` and `cloudflared` objects asserted above under `managed_e
 }
 ```
 
-Retain `tools/bootstrap_agent_runtime.ps1`, `tools/bootstrap_agent_runtime.sh`, and their tests unchanged. The central merge keeps every pre-existing pin, contains each exact entry once, rejects alternative FFmpeg/cloudflared entries, keeps the Windows marker on `pywin32==312` in `backend/pyproject.toml`, and stores the manifest version as exact string `"312"`.
+Home Task 7 owns the not-yet-created `tools/bootstrap_agent_runtime.ps1`, `tools/bootstrap_agent_runtime.sh`, and their tests. Task 1 must not create, execute, or require those component files; it only seals the manifest/dependency authority they later consume. The central merge keeps every pre-existing pin, contains each exact entry once, rejects alternative FFmpeg/cloudflared entries, keeps the Windows marker on `pywin32==312` in `backend/pyproject.toml`, and stores the manifest version as exact string `"312"`.
 
 Create `contracts/petcare-agent-wire-v1.json` byte-for-byte from the frozen enrollment, clip, headers, and receipt values specified in Task 4. Task 1 is its sole creator/owner; later component and integration tasks consume it read-only and may not create a clip-only variant.
 
@@ -251,8 +251,7 @@ Update only `EXPECTED_CANONICAL_SHA256` in `tools/validate_platform_manifest.py`
 
 ```powershell
 & $runtime.paths.python_path tools/validate_platform_manifest.py --manifest tools/platform-manifest.json
-& tools/bootstrap_agent_runtime.ps1
-& $runtime.paths.python_path -m pytest tools/tests/test_validate_platform_manifest.py tools/tests/test_remote_manifest_integration.py tools/tests/test_bootstrap_agent_runtime.py -q
+& $runtime.paths.python_path -m pytest tools/tests/test_validate_platform_manifest.py tools/tests/test_remote_manifest_integration.py -q
 & $runtime.paths.python_path -c "import cryptography; assert cryptography.__version__ == '49.0.0'"
 & $runtime.paths.node_path -e "const p=require('./dashboard/package-lock.json'); for (const [n,v] of Object.entries({'node_modules/@supabase/ssr':'0.12.3','node_modules/@supabase/supabase-js':'2.110.7','node_modules/jose':'6.2.3'})) if(p.packages[n].version!==v) process.exit(1)"
 ```
@@ -1526,5 +1525,5 @@ Every commit stages only its listed paths. Component corrections use the sibling
 
 Plan complete and saved to `docs/superpowers/plans/2026-07-20-petcare-remote-integration-deployment.md`. Two execution options:
 
-1. **Subagent-Driven (recommended)** — use `superpowers:subagent-driven-development`, complete the four sibling plans first, then execute Tasks 1–9 with review between atomic commits; stop at Task 10 unless external actions are approved.
+1. **Subagent-Driven (recommended)** — use `superpowers:subagent-driven-development`, execute Task 1 first in parallel with Todo 12, then run the disjoint sibling component tasks before Tasks 2–9 with review between atomic commits; stop at Task 10 unless external actions are approved.
 2. **Inline Execution** — use `superpowers:executing-plans`, execute Tasks 1–9 in batches with exact-SHA checkpoints; request approval before Task 10 external work.
