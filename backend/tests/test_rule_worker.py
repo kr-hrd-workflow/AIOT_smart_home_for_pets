@@ -59,6 +59,45 @@ def test_pre_boundary_ticket_blocks_barrier_until_tombstone_progress(receipt: fl
     assert barrier.last_ticket_id == 1
 
 
+def test_rule_envelope_runs_after_earlier_and_before_valid_exact_boundary_deadlines() -> None:
+    rule_worker = importlib.import_module("app.rule_worker")
+    clock = FakeClock()
+    ingress = RuleIngress(clock)
+    ticket = ingress.begin("mqtt")
+    ingress.resolve_committed(ticket, EVENT)
+    calls: list[str] = []
+
+    class Session:
+        def close(self) -> None:
+            pass
+
+    class Engine:
+        def startup(self, _session: object, scheduler: object, _now: datetime) -> None:
+            scheduler.schedule("proof", "earlier", 19.0, NOW.replace(second=19))
+            scheduler.schedule("proof", "exact-first", 20.0, NOW.replace(second=20))
+            scheduler.schedule("proof", "cancelled", 20.0, NOW.replace(second=20))
+            scheduler.schedule("proof", "exact-second", 20.0, NOW.replace(second=20))
+            scheduler.cancel("proof", "cancelled")
+
+        def apply(self, *_args: object) -> None:
+            calls.append("envelope")
+
+        def deadline(self, _session: object, _kind: str, key: str, *_args: object) -> None:
+            calls.append(key)
+
+        def controlled_shutdown(self, *_args: object) -> None:
+            calls.append("shutdown")
+
+    worker = rule_worker.RuleWorker(ingress=ingress, clock=clock, session_factory=Session, engine=Engine())
+    worker.start()
+    deadline = time.monotonic() + 1
+    while "exact-second" not in calls and time.monotonic() < deadline:
+        time.sleep(0.01)
+    worker.shutdown()
+
+    assert calls == ["earlier", "envelope", "exact-first", "exact-second", "shutdown"]
+
+
 def test_worker_silence_deadline_keeps_scheduled_utc_after_boundary_ticket() -> None:
     rule_worker = importlib.import_module("app.rule_worker")
     clock = FakeClock()
@@ -231,6 +270,7 @@ def test_deadline_failure_is_recorded_and_does_not_skip_controlled_shutdown() ->
     clock.mono = 10.0
     ingress = RuleIngress(clock)
     calls: list[str] = []
+    attempted = threading.Event()
 
     class Session:
         def close(self) -> None:
@@ -242,6 +282,7 @@ def test_deadline_failure_is_recorded_and_does_not_skip_controlled_shutdown() ->
 
         def deadline(self, *_args: object) -> None:
             calls.append("deadline")
+            attempted.set()
             raise RuntimeError("database write failed")
 
         def controlled_shutdown(self, *_args: object) -> None:
@@ -250,10 +291,122 @@ def test_deadline_failure_is_recorded_and_does_not_skip_controlled_shutdown() ->
     worker = rule_worker.RuleWorker(ingress=ingress, clock=clock, session_factory=Session, engine=Engine())
     worker.start()
     clock.mono = 20.0
+    ingress.notify_clock_advanced()
+    assert attempted.wait(1)
     worker.shutdown()
 
     assert calls == ["deadline", "shutdown"]
     assert isinstance(worker.last_error, RuntimeError)
+
+
+def test_failed_envelope_retries_before_a_later_ticket_under_silence() -> None:
+    rule_worker = importlib.import_module("app.rule_worker")
+    clock = FakeClock()
+    ingress = RuleIngress(clock)
+    first_failed = threading.Event()
+    calls: list[tuple[str, int | None]] = []
+    committed: list[int] = []
+    published: list[int] = []
+
+    class Session:
+        pending: int | None = None
+
+        def commit(self) -> None:
+            if not first_failed.is_set():
+                first_failed.set()
+                raise RuntimeError("commit failed")
+            assert self.pending is not None
+            committed.append(self.pending)
+
+        def close(self) -> None:
+            pass
+
+    class Engine:
+        def startup(self, *_args: object) -> None:
+            pass
+
+        def apply(self, session: Session, event: SensorReadingCommitted, *_args: object) -> None:
+            calls.append(("apply", event.reading_id))
+            session.pending = event.reading_id
+            session.commit()
+            published.append(event.reading_id)
+
+        def controlled_shutdown(self, *_args: object) -> None:
+            calls.append(("shutdown", None))
+
+    worker = rule_worker.RuleWorker(ingress=ingress, clock=clock, session_factory=Session, engine=Engine())
+    worker.start()
+    first = ingress.begin("mqtt")
+    ingress.resolve_committed(first, EVENT)
+    assert first_failed.wait(1)
+    second = ingress.begin("camera")
+    ingress.resolve_committed(
+        second,
+        SensorReadingCommitted(
+            reading_id=2,
+            device_id="petzone-01",
+            sensor_type="food_weight",
+            observed_at=NOW,
+        ),
+    )
+    deadline = time.monotonic() + 1
+    while len(published) < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    worker.shutdown()
+
+    assert calls == [("apply", 1), ("apply", 1), ("apply", 2), ("shutdown", None)]
+    assert committed == published == [1, 2]
+
+
+def test_failed_deadline_retries_before_a_later_deadline_under_silence() -> None:
+    rule_worker = importlib.import_module("app.rule_worker")
+    clock = FakeClock()
+    clock.mono = 10.0
+    ingress = RuleIngress(clock)
+    first_failed = threading.Event()
+    calls: list[str] = []
+    committed: list[str] = []
+    published: list[str] = []
+
+    class Session:
+        pending: str | None = None
+
+        def commit(self) -> None:
+            if not first_failed.is_set():
+                first_failed.set()
+                raise RuntimeError("commit failed")
+            assert self.pending is not None
+            committed.append(self.pending)
+
+        def close(self) -> None:
+            pass
+
+    class Engine:
+        def startup(self, _session: object, scheduler: object, _now: datetime) -> None:
+            scheduler.schedule("proof", "first", 20.0, NOW.replace(second=10))
+            scheduler.schedule("proof", "later", 21.0, NOW.replace(second=11))
+
+        def deadline(self, session: Session, _kind: str, key: str, *_args: object) -> None:
+            calls.append(key)
+            session.pending = key
+            session.commit()
+            published.append(key)
+
+        def controlled_shutdown(self, *_args: object) -> None:
+            calls.append("shutdown")
+
+    worker = rule_worker.RuleWorker(ingress=ingress, clock=clock, session_factory=Session, engine=Engine())
+    worker.start()
+    clock.mono = 21.0
+    ingress.notify_clock_advanced()
+    assert first_failed.wait(1)
+    deadline = time.monotonic() + 1
+    while len(committed) < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    worker.shutdown()
+
+    assert calls == ["first", "first", "later", "shutdown"]
+    assert committed == published == ["first", "later"]
 
 
 @pytest.mark.parametrize(

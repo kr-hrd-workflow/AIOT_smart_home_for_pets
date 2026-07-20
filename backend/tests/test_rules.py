@@ -49,6 +49,25 @@ def test_eating_confirms_only_at_exact_dwell_and_weight_boundaries() -> None:
     ]
 
 
+def test_eating_can_open_at_the_exact_120_second_success_boundary() -> None:
+    rules = importlib.import_module("app.rules")
+    state = rules.EatingState()
+
+    for reading_id, seconds in enumerate(range(-4, 1), 1):
+        at = NOW + timedelta(seconds=seconds)
+        state.observe_food(rules.FoodFact(reading_id, 100.0, at, at, 100.0 + seconds))
+    state.observe_camera(rules.BowlCameraFact(NOW, NOW, 100.0, {"dog_001": 1}))
+    for reading_id, seconds in enumerate(range(116, 121), 20):
+        at = NOW + timedelta(seconds=seconds)
+        state.observe_food(rules.FoodFact(reading_id, 95.0, at, at, 100.0 + seconds))
+    boundary = NOW + timedelta(seconds=120)
+    state.observe_camera(rules.BowlCameraFact(boundary, boundary, 220.0, {"dog_001": 2}))
+
+    assert state.evaluate(boundary, 220.0) == [
+        rules.OpenEating("dog_001", NOW, 2, 24, "eating:dog_001:2:24")
+    ]
+
+
 def test_eating_subject_timeout_preserves_the_other_subject_dwell() -> None:
     rules = importlib.import_module("app.rules")
     state = rules.EatingState()
@@ -1113,3 +1132,134 @@ def test_startup_closes_orphan_eating_and_rest_at_exact_persisted_evidence(datab
 
     assert eating_row.ended_at == eating_food_at
     assert (rest_row.ended_at, rest_row.close_reason) == (rest_confirmed_at, "restart")
+
+
+def test_rule_engine_controlled_shutdown_persists_open_behavior_boundaries(database_url: str) -> None:
+    rules = importlib.import_module("app.rules")
+    bed = importlib.import_module("app.bed")
+    database = create_engine(database_url)
+    sessions = sessionmaker(bind=database, expire_on_commit=False)
+    with database.begin() as connection:
+        connection.execute(
+            text(
+                "TRUNCATE TABLE anomaly_events, rest_sessions, behavior_events, bed_calibrations, "
+                "camera_events, sensor_readings, cameras, devices CASCADE"
+            )
+        )
+    started_at = NOW
+    last_evidence_at = NOW + timedelta(seconds=5)
+    shutdown_at = NOW + timedelta(seconds=10)
+    with sessions() as session:
+        session.add_all([Device(device_id="petzone-01"), Camera(camera_id="pc-webcam-01")])
+        sensor = SensorReading(
+            device_id="petzone-01",
+            sensor_type="food_weight",
+            value_number=95.0,
+            value_boolean=None,
+            unit="g",
+            observed_at=last_evidence_at,
+            received_at=last_evidence_at,
+        )
+        camera = CameraEvent(
+            camera_id="pc-webcam-01",
+            subject_id="dog_001",
+            detected_type="dog",
+            confidence=0.9,
+            bbox_x=320,
+            bbox_y=180,
+            bbox_width=100,
+            bbox_height=100,
+            center_x=370,
+            center_y=230,
+            zone_name="pet_bed",
+            observed_at=last_evidence_at,
+        )
+        session.add_all([sensor, camera])
+        session.flush()
+        eating = BehaviorEvent(
+            subject_id="dog_001",
+            behavior_type="eating",
+            source_camera_event_id=camera.id,
+            source_sensor_reading_id=sensor.id,
+            source_key="eating:shutdown-proof",
+            started_at=started_at,
+        )
+        resting = BehaviorEvent(
+            subject_id="dog_001",
+            behavior_type="resting",
+            source_camera_event_id=camera.id,
+            source_sensor_reading_id=sensor.id,
+            source_key="resting:shutdown-proof",
+            started_at=started_at,
+        )
+        session.add_all([eating, resting])
+        session.flush()
+        session.add(
+            RestSession(
+                subject_id="dog_001",
+                behavior_event_id=resting.id,
+                started_at=started_at,
+                last_confirmed_at=last_evidence_at,
+            )
+        )
+        session.commit()
+
+    class CameraAvailability:
+        def available_for(self, _start: datetime, _end: datetime) -> bool:
+            return True
+
+    class Scheduler:
+        effective_monotonic = 110.0
+
+    engine = rules.RuleEngine(config=AppConfig(database_url=database_url), camera_service=CameraAvailability())
+    engine.eating.mark_open(
+        rules.OpenEating("dog_001", started_at, camera.id, sensor.id, "eating:shutdown-proof")
+    )
+    engine.eating.last_inside_at = last_evidence_at
+    engine.eating.last_jointly_fresh_at = last_evidence_at
+    engine.rest.mark_open(
+        rules.OpenRest("dog_001", started_at, camera.id, sensor.id, "resting:shutdown-proof")
+    )
+    engine.rest.last_confirmed_at = last_evidence_at
+    engine.bed.load_calibration(
+        bed.CalibrationSnapshot(
+            started_at - timedelta(seconds=60),
+            started_at,
+            (45, 45, 45),
+            (100.0, 100.0, 100.0),
+            (1, 1, 1),
+            (40, 40, 40),
+            450,
+            250,
+        ),
+        restart=True,
+    )
+    for channel in ("left", "center", "right"):
+        engine.bed.observe_pressure(
+            bed.PressureFact(sensor.id, channel, 300, shutdown_at, shutdown_at, 110.0)
+        )
+    engine.bed.observe_camera(
+        bed.CameraFact(shutdown_at, shutdown_at, 110.0, ("dog_001",), "dog_001", {"dog_001": camera.id})
+    )
+
+    with sessions() as session:
+        engine.controlled_shutdown(session, shutdown_at, Scheduler())
+    with sessions() as session:
+        eating_row = session.execute(
+            select(BehaviorEvent).where(BehaviorEvent.behavior_type == "eating")
+        ).scalar_one()
+        resting_row = session.execute(
+            select(BehaviorEvent).where(BehaviorEvent.behavior_type == "resting")
+        ).scalar_one()
+        rest_row = session.execute(select(RestSession)).scalar_one()
+    database.dispose()
+
+    assert (eating_row.ended_at, eating_row.duration_seconds) == (last_evidence_at, 5)
+    assert (resting_row.ended_at, resting_row.duration_seconds) == (shutdown_at, 10)
+    assert (rest_row.ended_at, rest_row.duration_seconds, rest_row.close_reason) == (
+        shutdown_at,
+        10,
+        "shutdown",
+    )
+    assert engine.eating.open_subject_id is None
+    assert engine.rest.owner is None

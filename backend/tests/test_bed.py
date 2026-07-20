@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from app.config import AppConfig
 from app.contracts import BedCalibrationError
 
@@ -98,7 +100,22 @@ def test_pressure_bootstrap_candidates_and_unavailable_reset_are_exact() -> None
     assert state.evaluate(at + timedelta(seconds=3, microseconds=1), 22.000001).pressure_state == "unavailable"
 
 
-def test_camera_confirmed_is_true_only_for_confirmed_rest_fusion() -> None:
+@pytest.mark.parametrize(
+    ("raw", "subjects", "fusion_state", "camera_confirmed"),
+    (
+        (100, None, "unavailable", False),
+        (100, (), "empty", False),
+        (100, ("dog_001",), "sensor_check", False),
+        (300, (), "unconfirmed_pressure", False),
+        (300, ("dog_001",), "confirmed_rest", True),
+    ),
+)
+def test_camera_confirmed_matches_full_fusion_truth_table(
+    raw: int,
+    subjects: tuple[str, ...] | None,
+    fusion_state: str,
+    camera_confirmed: bool,
+) -> None:
     bed = importlib.import_module("app.bed")
     now = datetime(2026, 7, 20, 3, 0, tzinfo=UTC)
     calibration = bed.CalibrationSnapshot(
@@ -112,17 +129,18 @@ def test_camera_confirmed_is_true_only_for_confirmed_rest_fusion() -> None:
         exit_threshold=250,
     )
     state = bed.BedState()
-    state.load_calibration(calibration, restart=False)
+    state.load_calibration(calibration, restart=True)
     for channel in ("left", "center", "right"):
-        state.observe_pressure(bed.PressureFact(1, channel, 300, now, now, 1.0))
-    state.observe_camera(bed.CameraFact(now, now, 1.0, ("dog_001",), "dog_001", {"dog_001": 9}))
+        state.observe_pressure(bed.PressureFact(1, channel, raw, now, now, 1.0))
+    if subjects is not None:
+        selected = subjects[0] if subjects else None
+        state.observe_camera(
+            bed.CameraFact(now, now, 1.0, subjects, selected, {"dog_001": 9} if selected else {})
+        )
 
-    confirmed = state.evaluate(now + timedelta(seconds=2), 3.0)
-    assert (confirmed.fusion_state, confirmed.camera_confirmed) == ("confirmed_rest", True)
+    evaluation = state.evaluate(now, 1.0)
 
-    state.observe_camera(bed.CameraFact(now + timedelta(seconds=2), now + timedelta(seconds=2), 3.0, (), None, {}))
-    mismatch = state.evaluate(now + timedelta(seconds=2), 3.0)
-    assert (mismatch.fusion_state, mismatch.camera_confirmed) == ("unconfirmed_pressure", False)
+    assert (evaluation.fusion_state, evaluation.camera_confirmed) == (fusion_state, camera_confirmed)
 
 
 def test_successful_calibration_is_immediately_ready_and_empty() -> None:
