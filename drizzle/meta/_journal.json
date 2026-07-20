@@ -1,5 +1,13 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "entries": []
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1784530907355,
+      "tag": "0000_petcare_tenancy",
+      "breakpoints": true
+    }
+  ]
 }
