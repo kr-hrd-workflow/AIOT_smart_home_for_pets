@@ -55,12 +55,21 @@ function sevenDayCopy(data: DashboardData) {
   return `7일 평균 대비 ${Math.abs(comparison.percent_change ?? 0).toFixed(1)}% ${direction}`;
 }
 
+type DashboardCamera = { src: string; alt: string };
+
+const demoCamera: DashboardCamera = {
+  src: "/demo-camera.webp",
+  alt: "반려동물 침대와 급식 구역 데모 카메라",
+};
+
 export function Dashboard({
   data,
   mode = "demo",
+  camera = demoCamera,
 }: {
   data: DashboardData;
   mode?: DashboardMode;
+  camera?: DashboardCamera;
 }) {
   const byType = new Map(data.latest_sensors.map((sensor) => [sensor.sensor_type, sensor]));
   const currentRest = data.behaviors.find(
@@ -111,7 +120,7 @@ export function Dashboard({
             <section id="camera" className="camera-section" data-dashboard-section="camera">
               <SectionHeading title="카메라 확인" meta="640 × 480" />
               <div className="camera-frame">
-                <img src="/demo-camera.webp" width="640" height="480" alt="반려동물 침대와 급식 구역 데모 카메라" />
+                <img src={camera.src} width="640" height="480" alt={camera.alt} />
                 {data.zones.map((zone) => (
                   <div
                     className={`zone zone-${zone.zone_name}`}
