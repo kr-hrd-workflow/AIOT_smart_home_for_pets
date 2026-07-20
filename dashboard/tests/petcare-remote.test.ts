@@ -5,21 +5,30 @@ import {
   createPetCareRemoteClient,
   createPetCareRemoteMedia,
 } from "../lib/petcare-remote";
+import { demoDashboardData } from "../lib/demo-data";
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("createPetCareRemote", () => {
   it("uses same-origin BFF routes and cookies", async () => {
+    const clip = {
+      id: "clip-1",
+      camera_id: "camera-1",
+      event_types: ["resting"],
+      started_at: "2026-07-20T01:00:00Z",
+      ended_at: "2026-07-20T01:00:30Z",
+      expires_at: "2026-07-27T01:00:00Z",
+    };
     const fetchMock = vi
       .fn()
       .mockResolvedValue(
-        new Response(JSON.stringify({ clips: [] }), { status: 200 }),
+        new Response(JSON.stringify({ clips: [clip] }), { status: 200 }),
       );
     vi.stubGlobal("fetch", fetchMock);
 
     const client = createPetCareRemoteClient();
     const media = createPetCareRemoteMedia();
-    await client.getClips();
+    await expect(client.getClips()).resolves.toEqual([clip]);
 
     expect(fetchMock).toHaveBeenCalledWith("/api/petcare/clips", {
       credentials: "same-origin",
@@ -178,6 +187,172 @@ describe("createPetCareRemote", () => {
       createPetCareRemoteClient().getStatus(),
     ).rejects.toMatchObject({ status: 503, offline: undefined });
   });
+
+  it("accepts a complete valid dashboard status", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            home: { id: "home-1", state: "ready" },
+            agent: {
+              id: "agent-1",
+              state: "online",
+              last_seen_at: "2026-07-20T01:00:00Z",
+            },
+            camera: {
+              id: "camera-1",
+              state: "online",
+              last_seen_at: "2026-07-20T01:00:00Z",
+            },
+            dashboard: demoDashboardData,
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    await expect(createPetCareRemoteClient().getStatus()).resolves.toMatchObject({
+      home: { id: "home-1", state: "ready" },
+      dashboard: { generated_at: demoDashboardData.generated_at },
+    });
+  });
+
+  const validStatus = (dashboard: unknown = demoDashboardData) => ({
+    home: { id: "home-1", state: "ready" },
+    agent: {
+      id: "agent-1",
+      state: "online",
+      last_seen_at: "2026-07-20T01:00:00Z",
+    },
+    camera: {
+      id: "camera-1",
+      state: "online",
+      last_seen_at: "2026-07-20T01:00:00Z",
+    },
+    dashboard,
+  });
+
+  const malformedStatuses: Array<[string, unknown]> = [
+    [
+      "device",
+      validStatus({
+        ...demoDashboardData,
+        devices: [
+          { ...demoDashboardData.devices[0], device_id: {} },
+          demoDashboardData.devices[1],
+        ],
+      }),
+    ],
+    [
+      "sensor",
+      validStatus({
+        ...demoDashboardData,
+        latest_sensors: [
+          { ...demoDashboardData.latest_sensors[0], value: "23.8" },
+          ...demoDashboardData.latest_sensors.slice(1),
+        ],
+      }),
+    ],
+    [
+      "behavior",
+      validStatus({
+        ...demoDashboardData,
+        behaviors: [
+          { ...demoDashboardData.behaviors[0], duration_seconds: "42" },
+          ...demoDashboardData.behaviors.slice(1),
+        ],
+      }),
+    ],
+    [
+      "anomaly",
+      validStatus({
+        ...demoDashboardData,
+        anomalies: [
+          { ...demoDashboardData.anomalies[0], severity: "critical" },
+          ...demoDashboardData.anomalies.slice(1),
+        ],
+      }),
+    ],
+    [
+      "zone",
+      validStatus({
+        ...demoDashboardData,
+        zones: [
+          { ...demoDashboardData.zones[0], x1: "0" },
+          demoDashboardData.zones[1],
+        ],
+      }),
+    ],
+    [
+      "bed channel",
+      validStatus({
+        ...demoDashboardData,
+        bed: {
+          ...demoDashboardData.bed,
+          channels: [
+            { ...demoDashboardData.bed.channels[0], available: "yes" },
+            ...demoDashboardData.bed.channels.slice(1),
+          ],
+        },
+      }),
+    ],
+    [
+      "health",
+      validStatus({
+        ...demoDashboardData,
+        health: { ...demoDashboardData.health, database: "unknown" },
+      }),
+    ],
+    [
+      "camera",
+      validStatus({
+        ...demoDashboardData,
+        camera: { ...demoDashboardData.camera, fps: "11.8" },
+      }),
+    ],
+    [
+      "seven day comparison",
+      validStatus({
+        ...demoDashboardData,
+        bed: {
+          ...demoDashboardData.bed,
+          seven_day: {
+            ...demoDashboardData.bed.seven_day,
+            complete_days: "7",
+          },
+        },
+      }),
+    ],
+    [
+      "calibration",
+      validStatus({
+        ...demoDashboardData,
+        calibration: { ...demoDashboardData.calibration, channels: ["up"] },
+      }),
+    ],
+    [
+      "extra owner key",
+      validStatus({ ...demoDashboardData, owner_id: "owner-1" }),
+    ],
+    ["extra secret key", { ...validStatus(), secret: "must-not-pass" }],
+  ];
+
+  it.each(malformedStatuses)(
+    "rejects malformed nested dashboard %s",
+    async (_name, body) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify(body), { status: 200 }),
+        ),
+      );
+
+      await expect(createPetCareRemoteClient().getStatus()).rejects.toMatchObject(
+        { status: 200 },
+      );
+    },
+  );
 
   it("forwards polling abort and sends the password only to account deletion", async () => {
     const fetchMock = vi
