@@ -52,6 +52,14 @@ function isObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function hasExactKeys(
+  value: unknown,
+  keys: readonly string[],
+): value is JsonObject {
+  if (!isObject(value) || Object.keys(value).length !== keys.length) return false;
+  return keys.every((key) => Object.prototype.hasOwnProperty.call(value, key));
+}
+
 function isNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
@@ -68,59 +76,285 @@ function isOneOf(value: unknown, choices: readonly string[]): boolean {
   return typeof value === "string" && choices.includes(value);
 }
 
-function isDashboard(value: unknown): value is DashboardData {
-  if (!isObject(value)) return false;
-  const { health, camera, bed, calibration } = value;
+function isDevice(value: unknown): boolean {
   return (
-    typeof value.generated_at === "string" &&
-    isObject(health) &&
-    isOneOf(health.status, ["healthy", "degraded"]) &&
-    Array.isArray(value.devices) &&
-    value.devices.every(isObject) &&
-    Array.isArray(value.latest_sensors) &&
-    value.latest_sensors.every(isObject) &&
-    isObject(camera) &&
-    isOneOf(camera.state, ["online", "offline"]) &&
-    isNumber(camera.fps) &&
-    isNumber(camera.inference_ms) &&
-    isObject(bed) &&
-    Array.isArray(bed.channels) &&
-    bed.channels.length === 3 &&
-    bed.channels.every(isObject) &&
-    isNumber(bed.current_rest_seconds) &&
-    isNumber(bed.today_rest_seconds) &&
-    isNumber(bed.nighttime_exit_count) &&
-    isObject(bed.seven_day) &&
-    isOneOf(bed.seven_day.status, [
+    hasExactKeys(value, ["device_id", "status", "last_seen_at"]) &&
+    isOneOf(value.device_id, ["entrance-01", "petzone-01"]) &&
+    isOneOf(value.status, ["online", "offline", "unknown"]) &&
+    isNullableString(value.last_seen_at)
+  );
+}
+
+function isSensor(value: unknown): boolean {
+  return (
+    hasExactKeys(value, [
+      "id",
+      "device_id",
+      "sensor_type",
+      "value",
+      "unit",
+      "observed_at",
+    ]) &&
+    isNumber(value.id) &&
+    isOneOf(value.device_id, ["entrance-01", "petzone-01"]) &&
+    isOneOf(value.sensor_type, [
+      "temperature",
+      "humidity",
+      "presence_moving",
+      "presence_stationary",
+      "food_weight",
+      "water_weight",
+      "bed_pressure_left",
+      "bed_pressure_center",
+      "bed_pressure_right",
+    ]) &&
+    (isNumber(value.value) || typeof value.value === "boolean") &&
+    isOneOf(value.unit, ["C", "%", "bool", "g", "adc"]) &&
+    typeof value.observed_at === "string"
+  );
+}
+
+function isBehavior(value: unknown): boolean {
+  return (
+    hasExactKeys(value, [
+      "id",
+      "subject_id",
+      "behavior_type",
+      "started_at",
+      "ended_at",
+      "duration_seconds",
+    ]) &&
+    isNumber(value.id) &&
+    isOneOf(value.subject_id, ["dog_001", "cat_001"]) &&
+    isOneOf(value.behavior_type, ["eating", "resting"]) &&
+    typeof value.started_at === "string" &&
+    isNullableString(value.ended_at) &&
+    isNullableNumber(value.duration_seconds)
+  );
+}
+
+function isAnomaly(value: unknown): boolean {
+  return (
+    hasExactKeys(value, [
+      "id",
+      "subject_id",
+      "anomaly_type",
+      "severity",
+      "mismatch_kind",
+      "message",
+      "occurred_at",
+    ]) &&
+    isNumber(value.id) &&
+    (value.subject_id === null ||
+      isOneOf(value.subject_id, ["dog_001", "cat_001"])) &&
+    isOneOf(value.anomaly_type, ["no_meal_12h", "bed_sensor_mismatch"]) &&
+    value.severity === "warning" &&
+    (value.mismatch_kind === null ||
+      isOneOf(value.mismatch_kind, ["unconfirmed_pressure", "sensor_check"])) &&
+    typeof value.message === "string" &&
+    typeof value.occurred_at === "string"
+  );
+}
+
+function isCameraStatus(value: unknown): boolean {
+  return (
+    hasExactKeys(value, [
+      "state",
+      "fps",
+      "inference_ms",
+      "last_frame_at",
+      "reason",
+    ]) &&
+    isOneOf(value.state, ["online", "offline"]) &&
+    isNumber(value.fps) &&
+    isNumber(value.inference_ms) &&
+    isNullableString(value.last_frame_at) &&
+    isNullableString(value.reason)
+  );
+}
+
+function isBedChannel(value: unknown): boolean {
+  return (
+    hasExactKeys(value, [
+      "channel",
+      "raw",
+      "baseline",
+      "delta",
+      "polarity",
+      "available",
+      "observed_at",
+    ]) &&
+    isOneOf(value.channel, ["left", "center", "right"]) &&
+    isNullableNumber(value.raw) &&
+    isNullableNumber(value.baseline) &&
+    isNullableNumber(value.delta) &&
+    (value.polarity === null || value.polarity === -1 || value.polarity === 1) &&
+    typeof value.available === "boolean" &&
+    isNullableString(value.observed_at)
+  );
+}
+
+function isSevenDay(value: unknown): boolean {
+  return (
+    hasExactKeys(value, [
+      "status",
+      "today_seconds",
+      "baseline_seconds",
+      "difference_seconds",
+      "percent_change",
+      "complete_days",
+    ]) &&
+    isOneOf(value.status, [
       "insufficient_data",
       "zero_baseline",
       "ready",
     ]) &&
-    isNullableNumber(bed.seven_day.difference_seconds) &&
-    isNullableNumber(bed.seven_day.percent_change) &&
-    isNumber(bed.seven_day.complete_days) &&
+    isNumber(value.today_seconds) &&
+    isNullableNumber(value.baseline_seconds) &&
+    isNullableNumber(value.difference_seconds) &&
+    isNullableNumber(value.percent_change) &&
+    isNumber(value.complete_days)
+  );
+}
+
+function isBed(value: unknown): boolean {
+  return (
+    hasExactKeys(value, [
+      "device_id",
+      "sensor_state",
+      "pressure_state",
+      "fusion_state",
+      "camera_confirmed",
+      "channels",
+      "current_rest_seconds",
+      "today_rest_seconds",
+      "nighttime_exit_count",
+      "seven_day",
+      "calibrated_at",
+    ]) &&
+    value.device_id === "petzone-01" &&
+    isOneOf(value.sensor_state, ["unavailable", "uncalibrated", "ready"]) &&
+    isOneOf(value.pressure_state, [
+      "unavailable",
+      "uncalibrated",
+      "empty",
+      "occupied",
+    ]) &&
+    isOneOf(value.fusion_state, [
+      "unavailable",
+      "empty",
+      "confirmed_rest",
+      "unconfirmed_pressure",
+      "sensor_check",
+    ]) &&
+    typeof value.camera_confirmed === "boolean" &&
+    Array.isArray(value.channels) &&
+    value.channels.length === 3 &&
+    value.channels.every(isBedChannel) &&
+    isNumber(value.current_rest_seconds) &&
+    isNumber(value.today_rest_seconds) &&
+    isNumber(value.nighttime_exit_count) &&
+    isSevenDay(value.seven_day) &&
+    isNullableString(value.calibrated_at)
+  );
+}
+
+function isHealth(value: unknown): boolean {
+  return (
+    hasExactKeys(value, [
+      "status",
+      "database",
+      "mqtt",
+      "camera",
+      "queue",
+      "worker",
+    ]) &&
+    isOneOf(value.status, ["healthy", "degraded"]) &&
+    isOneOf(value.database, ["up", "down"]) &&
+    isOneOf(value.mqtt, ["up", "down", "disabled"]) &&
+    isOneOf(value.camera, ["online", "offline"]) &&
+    isOneOf(value.queue, ["ok", "full"]) &&
+    isOneOf(value.worker, ["running", "stopped"])
+  );
+}
+
+function isZone(value: unknown): boolean {
+  return (
+    hasExactKeys(value, [
+      "zone_name",
+      "x1",
+      "y1",
+      "x2",
+      "y2",
+      "enabled",
+      "updated_at",
+    ]) &&
+    isOneOf(value.zone_name, ["food_bowl", "pet_bed"]) &&
+    isNumber(value.x1) &&
+    isNumber(value.y1) &&
+    isNumber(value.x2) &&
+    isNumber(value.y2) &&
+    typeof value.enabled === "boolean" &&
+    typeof value.updated_at === "string"
+  );
+}
+
+function isCalibration(value: unknown): boolean {
+  return (
+    hasExactKeys(value, ["phase", "code", "channels", "message"]) &&
+    isOneOf(value.phase, ["idle", "submitting", "success", "disabled", "error"]) &&
+    (value.code === null ||
+      isOneOf(value.code, [
+        "insufficient_samples",
+        "occupied",
+        "unstable",
+        "camera_unavailable",
+        "sensor_unavailable",
+      ])) &&
+    Array.isArray(value.channels) &&
+    value.channels.every((channel) =>
+      isOneOf(channel, ["left", "center", "right"]),
+    ) &&
+    typeof value.message === "string"
+  );
+}
+
+function isDashboard(value: unknown): value is DashboardData {
+  return (
+    hasExactKeys(value, [
+      "generated_at",
+      "health",
+      "devices",
+      "latest_sensors",
+      "camera",
+      "bed",
+      "behaviors",
+      "anomalies",
+      "zones",
+      "calibration",
+    ]) &&
+    typeof value.generated_at === "string" &&
+    isHealth(value.health) &&
+    Array.isArray(value.devices) &&
+    value.devices.every(isDevice) &&
+    Array.isArray(value.latest_sensors) &&
+    value.latest_sensors.every(isSensor) &&
+    isCameraStatus(value.camera) &&
+    isBed(value.bed) &&
     Array.isArray(value.behaviors) &&
-    value.behaviors.every(isObject) &&
+    value.behaviors.every(isBehavior) &&
     Array.isArray(value.anomalies) &&
-    value.anomalies.every(isObject) &&
+    value.anomalies.every(isAnomaly) &&
     Array.isArray(value.zones) &&
     value.zones.length === 2 &&
-    value.zones.every(isObject) &&
-    isObject(calibration) &&
-    isOneOf(calibration.phase, [
-      "idle",
-      "submitting",
-      "success",
-      "disabled",
-      "error",
-    ]) &&
-    typeof calibration.message === "string"
+    value.zones.every(isZone) &&
+    isCalibration(value.calibration)
   );
 }
 
 function isEnrollment(value: unknown): value is Enrollment {
   return (
-    isObject(value) &&
+    hasExactKeys(value, ["code", "expiresAt"]) &&
     typeof value.code === "string" &&
     typeof value.expiresAt === "string"
   );
@@ -128,7 +362,7 @@ function isEnrollment(value: unknown): value is Enrollment {
 
 function isConnection(value: unknown): boolean {
   return (
-    isObject(value) &&
+    hasExactKeys(value, ["id", "state", "last_seen_at"]) &&
     typeof value.id === "string" &&
     value.state === "online" &&
     typeof value.last_seen_at === "string"
@@ -137,8 +371,8 @@ function isConnection(value: unknown): boolean {
 
 function isStatus(value: unknown): value is PetCareStatus {
   return (
-    isObject(value) &&
-    isObject(value.home) &&
+    hasExactKeys(value, ["home", "agent", "camera", "dashboard"]) &&
+    hasExactKeys(value.home, ["id", "state"]) &&
     typeof value.home.id === "string" &&
     isOneOf(value.home.state, ["ready", "needs_enrollment"]) &&
     (value.agent === null || isConnection(value.agent)) &&
@@ -149,7 +383,14 @@ function isStatus(value: unknown): value is PetCareStatus {
 
 function isClip(value: unknown): value is PetCareClip {
   return (
-    isObject(value) &&
+    hasExactKeys(value, [
+      "id",
+      "camera_id",
+      "event_types",
+      "started_at",
+      "ended_at",
+      "expires_at",
+    ]) &&
     typeof value.id === "string" &&
     typeof value.camera_id === "string" &&
     Array.isArray(value.event_types) &&
@@ -164,7 +405,7 @@ function isClip(value: unknown): value is PetCareClip {
 
 function isClipList(value: unknown): value is { clips: PetCareClip[] } {
   return (
-    isObject(value) &&
+    hasExactKeys(value, ["clips"]) &&
     Array.isArray(value.clips) &&
     value.clips.every(isClip)
   );
@@ -172,7 +413,12 @@ function isClipList(value: unknown): value is { clips: PetCareClip[] } {
 
 function isAgentOffline(value: unknown): value is AgentOffline {
   return (
-    isObject(value) &&
+    hasExactKeys(value, [
+      "code",
+      "agent_id",
+      "camera_id",
+      "last_seen_at",
+    ]) &&
     value.code === "agent_offline" &&
     isNullableString(value.agent_id) &&
     isNullableString(value.camera_id) &&
@@ -181,7 +427,7 @@ function isAgentOffline(value: unknown): value is AgentOffline {
 }
 
 function isCleanupPending(value: unknown): value is AccountDeletionAccepted {
-  return isObject(value) && value.status === "cleanup_pending";
+  return hasExactKeys(value, ["status"]) && value.status === "cleanup_pending";
 }
 
 class PetCareRemoteError extends Error {
