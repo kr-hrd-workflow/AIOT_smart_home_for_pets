@@ -14,6 +14,7 @@ function(add_petcare_node target profile_definition)
     add_executable(${target}
         src/main.cpp
         src/mqtt_publisher.cpp
+        src/sensors.cpp
         ../src/pet_node.cpp
     )
     target_include_directories(${target} PRIVATE include ../include)
@@ -23,6 +24,9 @@ function(add_petcare_node target profile_definition)
         pico_cyw43_arch_lwip_threadsafe_background
         pico_lwip_mqtt
         pico_lwip_sntp
+        hardware_adc
+        hardware_i2c
+        hardware_uart
     )
     pico_enable_stdio_usb(${target} 1)
     pico_enable_stdio_uart(${target} 0)

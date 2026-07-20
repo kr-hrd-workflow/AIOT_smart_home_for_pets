@@ -1,6 +1,7 @@
 #include "mqtt_publisher.hpp"
 #include "petcare_config.hpp"
 #include "petcare_secrets.hpp"
+#include "sensors.hpp"
 
 #include "lwip/apps/sntp.h"
 #include "pico/cyw43_arch.h"
@@ -63,6 +64,11 @@ int main() {
         return 1;
     }
     cyw43_arch_enable_sta_mode();
+
+    petcare::SensorHardware sensor_hardware;
+    if (!sensor_hardware.init()) {
+        return 1;
+    }
 
     petcare::ReconnectBackoff wifi_backoff;
     petcare::ReconnectBackoff mqtt_backoff;
@@ -127,7 +133,7 @@ int main() {
         }
         mqtt_backoff.reset();
 
-        petcare::HeartbeatSchedule heartbeat;
+        petcare::SensorSchedule sensor_schedule{petcare::config::device_profile, sensor_hardware.source()};
         petcare::TelemetryMessage status{};
         std::uint64_t status_utc_ms = 0;
         auto now_ms = monotonic_ms();
@@ -138,7 +144,7 @@ int main() {
             continue;
         }
         clock.mark_published(status_utc_ms);
-        heartbeat.connected(now_ms);
+        sensor_schedule.start(static_cast<std::uint32_t>(now_ms));
         auto next_resync_ms = now_ms + petcare::UtcClock::resync_ms;
         next_sync_attempt_ms = 0;
 
@@ -153,11 +159,34 @@ int main() {
                 clock.synchronize(wall_clock_ms(), now_ms);
                 next_sync_attempt_ms = now_ms + petcare::UtcClock::retry_ms;
             }
-            if (heartbeat.due(now_ms)) {
-                heartbeat.emitted(now_ms);
-                if (make_status(clock, petcare::DeviceState::online, now_ms, status, status_utc_ms) &&
-                    publisher.publish_status(status)) {
-                    clock.mark_published(status_utc_ms);
+            petcare::ScheduledOutput scheduled{};
+            while (sensor_schedule.next_due(static_cast<std::uint32_t>(now_ms), scheduled)) {
+                const auto due_ms = now_ms - static_cast<std::uint32_t>(
+                    static_cast<std::uint32_t>(now_ms) - scheduled.due_ms
+                );
+                std::array<char, 25> observed_at{};
+                std::uint64_t utc_ms = 0;
+                if (!clock.timestamp(due_ms, observed_at, utc_ms)) {
+                    continue;
+                }
+                petcare::TelemetryMessage message{};
+                const bool published = scheduled.kind == petcare::OutputKind::status
+                    ? petcare::serialize_status_message(
+                          {petcare::config::device_id, petcare::DeviceState::online, {observed_at.data(), 24}},
+                          message
+                      ) && publisher.publish_status(message)
+                    : petcare::serialize_sensor_message(
+                          {
+                              petcare::config::device_id,
+                              scheduled.sensor_type,
+                              scheduled.value,
+                              scheduled.unit,
+                              {observed_at.data(), 24},
+                          },
+                          message
+                      ) && publisher.publish_sensor(message);
+                if (published) {
+                    clock.mark_published(utc_ms);
                 }
             }
             sleep_ms(10);
