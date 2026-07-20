@@ -409,6 +409,76 @@ def test_failed_deadline_retries_before_a_later_deadline_under_silence() -> None
     assert committed == published == ["first", "later"]
 
 
+def test_shutdown_releases_retained_capacity_ticket_after_persistent_current_failure() -> None:
+    rule_worker = importlib.import_module("app.rule_worker")
+    clock = FakeClock()
+    ingress = RuleIngress(clock, capacity=1)
+    first_failed = threading.Event()
+    recover = threading.Event()
+    calls: list[int | str] = []
+    committed: list[int] = []
+    resolved: list[int] = []
+
+    class Session:
+        def close(self) -> None:
+            pass
+
+    class Engine:
+        def startup(self, *_args: object) -> None:
+            pass
+
+        def apply(self, _session: object, event: SensorReadingCommitted, *_args: object) -> None:
+            calls.append(event.reading_id)
+            if not recover.is_set():
+                first_failed.set()
+                raise RuntimeError("persistent commit failure")
+            committed.append(event.reading_id)
+
+        def controlled_shutdown(self, *_args: object) -> None:
+            calls.append("shutdown")
+
+    def event(reading_id: int) -> SensorReadingCommitted:
+        return SensorReadingCommitted(
+            reading_id=reading_id,
+            device_id="petzone-01",
+            sensor_type="food_weight",
+            observed_at=NOW,
+        )
+
+    def resolve_third() -> None:
+        ingress.resolve_committed(third, event(3))
+        resolved.append(3)
+
+    worker = rule_worker.RuleWorker(ingress=ingress, clock=clock, session_factory=Session, engine=Engine())
+    worker.start()
+    first = ingress.begin("mqtt")
+    ingress.resolve_committed(first, event(1))
+    assert first_failed.wait(1)
+    second = ingress.begin("mqtt")
+    ingress.resolve_committed(second, event(2))
+    third = ingress.begin("mqtt")
+    producer = threading.Thread(target=resolve_third)
+    producer.start()
+    time.sleep(0.05)
+    assert producer.is_alive()
+
+    shutdown = threading.Thread(target=worker.shutdown)
+    shutdown.start()
+    shutdown.join(1)
+    producer.join(0.1)
+    finished_without_recovery = not shutdown.is_alive() and not producer.is_alive()
+    if not finished_without_recovery:
+        recover.set()
+        shutdown.join(2)
+        producer.join(2)
+
+    assert finished_without_recovery
+    assert resolved == [3]
+    assert committed == []
+    assert list(dict.fromkeys(calls)) == [1, 2, 3, "shutdown"]
+    assert isinstance(worker.last_error, RuntimeError)
+
+
 @pytest.mark.parametrize(
     "key",
     ("eating_camera_stale", "eating_dwell:dog_001", "eating_rearm"),

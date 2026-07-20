@@ -92,7 +92,6 @@ class RuleWorker:
         self._thread: Thread | None = None
         self._started = Event()
         self._stopping = Event()
-        self._stop_marker: StopMarker | None = None
         self._startup_error: BaseException | None = None
         self._last_error: Exception | None = None
         self._deadlines: list[_Deadline] = []
@@ -159,13 +158,13 @@ class RuleWorker:
         if thread is None:
             return
         self._ingress.stop_accepting()
+        self._stopping.set()
         self._ingress.wait_until_admitted()
         try:
-            self._stop_marker = self._ingress.seal_stop()
+            self._ingress.seal_stop()
         except RuntimeError as error:
             if "already sealed" not in str(error):
                 raise
-        self._stopping.set()
         thread.join()
         self._thread = None
 
@@ -181,15 +180,11 @@ class RuleWorker:
             due = self._next_deadline_due()
             item = self._ingress.get_for_worker(due)
             if isinstance(item, DeadlineBarrier):
-                if not self._fire_through(item.due_monotonic):
-                    self._shutdown_after_failed_retry()
-                    return
+                self._fire_through(item.due_monotonic)
             elif isinstance(item, IngressTombstone):
                 continue
             elif isinstance(item, RuleEnvelope):
-                if not self._fire_before(item.received_at_monotonic):
-                    self._shutdown_after_failed_retry()
-                    return
+                self._fire_before(item.received_at_monotonic)
                 if not self._run_with_retry(
                     lambda: self._with_session(
                         lambda session: self._engine.apply(
@@ -197,20 +192,12 @@ class RuleWorker:
                         )
                     )
                 ):
-                    self._shutdown_after_failed_retry()
-                    return
-                if not self._fire_through(item.received_at_monotonic):
-                    self._shutdown_after_failed_retry()
-                    return
+                    continue
+                self._fire_through(item.received_at_monotonic)
             elif isinstance(item, IngressCommand):
-                if not self._fire_before(item.received_at_monotonic):
-                    item.future.cancel()
-                    self._shutdown_after_failed_retry()
-                    return
+                self._fire_before(item.received_at_monotonic)
                 if not item.future.set_running_or_notify_cancel():
-                    if not self._fire_through(item.received_at_monotonic):
-                        self._shutdown_after_failed_retry()
-                        return
+                    self._fire_through(item.received_at_monotonic)
                     continue
                 try:
                     result = self._with_session(
@@ -226,9 +213,7 @@ class RuleWorker:
                     item.future.set_exception(error)
                 else:
                     item.future.set_result(result)
-                if not self._fire_through(item.received_at_monotonic):
-                    self._shutdown_after_failed_retry()
-                    return
+                self._fire_through(item.received_at_monotonic)
             elif isinstance(item, StopMarker):
                 self._controlled_shutdown(item)
                 return
@@ -237,20 +222,20 @@ class RuleWorker:
         self._discard_cancelled()
         return self._deadlines[0].due_monotonic if self._deadlines else None
 
-    def _fire_before(self, boundary: float) -> bool:
-        return self._fire(boundary, inclusive=False)
+    def _fire_before(self, boundary: float) -> None:
+        self._fire(boundary, inclusive=False)
 
-    def _fire_through(self, boundary: float) -> bool:
-        return self._fire(boundary, inclusive=True)
+    def _fire_through(self, boundary: float) -> None:
+        self._fire(boundary, inclusive=True)
 
-    def _fire(self, boundary: float, *, inclusive: bool) -> bool:
+    def _fire(self, boundary: float, *, inclusive: bool) -> None:
         while True:
             self._discard_cancelled()
             if not self._deadlines:
-                return True
+                return
             deadline = self._deadlines[0]
             if deadline.due_monotonic > boundary or (deadline.due_monotonic == boundary and not inclusive):
-                return True
+                return
             if self._active.get((deadline.kind, deadline.key)) != deadline.insertion_order:
                 heapq.heappop(self._deadlines)
                 continue
@@ -270,7 +255,11 @@ class RuleWorker:
             finally:
                 self._effective_monotonic = None
             if not succeeded:
-                return False
+                identity = (deadline.kind, deadline.key)
+                if self._active.get(identity) == deadline.insertion_order:
+                    self._active.pop(identity, None)
+                    self._current.pop(identity, None)
+                return
             identity = (deadline.kind, deadline.key)
             if self._active.get(identity) == deadline.insertion_order:
                 self._active.pop(identity, None)
@@ -301,12 +290,6 @@ class RuleWorker:
                     return False
             else:
                 return True
-
-    def _shutdown_after_failed_retry(self) -> None:
-        marker = self._stop_marker
-        if marker is None:
-            raise RuntimeError("retry stopped without a sealed stop marker")
-        self._controlled_shutdown(marker)
 
     def _controlled_shutdown(self, marker: StopMarker) -> None:
         self._effective_monotonic = marker.received_at_monotonic
