@@ -192,6 +192,9 @@ def test_auth_and_agent_dependencies_are_exact() -> None:
 
     package = read_json(ROOT / "dashboard" / "package.json")
     package_lock = read_json(ROOT / "dashboard" / "package-lock.json")
+    assert package["scripts"]["test:d1"] == (
+        "vitest run tests/db tests/tenancy/repository.d1.test.ts"
+    )
     for name, version in sites.items():
         assert package["dependencies"][name] == version
         assert package_lock["packages"][""]["dependencies"][name] == version
