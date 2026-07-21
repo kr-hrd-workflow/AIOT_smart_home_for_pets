@@ -91,6 +91,8 @@ export const tunnelRoutes = sqliteTable("tunnel_routes", {
   accessAud: text("access_aud"),
   dnsRecordId: text("dns_record_id"),
   activationExpiresAt: text("activation_expires_at"),
+  leaseId: text("lease_id"),
+  leaseExpiresAt: text("lease_expires_at"),
   status: text("status", {
     enum: [
       "provisioning",
