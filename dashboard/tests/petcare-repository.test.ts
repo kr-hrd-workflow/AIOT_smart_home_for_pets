@@ -201,6 +201,29 @@ describe("PetCareRepository", () => {
     });
   });
 
+  it("returns only an exact tenant-scoped clip receipt", async () => {
+    await seedHome("a");
+    await seedHome("b");
+    const input = clip();
+    await repo.publishClip(input);
+
+    await expect(repo.findExactClip(input, now)).resolves.toEqual({
+      id: "clip-a",
+      createdAt: now,
+      expiresAt: "2026-07-27T00:00:00.000Z",
+    });
+    await expect(
+      repo.findExactClip({ ...input, homeId: "home-b", agentId: "agent-b", cameraId: "camera-b" }, now),
+    ).resolves.toBeNull();
+    await expect(
+      repo.findExactClip({
+        ...input,
+        events: [{ eventType: "resting", eventId: "event-a" }],
+      }, now),
+    ).resolves.toBeNull();
+    await expect(repo.findExactClip(input, input.expiresAt)).resolves.toBeNull();
+  });
+
   it("cannot attach events to another tenant's existing clip after a guarded insert rejects", async () => {
     await seedHome("a");
     await seedHome("b");

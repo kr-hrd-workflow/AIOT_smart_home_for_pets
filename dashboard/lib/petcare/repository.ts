@@ -41,6 +41,14 @@ export type PublishClipInput = {
   events: ClipEvent[];
 };
 
+export type ExactClipInput = Omit<PublishClipInput, "createdAt" | "expiresAt">;
+
+export type ClipReceipt = {
+  id: string;
+  createdAt: string;
+  expiresAt: string;
+};
+
 export type TunnelStatus =
   | "provisioning"
   | "activation_pending"
@@ -520,6 +528,59 @@ export class PetCareRepository {
       if (isConstraint(error)) throw new PetCareError(409, "clip_conflict");
       throw error;
     }
+  }
+
+  async findExactClip(input: ExactClipInput, now: string): Promise<ClipReceipt | null> {
+    const result = await this.db
+      .prepare(`
+        SELECT cl.id, cl.home_id, c.agent_id, cl.camera_id, cl.object_key,
+               cl.sha256, cl.size_bytes, cl.started_at, cl.ended_at,
+               cl.created_at, cl.expires_at, ce.event_type, ce.event_id
+        FROM clips cl
+        JOIN homes h ON h.id = cl.home_id AND h.deleted_at IS NULL
+        JOIN cameras c ON c.id = cl.camera_id AND c.home_id = cl.home_id
+        LEFT JOIN tenant_cleanup tc ON tc.home_id = cl.home_id
+        LEFT JOIN clip_events ce ON ce.clip_id = cl.id
+        WHERE cl.id = ? AND cl.home_id = ? AND cl.expires_at > ?
+          AND tc.home_id IS NULL
+        ORDER BY ce.event_type, ce.event_id
+      `)
+      .bind(input.id, input.homeId, now)
+      .all<{
+        id: string;
+        home_id: string;
+        agent_id: string;
+        camera_id: string;
+        object_key: string;
+        sha256: string;
+        size_bytes: number;
+        started_at: string;
+        ended_at: string;
+        created_at: string;
+        expires_at: string;
+        event_type: ClipEvent["eventType"] | null;
+        event_id: string | null;
+      }>();
+    const [row] = result.results;
+    if (!row) return null;
+    const events = result.results.flatMap((item) =>
+      item.event_type && item.event_id
+        ? [{ eventType: item.event_type, eventId: item.event_id }]
+        : [],
+    );
+    if (
+      row.agent_id !== input.agentId ||
+      row.camera_id !== input.cameraId ||
+      row.object_key !== input.objectKey ||
+      row.sha256 !== input.sha256 ||
+      row.size_bytes !== input.sizeBytes ||
+      row.started_at !== input.startedAt ||
+      row.ended_at !== input.endedAt ||
+      JSON.stringify(events) !== JSON.stringify(input.events)
+    ) {
+      return null;
+    }
+    return { id: row.id, createdAt: row.created_at, expiresAt: row.expires_at };
   }
 
   async listOwnedClips(homeId: string, now: string): Promise<OwnedClip[]> {
