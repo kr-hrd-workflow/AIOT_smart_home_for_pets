@@ -166,6 +166,30 @@ def test_runtime_file_is_protected_before_first_secret_byte(tmp_path: Path, monk
     assert output.stat().st_size > 0
 
 
+def test_atomic_writer_uses_the_acl_protected_exclusive_file_descriptor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = tmp_path / "agent.json"
+    protected_identity: list[tuple[int, int]] = []
+    written_identity: list[tuple[int, int]] = []
+    real_fdopen = os.fdopen
+
+    def observe_protected(path: Path, windows_identity_sid: str | None = None) -> None:
+        status = path.stat()
+        protected_identity.append((status.st_dev, status.st_ino))
+
+    def observe_written(descriptor: int, *args: object, **kwargs: object):
+        status = os.fstat(descriptor)
+        written_identity.append((status.st_dev, status.st_ino))
+        return real_fdopen(descriptor, *args, **kwargs)
+
+    monkeypatch.setattr("app.agent_config.protect_runtime_file", observe_protected)
+    monkeypatch.setattr("app.agent_config.os.fdopen", observe_written)
+    write_runtime_config(output, runtime_config(), windows_identity_sid="S-1-5-21-1000")
+
+    assert written_identity == protected_identity
+
+
 @pytest.mark.skipif(os.name != "posix", reason="POSIX mode assertion")
 def test_posix_runtime_file_is_mode_0600(tmp_path: Path) -> None:
     output = tmp_path / "agent.json"

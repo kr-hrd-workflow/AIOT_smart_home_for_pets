@@ -215,8 +215,6 @@ def write_runtime_config(
     descriptor: int | None = None
     try:
         descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        os.close(descriptor)
-        descriptor = None
         protect_runtime_file(temporary, windows_identity_sid)
         serialized = json.dumps(
             _runtime_payload(config),
@@ -224,7 +222,9 @@ def write_runtime_config(
             separators=(",", ":"),
             sort_keys=True,
         ).encode("utf-8")
-        with temporary.open("wb") as output:
+        output = os.fdopen(descriptor, "wb")
+        descriptor = None
+        with output:
             output.write(serialized)
             output.flush()
             os.fsync(output.fileno())
