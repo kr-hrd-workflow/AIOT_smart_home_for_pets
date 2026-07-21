@@ -161,6 +161,89 @@ export class CloudflareClient {
     ))!;
   }
 
+  async findTunnelByName(name: string): Promise<{ id: string } | null> {
+    const query = new URLSearchParams({ name, is_deleted: "false" });
+    const tunnels =
+      (await this.request<Array<{ id?: unknown; name?: unknown }>>(
+        `/accounts/${this.config.accountId}/cfd_tunnel?${query}`,
+        { method: "GET" },
+        true,
+      )) ?? [];
+    const id = tunnels.find(
+      (item) => item.name === name && typeof item.id === "string",
+    )?.id;
+    return typeof id === "string" ? { id } : null;
+  }
+
+  async findDnsRecordByHostname(
+    hostname: string,
+  ): Promise<{ id: string } | null> {
+    const query = new URLSearchParams([
+      ["type", "CNAME"],
+      ["name.exact", hostname],
+      ["match", "all"],
+    ]);
+    const records =
+      (await this.request<
+        Array<{ id?: unknown; name?: unknown; type?: unknown }>
+      >(
+        `/zones/${this.config.zoneId}/dns_records?${query}`,
+        { method: "GET" },
+        true,
+      )) ?? [];
+    const id = records.find(
+      (item) =>
+        item.name === hostname &&
+        item.type === "CNAME" &&
+        typeof item.id === "string",
+    )?.id;
+    return typeof id === "string" ? { id } : null;
+  }
+
+  async findAccessAppByDomain(
+    domain: string,
+  ): Promise<{ id: string; aud: string } | null> {
+    const query = new URLSearchParams({ domain, exact: "true" });
+    const apps =
+      (await this.request<
+        Array<{ id?: unknown; aud?: unknown; domain?: unknown }>
+      >(
+        `/accounts/${this.config.accountId}/access/apps?${query}`,
+        { method: "GET" },
+        true,
+      )) ?? [];
+    const app = apps.find(
+      (item) =>
+        item.domain === domain &&
+        typeof item.id === "string" &&
+        typeof item.aud === "string",
+    );
+    return typeof app?.id === "string" && typeof app.aud === "string"
+      ? { id: app.id, aud: app.aud }
+      : null;
+  }
+
+  async findAccessPolicyByName(
+    appId: string,
+    name = "PetCare Sites BFF",
+  ): Promise<{ id: string } | null> {
+    const policies =
+      (await this.request<
+        Array<{ id?: unknown; name?: unknown; decision?: unknown }>
+      >(
+        `/accounts/${this.config.accountId}/access/apps/${appId}/policies`,
+        { method: "GET" },
+        true,
+      )) ?? [];
+    const id = policies.find(
+      (item) =>
+        item.name === name &&
+        item.decision === "non_identity" &&
+        typeof item.id === "string",
+    )?.id;
+    return typeof id === "string" ? { id } : null;
+  }
+
   async deleteAccessPolicy(appId: string, policyId: string): Promise<void> {
     await this.delete(
       `/accounts/${this.config.accountId}/access/apps/${appId}/policies/${policyId}`,
