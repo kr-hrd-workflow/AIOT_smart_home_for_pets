@@ -371,6 +371,13 @@ class ClipWriter(object):
             self._active_frames = list(pre_roll)
             return self._existing_locked(command_id, canonical_body_sha256)
 
+    def lookup_receipt(self, command_id, canonical_body_sha256):
+        with self._lock:
+            self._ensure_open()
+            self._validate_command(command_id, canonical_body_sha256)
+            self._maintenance_locked(float(self.wall_clock()))
+            return self._existing_locked(command_id, canonical_body_sha256)
+
     def push(self, bucket, jpeg):
         with self._lock:
             self._ensure_open()
@@ -590,6 +597,18 @@ class ClipWriter(object):
     @property
     def command_count(self):
         return self._db.execute("SELECT COUNT(*) FROM commands").fetchone()[0]
+
+    @property
+    def clip_state(self):
+        with self._lock:
+            self._ensure_open()
+            if self._active_clip_id is not None:
+                return "recording"
+            row = self._db.execute(
+                "SELECT state FROM clips WHERE state IN ('finalizing','ready') "
+                "ORDER BY CASE state WHEN 'finalizing' THEN 0 ELSE 1 END LIMIT 1"
+            ).fetchone()
+            return row["state"] if row is not None else "idle"
 
     @property
     def last_error(self):

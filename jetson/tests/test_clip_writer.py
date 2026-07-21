@@ -203,6 +203,38 @@ class ClipWriterTest(unittest.TestCase):
         with self.assertRaisesRegex(ClipGone, "^clip_gone$"):
             self.put()
 
+    def test_lookup_receipt_returns_replay_or_none_and_preserves_conflict_and_gone(self):
+        self.assertIsNone(self.writer.lookup_receipt("a" * 32, "1" * 64))
+        self.fill_pre()
+        receipt = self.put()
+        self.assertEqual(self.writer.lookup_receipt("a" * 32, "1" * 64), receipt)
+        with self.assertRaisesRegex(CommandConflict, "^command_conflict$"):
+            self.writer.lookup_receipt("a" * 32, "2" * 64)
+        self.finish()
+        self.clock.value += 3600
+        with self.assertRaisesRegex(ClipGone, "^clip_gone$"):
+            self.writer.lookup_receipt("a" * 32, "1" * 64)
+        with self.assertRaisesRegex(ValueError, "^invalid_command_id$"):
+            self.writer.lookup_receipt("invalid", "1" * 64)
+
+    def test_clip_state_tracks_idle_recording_finalizing_and_ready(self):
+        self.writer.shutdown()
+        encoder = BlockingEncoder()
+        self.writer = ClipWriter(self.temporary.name, encoder, self.clock, self.monotonic, boot_id=BOOT_ID)
+        self.assertEqual(self.writer.clip_state, "idle")
+        self.fill_pre()
+        self.put()
+        self.assertEqual(self.writer.clip_state, "recording")
+        for bucket in range(1000, 1200):
+            self.writer.push(bucket, b"jpeg")
+        self.assertTrue(encoder.started.wait(1.0))
+        self.assertEqual(self.writer.clip_state, "finalizing")
+        encoder.release.set()
+        self.assertTrue(self.writer.wait_idle(2.0))
+        self.assertEqual(self.writer.clip_state, "ready")
+        self.writer.delete("a" * 32)
+        self.assertEqual(self.writer.clip_state, "idle")
+
     def test_clip_duration_limit_and_single_active_clip_do_not_mutate(self):
         self.fill_pre()
         self.put()
