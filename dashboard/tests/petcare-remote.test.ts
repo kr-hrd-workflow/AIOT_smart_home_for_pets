@@ -6,6 +6,13 @@ import {
   createPetCareRemoteMedia,
 } from "../lib/petcare-remote";
 import { demoDashboardData } from "../lib/demo-data";
+import type { DashboardSummary } from "../lib/types";
+
+const dashboardSummary = Object.fromEntries(
+  Object.entries(demoDashboardData).filter(
+    ([key]) => key !== "zones" && key !== "calibration",
+  ),
+) as unknown as DashboardSummary;
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -205,7 +212,7 @@ describe("createPetCareRemote", () => {
               state: "online",
               last_seen_at: "2026-07-20T01:00:00Z",
             },
-            dashboard: demoDashboardData,
+            dashboard: dashboardSummary,
           }),
           { status: 200 },
         ),
@@ -214,11 +221,11 @@ describe("createPetCareRemote", () => {
 
     await expect(createPetCareRemoteClient().getStatus()).resolves.toMatchObject({
       home: { id: "home-1", state: "ready" },
-      dashboard: { generated_at: demoDashboardData.generated_at },
+      dashboard: { generated_at: dashboardSummary.generated_at },
     });
   });
 
-  const validStatus = (dashboard: unknown = demoDashboardData) => ({
+  const validStatus = (dashboard: unknown = dashboardSummary) => ({
     home: { id: "home-1", state: "ready" },
     agent: {
       id: "agent-1",
@@ -237,47 +244,47 @@ describe("createPetCareRemote", () => {
     [
       "device",
       validStatus({
-        ...demoDashboardData,
+        ...dashboardSummary,
         devices: [
-          { ...demoDashboardData.devices[0], device_id: {} },
-          demoDashboardData.devices[1],
+          { ...dashboardSummary.devices[0], device_id: {} },
+          dashboardSummary.devices[1],
         ],
       }),
     ],
     [
       "sensor",
       validStatus({
-        ...demoDashboardData,
+        ...dashboardSummary,
         latest_sensors: [
-          { ...demoDashboardData.latest_sensors[0], value: "23.8" },
-          ...demoDashboardData.latest_sensors.slice(1),
+          { ...dashboardSummary.latest_sensors[0], value: "23.8" },
+          ...dashboardSummary.latest_sensors.slice(1),
         ],
       }),
     ],
     [
       "behavior",
       validStatus({
-        ...demoDashboardData,
+        ...dashboardSummary,
         behaviors: [
-          { ...demoDashboardData.behaviors[0], duration_seconds: "42" },
-          ...demoDashboardData.behaviors.slice(1),
+          { ...dashboardSummary.behaviors[0], duration_seconds: "42" },
+          ...dashboardSummary.behaviors.slice(1),
         ],
       }),
     ],
     [
       "anomaly",
       validStatus({
-        ...demoDashboardData,
+        ...dashboardSummary,
         anomalies: [
-          { ...demoDashboardData.anomalies[0], severity: "critical" },
-          ...demoDashboardData.anomalies.slice(1),
+          { ...dashboardSummary.anomalies[0], severity: "critical" },
+          ...dashboardSummary.anomalies.slice(1),
         ],
       }),
     ],
     [
-      "zone",
+      "extra zones key",
       validStatus({
-        ...demoDashboardData,
+        ...dashboardSummary,
         zones: [
           { ...demoDashboardData.zones[0], x1: "0" },
           demoDashboardData.zones[1],
@@ -287,12 +294,12 @@ describe("createPetCareRemote", () => {
     [
       "bed channel",
       validStatus({
-        ...demoDashboardData,
+        ...dashboardSummary,
         bed: {
-          ...demoDashboardData.bed,
+          ...dashboardSummary.bed,
           channels: [
-            { ...demoDashboardData.bed.channels[0], available: "yes" },
-            ...demoDashboardData.bed.channels.slice(1),
+            { ...dashboardSummary.bed.channels[0], available: "yes" },
+            ...dashboardSummary.bed.channels.slice(1),
           ],
         },
       }),
@@ -300,40 +307,48 @@ describe("createPetCareRemote", () => {
     [
       "health",
       validStatus({
-        ...demoDashboardData,
-        health: { ...demoDashboardData.health, database: "unknown" },
+        ...dashboardSummary,
+        health: { ...dashboardSummary.health, database: "unknown" },
       }),
     ],
     [
       "camera",
       validStatus({
-        ...demoDashboardData,
-        camera: { ...demoDashboardData.camera, fps: "11.8" },
+        ...dashboardSummary,
+        camera: { ...dashboardSummary.camera, fps: "11.8" },
       }),
     ],
     [
       "seven day comparison",
       validStatus({
-        ...demoDashboardData,
+        ...dashboardSummary,
         bed: {
-          ...demoDashboardData.bed,
+          ...dashboardSummary.bed,
           seven_day: {
-            ...demoDashboardData.bed.seven_day,
+            ...dashboardSummary.bed.seven_day,
             complete_days: "7",
           },
         },
       }),
     ],
     [
-      "calibration",
+      "extra calibration key",
       validStatus({
-        ...demoDashboardData,
-        calibration: { ...demoDashboardData.calibration, channels: ["up"] },
+        ...dashboardSummary,
+        calibration: { phase: "disabled", code: null, channels: ["up"], message: "extra" },
       }),
     ],
     [
+      "missing anomalies key",
+      validStatus(
+        Object.fromEntries(
+          Object.entries(dashboardSummary).filter(([key]) => key !== "anomalies"),
+        ),
+      ),
+    ],
+    [
       "extra owner key",
-      validStatus({ ...demoDashboardData, owner_id: "owner-1" }),
+      validStatus({ ...dashboardSummary, owner_id: "owner-1" }),
     ],
     ["extra secret key", { ...validStatus(), secret: "must-not-pass" }],
   ];

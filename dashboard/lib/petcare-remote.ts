@@ -1,4 +1,4 @@
-import type { DashboardData } from "./types";
+import type { DashboardSummary } from "./types";
 
 export type AgentOffline = {
   code: "agent_offline";
@@ -11,7 +11,7 @@ export type PetCareStatus = {
   home: { id: string; state: "ready" | "needs_enrollment" };
   agent: { id: string; state: "online"; last_seen_at: string } | null;
   camera: { id: string; state: "online"; last_seen_at: string } | null;
-  dashboard: DashboardData | null;
+  dashboard: DashboardSummary | null;
 };
 
 export type Enrollment = { code: string; expiresAt: string };
@@ -278,48 +278,7 @@ function isHealth(value: unknown): boolean {
   );
 }
 
-function isZone(value: unknown): boolean {
-  return (
-    hasExactKeys(value, [
-      "zone_name",
-      "x1",
-      "y1",
-      "x2",
-      "y2",
-      "enabled",
-      "updated_at",
-    ]) &&
-    isOneOf(value.zone_name, ["food_bowl", "pet_bed"]) &&
-    isNumber(value.x1) &&
-    isNumber(value.y1) &&
-    isNumber(value.x2) &&
-    isNumber(value.y2) &&
-    typeof value.enabled === "boolean" &&
-    typeof value.updated_at === "string"
-  );
-}
-
-function isCalibration(value: unknown): boolean {
-  return (
-    hasExactKeys(value, ["phase", "code", "channels", "message"]) &&
-    isOneOf(value.phase, ["idle", "submitting", "success", "disabled", "error"]) &&
-    (value.code === null ||
-      isOneOf(value.code, [
-        "insufficient_samples",
-        "occupied",
-        "unstable",
-        "camera_unavailable",
-        "sensor_unavailable",
-      ])) &&
-    Array.isArray(value.channels) &&
-    value.channels.every((channel) =>
-      isOneOf(channel, ["left", "center", "right"]),
-    ) &&
-    typeof value.message === "string"
-  );
-}
-
-function isDashboard(value: unknown): value is DashboardData {
+function isDashboardSummary(value: unknown): value is DashboardSummary {
   return (
     hasExactKeys(value, [
       "generated_at",
@@ -330,8 +289,6 @@ function isDashboard(value: unknown): value is DashboardData {
       "bed",
       "behaviors",
       "anomalies",
-      "zones",
-      "calibration",
     ]) &&
     typeof value.generated_at === "string" &&
     isHealth(value.health) &&
@@ -344,11 +301,7 @@ function isDashboard(value: unknown): value is DashboardData {
     Array.isArray(value.behaviors) &&
     value.behaviors.every(isBehavior) &&
     Array.isArray(value.anomalies) &&
-    value.anomalies.every(isAnomaly) &&
-    Array.isArray(value.zones) &&
-    value.zones.length === 2 &&
-    value.zones.every(isZone) &&
-    isCalibration(value.calibration)
+    value.anomalies.every(isAnomaly)
   );
 }
 
@@ -377,7 +330,7 @@ function isStatus(value: unknown): value is PetCareStatus {
     isOneOf(value.home.state, ["ready", "needs_enrollment"]) &&
     (value.agent === null || isConnection(value.agent)) &&
     (value.camera === null || isConnection(value.camera)) &&
-    (value.dashboard === null || isDashboard(value.dashboard))
+    (value.dashboard === null || isDashboardSummary(value.dashboard))
   );
 }
 

@@ -1,22 +1,6 @@
-"use client";
+import { RemoteDashboard } from "../components/remote-dashboard";
 
-import { useEffect, useState } from "react";
-
-import { Dashboard, selectDashboardMode } from "../components/dashboard";
-import { demoDashboardData } from "../lib/demo-data";
-import type { DashboardMode } from "../lib/types";
-
+export const dynamic = "force-dynamic";
 export default function Home() {
-  const [mode, setMode] = useState<DashboardMode>("demo");
-
-  useEffect(() => {
-    setMode(
-      selectDashboardMode(
-        window.location.pathname,
-        window.location.hostname,
-      ),
-    );
-  }, []);
-
-  return <Dashboard data={demoDashboardData} mode={mode} />;
+  return <RemoteDashboard />;
 }
