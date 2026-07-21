@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from threading import Event, Lock, Thread
 from typing import Callable
 
@@ -9,8 +9,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .config import AppConfig
-from .contracts import CameraStatus
+from .contracts import CameraDetectionIn, CameraStatus
 from .events import CameraFrameCommitted
+from .jetson_client import JetsonVisionClient
 from .models import Camera, CameraEvent, Zone
 from .rule_ingress import IngressTicket, RuleIngress
 from .vision import CameraUnavailable, FileFrameSource, ProcessedFrame, UsbFrameSource, VisionPipeline, YoloDetector
@@ -37,6 +38,9 @@ def build_camera_service(
         }
     finally:
         session.close()
+    if config.camera_source == "jetson":
+        assert config.jetson_config is not None
+        return CameraService(None, ingress, session_factory, JetsonVisionClient(config.jetson_config), zones)
     source = (
         FileFrameSource(config.camera_file_path)
         if config.camera_source == "file"
@@ -52,8 +56,14 @@ class CameraService:
         pipeline: VisionPipeline | None,
         ingress: RuleIngress | None,
         session_factory: Callable[[], Session] | None,
+        jetson_client: JetsonVisionClient | None = None,
+        zones: dict[str, tuple[int, int, int, int]] | None = None,
+        now: Callable[[], datetime] | None = None,
     ) -> None:
         self.pipeline = pipeline
+        self._jetson_client = jetson_client
+        self._zones = zones or {}
+        self._now = now or (lambda: datetime.now(UTC))
         self._ingress = ingress
         self._session_factory = session_factory
         self._stop = Event()
@@ -78,6 +88,10 @@ class CameraService:
         return self._worker
 
     @property
+    def jetson_client(self) -> JetsonVisionClient | None:
+        return self._jetson_client
+
+    @property
     def latest_frame(self) -> ProcessedFrame | None:
         with self._lock:
             return self._latest_frame
@@ -88,34 +102,50 @@ class CameraService:
             return self._status.model_copy()
 
     def start(self) -> None:
-        if self.pipeline is None or self._worker is not None:
+        if (self.pipeline is None and self._jetson_client is None) or self._worker is not None:
             return
         self._worker = Thread(target=self._run, name="petcare-camera", daemon=False)
         self._worker.start()
 
     def process_once(self) -> bool:
         if self.pipeline is None or self._ingress is None or self._session_factory is None:
-            return False
+            if self._jetson_client is None or self._ingress is None or self._session_factory is None:
+                return False
         ticket = self._ingress.begin("camera")
-        if self.pipeline.source is None:
-            self._fail_frame(ticket, "source_unavailable")
-            return False
-        try:
-            frame = self.pipeline.source.read()
-        except CameraUnavailable as error:
-            reason = str(error) or "camera_unavailable"
-            self._fail_frame(ticket, reason)
-            return False
-        except Exception:
-            self._fail_frame(ticket, "camera_error")
-            return False
-        try:
-            processed = self.pipeline.process(frame, ticket.received_at_utc)
-        except CameraUnavailable as error:
-            self._fail_frame(ticket, str(error) or "camera_unavailable")
-            return False
-        except Exception:
-            self._fail_frame(ticket, self.pipeline.camera_state[1] or "inference_failed")
+        if self._jetson_client is not None:
+            self._expire_remote_status()
+            try:
+                processed = self._jetson_client.next_frame(self._zones)
+            except CameraUnavailable as error:
+                self._fail_frame(ticket, str(error) or "camera_unavailable")
+                return False
+            except Exception:
+                self._fail_frame(ticket, "camera_error")
+                return False
+        else:
+            assert self.pipeline is not None
+            if self.pipeline.source is None:
+                self._fail_frame(ticket, "source_unavailable")
+                return False
+            try:
+                frame = self.pipeline.source.read()
+            except CameraUnavailable as error:
+                reason = str(error) or "camera_unavailable"
+                self._fail_frame(ticket, reason)
+                return False
+            except Exception:
+                self._fail_frame(ticket, "camera_error")
+                return False
+            try:
+                processed = self.pipeline.process(frame, ticket.received_at_utc)
+            except CameraUnavailable as error:
+                self._fail_frame(ticket, str(error) or "camera_unavailable")
+                return False
+            except Exception:
+                self._fail_frame(ticket, self.pipeline.camera_state[1] or "inference_failed")
+                return False
+        if self._jetson_client is not None and not processed.is_fresh(self._now()):
+            self._fail_frame(ticket, "stale_observation")
             return False
         try:
             event = self._persist_frame(processed)
@@ -137,6 +167,25 @@ class CameraService:
             )
         self._ingress.resolve_committed(ticket, event)
         return True
+
+    def _expire_remote_status(self) -> None:
+        transitioned = False
+        with self._lock:
+            if (
+                self._status.state == "online"
+                and self._status.last_frame_at is not None
+                and not timedelta(0) <= self._now() - self._status.last_frame_at <= timedelta(seconds=3)
+            ):
+                self._status = CameraStatus(
+                    state="offline",
+                    fps=self._status.fps,
+                    inference_ms=self._status.inference_ms,
+                    last_frame_at=self._status.last_frame_at,
+                    reason="observation_timeout",
+                )
+                transitioned = True
+        if transitioned:
+            self._persist_offline()
 
     def _persist_frame(self, processed: ProcessedFrame) -> CameraFrameCommitted:
         assert self._session_factory is not None
@@ -179,17 +228,25 @@ class CameraService:
 
     def _fail_frame(self, ticket: IngressTicket, reason: str) -> None:
         previous = self.status
-        with self._lock:
-            self._status = CameraStatus(
-                state="offline",
-                fps=previous.fps,
-                inference_ms=previous.inference_ms,
-                last_frame_at=previous.last_frame_at,
-                reason=reason,
-            )
+        remote_still_fresh = (
+            self._jetson_client is not None
+            and previous.state == "online"
+            and previous.last_frame_at is not None
+            and timedelta(0) <= self._now() - previous.last_frame_at <= timedelta(seconds=3)
+        )
+        if not remote_still_fresh:
+            with self._lock:
+                self._status = CameraStatus(
+                    state="offline",
+                    fps=previous.fps,
+                    inference_ms=previous.inference_ms,
+                    last_frame_at=previous.last_frame_at,
+                    reason=reason,
+                )
         assert self._ingress is not None
         try:
-            self._persist_offline()
+            if not remote_still_fresh and (self._jetson_client is None or previous.state != "offline"):
+                self._persist_offline()
         finally:
             self._ingress.resolve_tombstone(ticket, reason)
 
@@ -229,24 +286,51 @@ class CameraService:
     def mjpeg_chunk(self) -> bytes:
         with self._lock:
             frame = self._latest_frame
-        if frame is None or self.status.state != "online":
+            online = self._status.state == "online"
+            fresh = frame is not None and (self._jetson_client is None or frame.is_fresh(self._now()))
+        if frame is None or not online or not fresh:
             raise CameraUnavailable("camera_unavailable")
         return MJPEG_PREFIX + frame.jpeg + MJPEG_SUFFIX
 
+    def _wait_remote_retry(self, retry_seconds: float) -> None:
+        status = self.status
+        if status.state == "online" and status.last_frame_at is not None:
+            remaining = 3 - (self._now() - status.last_frame_at).total_seconds()
+            if remaining < 0:
+                self._expire_remote_status()
+            elif remaining < retry_seconds:
+                before_expiry = min(retry_seconds, max(0.001, remaining + 0.001))
+                if self._stop.wait(before_expiry):
+                    return
+                self._expire_remote_status()
+                self._stop.wait(retry_seconds - before_expiry)
+                return
+        self._stop.wait(retry_seconds)
+
     def _run(self) -> None:
+        retry_seconds = 1.0
         while not self._stop.is_set():
             try:
-                self.process_once()
+                succeeded = self.process_once()
             except RuntimeError:
                 if self._stop.is_set():
                     break
-            if self.status.state == "offline":
+                succeeded = False
+            if self._jetson_client is not None:
+                if succeeded:
+                    retry_seconds = 1.0
+                else:
+                    self._wait_remote_retry(retry_seconds)
+                    retry_seconds = min(retry_seconds * 2, 30.0)
+            elif self.status.state == "offline":
                 self._stop.wait(0.05)
 
     def shutdown(self) -> None:
         self._stop.set()
         if self._worker is not None:
-            self._worker.join()
+            self._worker.join(16.0 if self._jetson_client is not None else None)
+            if self._worker.is_alive():
+                raise RuntimeError("camera worker did not stop")
         if self.pipeline is not None and self.pipeline.source is not None:
             close = getattr(self.pipeline.source, "close", None)
             if close is not None:

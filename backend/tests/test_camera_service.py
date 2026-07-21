@@ -333,6 +333,204 @@ def test_configured_file_camera_builds_real_pipeline_from_enabled_database_zones
     assert (service.pipeline.detector, service.pipeline.source, service.pipeline.zones) == (detector, source, ZONES)
 
 
+def test_jetson_camera_uses_remote_frame_without_local_yolo_and_keeps_persistence_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+    ingress = RecordingIngress(calls)
+    sessions: list[FakeSession] = []
+    detection = camera_module.CameraDetectionIn(
+        camera_id="pc-webcam-01", subject_id="dog_001", detected_type="dog", confidence=0.9,
+        bbox_x=330, bbox_y=190, bbox_width=100, bbox_height=100, center_x=380, center_y=240,
+        zone_name="pet_bed", observed_at=NOW,
+    )
+    remote_frame = camera_module.ProcessedFrame(
+        jpeg=b"\xff\xd8\xff\xd9", detections=(detection,), fps=4.8, inference_ms=191.2,
+        observed_at=NOW, bed_subject_ids=("dog_001",), selected_bed_subject_id="dog_001",
+    )
+
+    class Remote:
+        def next_frame(self, zones: object) -> object:
+            calls.append("remote")
+            assert zones == ZONES
+            return remote_frame
+
+        def close(self) -> None:
+            calls.append("remote-close")
+
+    service = CameraService(
+        None, ingress, lambda: sessions.append(FakeSession(calls)) or sessions[-1], Remote(), ZONES,
+        now=lambda: NOW,
+    )
+    monkeypatch.setattr(camera_module, "YoloDetector", lambda *_: pytest.fail("local YOLO must not load"))
+
+    assert service.process_once()
+    assert calls[:4] == ["begin:camera", "remote", "add:Camera", "add:CameraEvent"]
+    assert calls[-3:] == ["commit", "close", "resolve"]
+    assert sessions[0].events[0].observed_at == NOW
+    assert service.mjpeg_chunk().endswith(b"\xff\xd9\r\n")
+    service.shutdown()
+    assert "remote-close" not in calls
+
+
+def test_jetson_camera_only_goes_offline_after_three_seconds_without_valid_observation() -> None:
+    calls: list[str] = []
+    ingress = RecordingIngress(calls, [NOW, NOW + timedelta(seconds=1), NOW + timedelta(seconds=4)])
+    sessions: list[FakeSession] = []
+    frame = camera_module.ProcessedFrame(
+        jpeg=b"\xff\xd8\xff\xd9", detections=(), fps=4.0, inference_ms=100.0,
+        observed_at=NOW, bed_subject_ids=(), selected_bed_subject_id=None,
+    )
+
+    class Remote:
+        def __init__(self) -> None:
+            self.items: list[object] = [frame, CameraUnavailable("observation_timeout"), CameraUnavailable("observation_timeout")]
+
+        def next_frame(self, _zones: object) -> ProcessedFrame:
+            item = self.items.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return item  # type: ignore[return-value]
+
+        def close(self) -> None:
+            pass
+
+    current = [NOW]
+    service = CameraService(
+        None, ingress, lambda: sessions.append(FakeSession(calls)) or sessions[-1], Remote(), ZONES,
+        now=lambda: current[0],
+    )
+    assert service.process_once()
+    current[0] = NOW + timedelta(seconds=1)
+    assert not service.process_once()
+    assert service.status.state == "online"
+    current[0] = NOW + timedelta(seconds=3, microseconds=1)
+    assert not service.process_once()
+    assert service.status.state == "offline"
+    assert ingress.tombstones == ["observation_timeout", "observation_timeout"]
+
+
+def test_jetson_camera_reconnects_after_previous_frame_expires() -> None:
+    calls: list[str] = []
+    current = [NOW]
+    ingress = RecordingIngress(calls, [NOW, NOW + timedelta(seconds=4)])
+
+    def frame(observed_at: datetime) -> ProcessedFrame:
+        return camera_module.ProcessedFrame(
+            jpeg=b"\xff\xd8\xff\xd9", detections=(), fps=4.0, inference_ms=100.0,
+            observed_at=observed_at, bed_subject_ids=(), selected_bed_subject_id=None,
+        )
+
+    class Remote:
+        attempts = 0
+
+        def next_frame(self, _zones: object) -> ProcessedFrame:
+            self.attempts += 1
+            if self.attempts == 2:
+                assert service.status.state == "offline"
+            return frame(current[0])
+
+    remote = Remote()
+    service = CameraService(None, ingress, lambda: FakeSession(calls), remote, ZONES, now=lambda: current[0])
+    assert service.process_once()
+    current[0] = NOW + timedelta(seconds=4)
+    assert service.process_once()
+    assert remote.attempts == 2
+    assert service.status.state == "online"
+    assert service.status.last_frame_at == current[0]
+
+
+def test_remote_retry_wait_expires_status_without_changing_total_retry_interval() -> None:
+    calls: list[str] = []
+    current = [NOW + timedelta(seconds=1)]
+    ingress = RecordingIngress(calls)
+
+    class Remote:
+        pass
+
+    class Stop:
+        waits: list[float] = []
+
+        def wait(self, seconds: float) -> bool:
+            self.waits.append(seconds)
+            current[0] += timedelta(seconds=seconds)
+            return False
+
+    service = CameraService(None, ingress, lambda: FakeSession(calls), Remote(), ZONES, now=lambda: current[0])
+    service._latest_frame = camera_module.ProcessedFrame(
+        jpeg=b"\xff\xd8\xff\xd9", detections=(), fps=4.0, inference_ms=100.0,
+        observed_at=NOW, bed_subject_ids=(), selected_bed_subject_id=None,
+    )
+    service._status = CameraStatus(
+        state="online", fps=4.0, inference_ms=100.0, last_frame_at=NOW, reason=None,
+    )
+    stop = Stop()
+    service._stop = stop  # type: ignore[assignment]
+    service._wait_remote_retry(4.0)
+
+    assert sum(stop.waits) == pytest.approx(4.0)
+    assert service.status.state == "offline"
+    assert calls.count("commit") == 1
+    with pytest.raises(CameraUnavailable):
+        service.mjpeg_chunk()
+
+
+def test_jetson_worker_uses_exact_capped_retry_schedule() -> None:
+    calls: list[str] = []
+    ingress = RecordingIngress(calls, [NOW] * 6)
+
+    class Remote:
+        def next_frame(self, _zones: object) -> object:
+            raise CameraUnavailable("jetson_unavailable")
+
+    class Stop:
+        waits: list[float] = []
+
+        def is_set(self) -> bool:
+            return len(self.waits) == 6
+
+        def wait(self, seconds: float) -> None:
+            self.waits.append(seconds)
+
+        def set(self) -> None:
+            pass
+
+    service = CameraService(None, ingress, lambda: FakeSession(calls), Remote(), ZONES, now=lambda: NOW)
+    stop = Stop()
+    service._stop = stop  # type: ignore[assignment]
+    service._run()
+    assert stop.waits == [1.0, 2.0, 4.0, 8.0, 16.0, 30.0]
+
+
+def test_jetson_worker_backoff_is_interruptible_and_does_not_close_shared_client() -> None:
+    calls: list[str] = []
+    ingress = RecordingIngress(calls, [NOW])
+
+    class Remote:
+        attempts = 0
+        closed = False
+
+        def next_frame(self, _zones: object) -> object:
+            self.attempts += 1
+            raise CameraUnavailable("jetson_unavailable")
+
+        def close(self) -> None:
+            self.closed = True
+
+    remote = Remote()
+    service = CameraService(None, ingress, lambda: FakeSession(calls), remote, ZONES, now=lambda: NOW)
+    service.start()
+    deadline = monotonic() + 1
+    while not ingress.tombstones and monotonic() < deadline:
+        sleep(0.01)
+    sleep(0.1)
+    service.shutdown()
+
+    assert remote.attempts == 1
+    assert not remote.closed
+    assert service.worker is not None and not service.worker.is_alive()
+
+
 def test_full_ingress_retains_same_committed_ticket_until_capacity_frees() -> None:
     ingress = RuleIngress(capacity=1)
     first = ingress.begin("mqtt")
