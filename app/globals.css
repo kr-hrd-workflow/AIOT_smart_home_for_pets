@@ -760,3 +760,54 @@ a:focus-visible {
   from { opacity: 0; }
   to { opacity: 1; }
 }
+
+.auth-page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+}
+
+.auth-card {
+  width: min(100%, 420px);
+  padding: 28px;
+  border: 1px solid var(--border-control);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.auth-form {
+  display: grid;
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.auth-form label {
+  display: grid;
+  gap: 6px;
+  font-weight: 650;
+}
+
+.auth-form input,
+.auth-form button {
+  min-height: 44px;
+  border: 1px solid var(--border-control);
+  border-radius: 6px;
+  font: inherit;
+}
+
+.auth-form input {
+  padding: 0 12px;
+}
+
+.auth-form button {
+  color: var(--surface);
+  background: var(--primary);
+  font-weight: 750;
+}
+
+.auth-form input:focus-visible,
+.auth-form button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
