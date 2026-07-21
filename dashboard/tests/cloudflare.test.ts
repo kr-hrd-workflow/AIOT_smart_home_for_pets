@@ -144,6 +144,102 @@ describe("CloudflareClient", () => {
     expect(calls.every(({ url, body }) => !`${url}${body}`.includes("scoped-token"))).toBe(true);
   });
 
+  it("discovers only exact deterministic orphan resources", async () => {
+    const { calls, fetchImpl } = queuedFetch([
+      {
+        result: [
+          { id: "tunnel-ignore", name: "petcare-home-ab" },
+          { id: "tunnel-1", name: "petcare-home-a" },
+        ],
+      },
+      {
+        result: [
+          {
+            id: "dns-ignore",
+            name: "home-a.agents.example.com",
+            type: "A",
+          },
+          {
+            id: "dns-1",
+            name: "home-a.agents.example.com",
+            type: "CNAME",
+          },
+        ],
+      },
+      {
+        result: [
+          { id: "app-ignore", aud: "aud-ignore", domain: "other.invalid" },
+          {
+            id: "app-1",
+            aud: "aud-1",
+            domain: "home-a.agents.example.com",
+          },
+        ],
+      },
+      {
+        result: [
+          { id: "policy-ignore", name: "PetCare Sites BFF", decision: "allow" },
+          {
+            id: "policy-1",
+            name: "PetCare Sites BFF",
+            decision: "non_identity",
+          },
+        ],
+      },
+    ]);
+    const client = new CloudflareClient(config, fetchImpl);
+
+    await expect(client.findTunnelByName("petcare-home-a")).resolves.toEqual({
+      id: "tunnel-1",
+    });
+    await expect(
+      client.findDnsRecordByHostname("home-a.agents.example.com"),
+    ).resolves.toEqual({ id: "dns-1" });
+    await expect(
+      client.findAccessAppByDomain("home-a.agents.example.com"),
+    ).resolves.toEqual({ id: "app-1", aud: "aud-1" });
+    await expect(
+      client.findAccessPolicyByName("app-1", "PetCare Sites BFF"),
+    ).resolves.toEqual({ id: "policy-1" });
+
+    expect(calls.map(({ url }) => url)).toEqual([
+      "https://api.cloudflare.com/client/v4/accounts/acct/cfd_tunnel?name=petcare-home-a&is_deleted=false",
+      "https://api.cloudflare.com/client/v4/zones/zone/dns_records?type=CNAME&name.exact=home-a.agents.example.com&match=all",
+      "https://api.cloudflare.com/client/v4/accounts/acct/access/apps?domain=home-a.agents.example.com&exact=true",
+      "https://api.cloudflare.com/client/v4/accounts/acct/access/apps/app-1/policies",
+    ]);
+    expect(calls.every(({ method, body }) => method === "GET" && body === "")).toBe(true);
+  });
+
+  it("treats empty, 404, and inexact discovery results as absent", async () => {
+    const { fetchImpl } = queuedFetch([
+      { result: [] },
+      { status: 404 },
+      {
+        result: [
+          { id: "app-ignore", aud: "aud-ignore", domain: "other.invalid" },
+        ],
+      },
+      {
+        result: [
+          { id: "policy-ignore", name: "PetCare Sites BFF", decision: "allow" },
+        ],
+      },
+    ]);
+    const client = new CloudflareClient(config, fetchImpl);
+
+    await expect(client.findTunnelByName("petcare-home-a")).resolves.toBeNull();
+    await expect(
+      client.findDnsRecordByHostname("home-a.agents.example.com"),
+    ).resolves.toBeNull();
+    await expect(
+      client.findAccessAppByDomain("home-a.agents.example.com"),
+    ).resolves.toBeNull();
+    await expect(
+      client.findAccessPolicyByName("app-1", "PetCare Sites BFF"),
+    ).resolves.toBeNull();
+  });
+
   it("exposes only a fixed error for HTTP and Cloudflare envelope failures", async () => {
     for (const response of [
       { status: 403, result: null },
