@@ -811,3 +811,159 @@ a:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
+
+.remote-page {
+  min-height: 100vh;
+}
+
+.remote-page > p,
+.enrollment-card,
+.clip-section,
+.account-deletion {
+  width: min(calc(100% - 48px), 1480px);
+  margin: 24px auto;
+}
+
+.remote-online,
+.remote-offline {
+  padding: 12px 16px;
+  border: 1px solid var(--border-control);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.remote-online {
+  color: var(--primary);
+}
+
+.remote-offline {
+  color: var(--destructive);
+}
+
+.remote-operational .zone,
+.remote-operational .roi-section {
+  display: none;
+}
+
+.enrollment-card,
+.clip-section,
+.account-deletion {
+  padding: 20px;
+  border: 1px solid var(--border-control);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.enrollment-card button,
+.clip-section button,
+.account-deletion button,
+.account-deletion input {
+  min-height: 44px;
+  border: 1px solid var(--border-control);
+  border-radius: 6px;
+  font: inherit;
+}
+
+.enrollment-card button,
+.clip-section button,
+.account-deletion button {
+  padding: 0 14px;
+  font-weight: 700;
+}
+
+.enrollment-card button {
+  color: var(--surface);
+  background: var(--primary);
+}
+
+.clip-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.clip-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.6fr);
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--border-decorative);
+  border-radius: 8px;
+}
+
+.clip-list video {
+  width: 100%;
+  border: 1px solid var(--border-control);
+  border-radius: 6px;
+}
+
+.clip-list li > div {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.clip-list time {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.destructive-delete {
+  color: var(--surface);
+  background: var(--destructive);
+}
+
+.enrollment-card button:disabled,
+.destructive-delete:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.account-deletion fieldset {
+  display: grid;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.account-deletion label:not(.deletion-acknowledgement) {
+  display: grid;
+  gap: 6px;
+  font-weight: 650;
+}
+
+.account-deletion input:not([type="checkbox"]) {
+  padding: 0 12px;
+}
+
+.deletion-acknowledgement {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 8px;
+}
+
+input:focus-visible,
+video:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+@media (max-width: 600px) {
+  .remote-page > p,
+  .enrollment-card,
+  .clip-section,
+  .account-deletion {
+    width: calc(100% - 32px);
+  }
+
+  .clip-list,
+  .clip-list li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

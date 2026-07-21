@@ -2,10 +2,10 @@ import "@testing-library/jest-dom/vitest";
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { Dashboard, selectDashboardMode } from "../components/dashboard";
+import { Dashboard } from "../components/dashboard";
 import { demoDashboardData } from "../lib/demo-data";
 
 const root = resolve(import.meta.dirname, "..");
@@ -191,24 +191,35 @@ describe("dashboard demo surface", () => {
     expect(css).not.toMatch(/gradient|backdrop-filter|text-shadow/i);
   });
 
-  it("selects connected mode only for exact loopback hosts on the root route", () => {
-    expect(selectDashboardMode("/", "localhost")).toBe("connected");
-    expect(selectDashboardMode("/", "127.0.0.1")).toBe("connected");
-    for (const hostname of [undefined, "", "petcare.example", "LOCALHOST", "localhost.", "localhost\0"]) {
-      expect(selectDashboardMode("/", hostname)).toBe("demo");
-    }
-    for (const hostname of [undefined, "localhost", "petcare.example", "localhost\0"]) {
-      expect(selectDashboardMode("/demo", hostname)).toBe("demo");
-    }
-    expect(selectDashboardMode("/other", "localhost")).toBe("not_found");
-    expect(selectDashboardMode("/?mode=connected", "localhost")).toBe("not_found");
-    expect(selectDashboardMode("/demo?mode=connected", "localhost")).toBe("not_found");
-
+  it("keeps auth-plan-protected root Flight-serializable and demo server-only", () => {
     const rootPage = readFileSync(resolve(root, "app/page.tsx"), "utf8");
-    expect(rootPage).toContain('"use client"');
-    expect(rootPage).toContain("window.location.pathname");
-    expect(rootPage).toContain("window.location.hostname");
-    expect(rootPage).toContain("mode={mode}");
+    const demoPage = readFileSync(resolve(root, "app/demo/page.tsx"), "utf8");
+    const remoteDashboard = readFileSync(
+      resolve(root, "components/remote-dashboard.tsx"),
+      "utf8",
+    );
+    expect(rootPage).toContain("RemoteDashboard");
+    expect(rootPage).toContain('export const dynamic = "force-dynamic"');
+    expect(rootPage).toMatch(/return <RemoteDashboard \/>/);
+    expect(rootPage).not.toMatch(/createPetCareRemote|client=|media=/);
+    expect(remoteDashboard).toContain("createPetCareRemoteClient");
+    expect(remoteDashboard).toContain("createPetCareRemoteMedia");
+    expect(rootPage).not.toMatch(
+      /"use client"|demoDashboardData|window\.|localStorage|sessionStorage/,
+    );
+    expect(demoPage).toMatch(/return <Dashboard data=\{demoDashboardData\} \/>/);
+    expect(demoPage).not.toMatch(
+      /fetch|WebSocket|localhost|127\.0\.0\.1|useState|useEffect|petcare-remote/,
+    );
+  });
+
+  it("keeps remote controls keyboard-visible and mobile-safe", () => {
+    const css = readFileSync(resolve(root, "app/globals.css"), "utf8");
+    expect(css).toContain("input:focus-visible");
+    expect(css).toContain(".clip-list video");
+    expect(css).toContain("@media (max-width: 600px)");
+    expect(css).toContain("@media (prefers-reduced-motion: reduce)");
+    expect(css).toMatch(/\.remote-operational \.zone,[\s\S]*display: none/);
   });
 
   it("keeps /demo a thin shared entry with no network or remote image source", () => {
