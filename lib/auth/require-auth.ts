@@ -32,6 +32,43 @@ function hasAudience(aud: unknown): boolean {
   );
 }
 
+type ClaimsResult = {
+  data?: { claims?: unknown } | null;
+  error?: unknown;
+};
+
+export function validateAuthClaims(
+  result: ClaimsResult,
+  env: AuthEnv,
+): AuthUser {
+  const claims = result.data?.claims;
+  const now = Math.floor(Date.now() / 1000);
+  if (
+    result.error ||
+    !claims ||
+    typeof claims !== "object" ||
+    !("sub" in claims) ||
+    typeof claims.sub !== "string" ||
+    claims.sub.length === 0 ||
+    !("iss" in claims) ||
+    claims.iss !== `${env.SUPABASE_URL.replace(/\/$/, "")}/auth/v1` ||
+    !("aud" in claims) ||
+    !hasAudience(claims.aud) ||
+    !("exp" in claims) ||
+    typeof claims.exp !== "number" ||
+    claims.exp <= now
+  ) {
+    throw new AuthError("Authentication required");
+  }
+  return {
+    sub: claims.sub,
+    email:
+      "email" in claims && typeof claims.email === "string"
+        ? claims.email
+        : null,
+  };
+}
+
 export async function requireAuth(
   request: Request,
   env: AuthEnv,
@@ -46,23 +83,5 @@ export async function requireAuth(
       },
     },
   );
-  const { data, error } = await supabase.auth.getClaims();
-  const claims = data?.claims;
-  const now = Math.floor(Date.now() / 1000);
-  if (
-    error ||
-    !claims ||
-    typeof claims.sub !== "string" ||
-    claims.sub.length === 0 ||
-    claims.iss !== `${env.SUPABASE_URL.replace(/\/$/, "")}/auth/v1` ||
-    !hasAudience(claims.aud) ||
-    typeof claims.exp !== "number" ||
-    claims.exp <= now
-  ) {
-    throw new AuthError("Authentication required");
-  }
-  return {
-    sub: claims.sub,
-    email: typeof claims.email === "string" ? claims.email : null,
-  };
+  return validateAuthClaims(await supabase.auth.getClaims(), env);
 }
