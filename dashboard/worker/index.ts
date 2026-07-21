@@ -1,10 +1,12 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
+import type { PetCareEnv } from "../lib/petcare/env";
+import { reconcilePetCare } from "../lib/petcare/reconcile";
+import { routePetCare } from "../lib/petcare/router";
 
-interface Env {
+interface Env extends PetCareEnv {
   ASSETS: Fetcher;
-  DB: D1Database;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -40,7 +42,17 @@ const worker = {
       }, allowedWidths);
     }
 
+    const petCareResponse = await routePetCare(request, env, ctx);
+    if (petCareResponse) return petCareResponse;
+
     return handler.fetch(request, env, ctx);
+  },
+  scheduled(
+    controller: { scheduledTime: number },
+    env: Env,
+    ctx: ExecutionContext,
+  ): void {
+    ctx.waitUntil(reconcilePetCare(env, new Date(controller.scheduledTime)));
   },
 };
 
