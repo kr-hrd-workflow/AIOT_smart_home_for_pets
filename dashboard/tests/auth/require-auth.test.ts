@@ -1,3 +1,6 @@
+// @vitest-environment node
+
+import { NextRequest, NextResponse } from "next/server";
 import { beforeEach, expect, it, vi } from "vitest";
 
 const { createServerClient, getClaims } = vi.hoisted(() => ({
@@ -6,8 +9,10 @@ const { createServerClient, getClaims } = vi.hoisted(() => ({
 }));
 
 vi.mock("@supabase/ssr", () => ({ createServerClient }));
+vi.mock("cloudflare:workers", () => ({ env: {} }));
 
 import { requireAuth } from "../../lib/auth/require-auth";
+import { requireAuthSession } from "../../lib/auth/session";
 
 const env = {
   SUPABASE_URL: "https://project-ref.supabase.co",
@@ -17,6 +22,69 @@ const env = {
 beforeEach(() => {
   vi.clearAllMocks();
   createServerClient.mockReturnValue({ auth: { getClaims } });
+});
+
+it("uses one client and one claims lookup while preserving refreshed response state", async () => {
+  let setAll!: (
+    cookies: Array<{
+      name: string;
+      value: string;
+      options?: Record<string, unknown>;
+    }>,
+    headers?: Record<string, string>,
+  ) => void;
+  createServerClient.mockImplementation(
+    (_url, _key, options: { cookies: { setAll: typeof setAll } }) => {
+      setAll = options.cookies.setAll;
+      return { auth: { getClaims } };
+    },
+  );
+  getClaims.mockImplementation(async () => {
+    setAll(
+      [{ name: "sb-session", value: "rotated", options: { path: "/" } }],
+      { "x-supabase-auth": "refreshed" },
+    );
+    return {
+      data: {
+        claims: {
+          sub: "user-a",
+          email: "a@example.com",
+          iss: "https://project-ref.supabase.co/auth/v1",
+          aud: "authenticated",
+          exp: Math.floor(Date.now() / 1000) + 60,
+        },
+      },
+      error: null,
+    };
+  });
+
+  const session = await requireAuthSession(
+    new NextRequest("https://app.test/api/petcare/test"),
+    env,
+  );
+  const response = session.applySessionCookies(NextResponse.json({ ok: true }));
+
+  expect(session.user).toEqual({ sub: "user-a", email: "a@example.com" });
+  expect(createServerClient).toHaveBeenCalledTimes(1);
+  expect(getClaims).toHaveBeenCalledTimes(1);
+  expect(response.headers.get("set-cookie")).toContain("sb-session=rotated");
+  expect(response.headers.get("set-cookie")).toMatch(/HttpOnly/i);
+  expect(response.headers.get("x-supabase-auth")).toBe("refreshed");
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+});
+
+it("fails closed on anonymous claims without exposing a response cookie", async () => {
+  getClaims.mockResolvedValue({ data: null, error: new Error("anonymous") });
+  const request = new NextRequest("https://app.test/api/petcare/test");
+
+  await expect(requireAuthSession(request, env)).rejects.toMatchObject({
+    status: 401,
+    code: "unauthorized",
+  });
+  expect(createServerClient).toHaveBeenCalledTimes(1);
+  expect(getClaims).toHaveBeenCalledTimes(1);
+  expect(request.headers.get("set-cookie")).toBeNull();
+  expect(request.cookies.getAll()).toEqual([]);
 });
 
 it("returns only sub and nullable email from verified JWKS claims", async () => {

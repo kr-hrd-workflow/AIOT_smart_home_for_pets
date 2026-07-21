@@ -2,7 +2,11 @@ import { env } from "cloudflare:workers";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
-import type { AuthEnv } from "./require-auth";
+import {
+  validateAuthClaims,
+  type AuthEnv,
+  type AuthUser,
+} from "./require-auth";
 
 type PendingCookie = {
   name: string;
@@ -13,6 +17,13 @@ type PendingCookie = {
 export type SessionHandle = {
   supabase: SupabaseClient;
   applySessionCookies(response: NextResponse): NextResponse;
+};
+
+export type AuthSessionHandle = Pick<
+  SessionHandle,
+  "applySessionCookies"
+> & {
+  user: AuthUser;
 };
 
 export function createSupabaseSession(
@@ -58,6 +69,17 @@ export function createSupabaseSession(
       response.headers.set("Cache-Control", "private, no-store");
       return response;
     },
+  };
+}
+
+export async function requireAuthSession(
+  request: NextRequest,
+  authEnv: AuthEnv,
+): Promise<AuthSessionHandle> {
+  const session = createSupabaseSession(request, authEnv);
+  return {
+    user: validateAuthClaims(await session.supabase.auth.getClaims(), authEnv),
+    applySessionCookies: session.applySessionCookies,
   };
 }
 
