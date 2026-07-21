@@ -73,6 +73,8 @@ CREATE TABLE `tunnel_routes` (
 	`access_aud` text,
 	`dns_record_id` text,
 	`activation_expires_at` text,
+	`lease_id` text,
+	`lease_expires_at` text,
 	`status` text NOT NULL CHECK (`status` IN ('provisioning','activation_pending','active','cleanup_pending','revocation_pending','revoked')),
 	`created_at` text NOT NULL,
 	`updated_at` text NOT NULL,
