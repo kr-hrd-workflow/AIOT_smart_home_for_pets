@@ -1,0 +1,211 @@
+{
+  "auth": {
+    "version": "PETCARE-JETSON-V1",
+    "secret_base64url": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+    "request": {
+      "method": "PUT",
+      "target": "/v1/clips/fedcba9876543210fedcba9876543210",
+      "boot_id": "0123456789abcdef0123456789abcdef",
+      "timestamp": "1784520000",
+      "nonce": "AAECAwQFBgcICQoLDA0ODw",
+      "body": {
+        "committed_at": "2026-07-20T04:00:00.000000Z",
+        "event_id": 41,
+        "event_type": "eating",
+        "occurred_at": "2026-07-20T03:59:30.000000Z"
+      },
+      "body_json": "{\"committed_at\":\"2026-07-20T04:00:00.000000Z\",\"event_id\":41,\"event_type\":\"eating\",\"occurred_at\":\"2026-07-20T03:59:30.000000Z\"}",
+      "body_sha256": "bb8973c4c644e9c7e1f2182aed7fc3f62913fbc0b9f626481320bcd1f756e656",
+      "canonical": "PETCARE-JETSON-V1\nPUT\n/v1/clips/fedcba9876543210fedcba9876543210\n0123456789abcdef0123456789abcdef\n1784520000\nAAECAwQFBgcICQoLDA0ODw\nbb8973c4c644e9c7e1f2182aed7fc3f62913fbc0b9f626481320bcd1f756e656\n",
+      "signature": "jRDgkQ3q6mrGL7rQxGtI1QANRKamx9ieVseiURXrnzE",
+      "headers": {
+        "X-PetCare-Jetson-Version": "PETCARE-JETSON-V1",
+        "X-PetCare-Jetson-Boot-Id": "0123456789abcdef0123456789abcdef",
+        "X-PetCare-Jetson-Timestamp": "1784520000",
+        "X-PetCare-Jetson-Nonce": "AAECAwQFBgcICQoLDA0ODw",
+        "X-PetCare-Jetson-Content-SHA256": "bb8973c4c644e9c7e1f2182aed7fc3f62913fbc0b9f626481320bcd1f756e656",
+        "X-PetCare-Jetson-Signature": "jRDgkQ3q6mrGL7rQxGtI1QANRKamx9ieVseiURXrnzE"
+      }
+    },
+    "canonical_query": {
+      "pairs": [
+        ["z", " "],
+        ["a", "2"],
+        ["a", "1"],
+        ["café", "/"]
+      ],
+      "value": "a=1&a=2&caf%C3%A9=%2F&z=%20",
+      "target": "/v1/observations?a=1&a=2&caf%C3%A9=%2F&z=%20",
+      "empty_body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "canonical": "PETCARE-JETSON-V1\nGET\n/v1/observations?a=1&a=2&caf%C3%A9=%2F&z=%20\n0123456789abcdef0123456789abcdef\n1784520000\nAAECAwQFBgcICQoLDA0ODw\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\n",
+      "signature": "s52oUOG9lK3ApQfRDDCoCqjLxpVzj42onHiVtDDmZxg"
+    },
+    "operations": [
+      {"method": "GET", "target": "/v1/status", "success": [200]},
+      {"method": "GET", "target": "/v1/observations?after=42&wait_ms=1000", "success": [200, 204]},
+      {"method": "GET", "target": "/v1/preview.jpg", "success": [200]},
+      {"method": "PUT", "target": "/v1/clips/fedcba9876543210fedcba9876543210", "success": [201, 200]},
+      {"method": "GET", "target": "/v1/clips/fedcba9876543210fedcba9876543210", "success": [200]},
+      {"method": "DELETE", "target": "/v1/clips/fedcba9876543210fedcba9876543210", "success": [204]}
+    ]
+  },
+  "status": {
+    "boot_id": "0123456789abcdef0123456789abcdef",
+    "server_time": "2026-07-20T04:00:00.050000Z",
+    "camera_state": "online",
+    "clip_state": "idle",
+    "jetpack": "4.6.6",
+    "l4t": "32.7.6",
+    "tensorrt": "8.2.1",
+    "temperature_c": 54.5,
+    "throttled": false
+  },
+  "observation": {
+    "body": {
+      "boot_id": "0123456789abcdef0123456789abcdef",
+      "sequence": 42,
+      "observed_at": "2026-07-20T04:00:00.100000Z",
+      "width": 640,
+      "height": 480,
+      "fps": 4.8,
+      "inference_ms": 191.2,
+      "detections": [
+        {
+          "detected_type": "dog",
+          "confidence": 0.94,
+          "bbox_x": 100,
+          "bbox_y": 80,
+          "bbox_width": 220,
+          "bbox_height": 260
+        }
+      ]
+    },
+    "preview": {
+      "body_base64": "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wgARCAHgAoADASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAL/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAGQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf/8QAFBABAAAAAAAAAAAAAAAAAAAAwP/aAAgBAQABBQIWB//EABQRAQAAAAAAAAAAAAAAAAAAAKD/2gAIAQMBAT8BFh//xAAUEQEAAAAAAAAAAAAAAAAAAACg/9oACAECAQE/ARYf/8QAFBABAAAAAAAAAAAAAAAAAAAAwP/aAAgBAQAGPwIWB//EABQQAQAAAAAAAAAAAAAAAAAAAMD/2gAIAQEAAT8hFgf/2gAMAwEAAgADAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/EABQRAQAAAAAAAAAAAAAAAAAAAKD/2gAIAQMBAT8QFh//xAAUEQEAAAAAAAAAAAAAAAAAAACg/9oACAECAQE/EBYf/8QAFBABAAAAAAAAAAAAAAAAAAAAwP/aAAgBAQABPxAWB//Z",
+      "max_content_length": 1048576,
+      "max_fps": 2,
+      "headers": {
+        "Content-Type": "image/jpeg",
+        "Content-Length": "2097",
+        "Cache-Control": "private, no-store, no-transform",
+        "X-PetCare-Jetson-Boot-Id": "0123456789abcdef0123456789abcdef",
+        "X-PetCare-Jetson-Sequence": "42",
+        "X-PetCare-Jetson-Observed-At": "2026-07-20T04:00:00.100000Z",
+        "X-PetCare-Jetson-Content-SHA256": "e8f2ea5a7c0511f2e32a41933ef8af70a1b96fc3acb9523a89dfb9d8aeb63cfd"
+      },
+      "ignored_transport_headers": ["Date", "Connection"]
+    }
+  },
+  "command": {
+    "request": {
+      "committed_at": "2026-07-20T04:00:00.000000Z",
+      "event_id": 41,
+      "event_type": "eating",
+      "occurred_at": "2026-07-20T03:59:30.000000Z"
+    },
+    "outbox_created_at": "2026-07-20T04:00:00.000000Z",
+    "allowed_event_types": ["eating", "resting", "bed_sensor_mismatch"],
+    "response": {
+      "accepted_boot_id": "0123456789abcdef0123456789abcdef",
+      "command_id": "fedcba9876543210fedcba9876543210",
+      "state": "recording",
+      "accepted_at": "2026-07-20T04:00:00.000000Z"
+    },
+    "first_status": 201,
+    "admission": {
+      "first_put_requires_fresh_calibration": true,
+      "calibration_max_age_seconds": 1.0,
+      "midpoint_offset_ms": -100,
+      "half_rtt_ms": 49,
+      "drift_budget_ms": 50,
+      "uncertainty_max_ms": 200,
+      "guard_sample_ms": 100,
+      "discontinuity_threshold_ms": 25,
+      "discontinuity_disable_seconds": 60,
+      "wall_age_min_seconds": -0.2,
+      "wall_age_max_seconds": 2.8
+    },
+    "receipt_capture": {
+      "socket_received_at": "2026-07-20T04:00:00.000000Z",
+      "accepted_monotonic_ns": 12345678901,
+      "sampler_period_ns": 100000000,
+      "trigger_bucket": 124
+    },
+    "replay": {
+      "identical_active_states": ["recording", "finalizing", "ready"],
+      "identical_status": 200,
+      "reruns_age_test": false,
+      "receipt_fields": ["accepted_boot_id", "command_id", "state", "accepted_at"],
+      "gone_states": ["delivered", "expired", "restart_gone"],
+      "gone_status": 410,
+      "changed_digest_status": 409
+    }
+  },
+  "clip": {
+    "body_base64": "bXA0LWJ5dGVz",
+    "body_sha256": "225e2e71f6963695684cf5c2aef7d582fff76acb8c028ed8b79c9c52bc93495d",
+    "max_content_length": 268435456,
+    "headers": {
+      "Content-Type": "video/mp4",
+      "Content-Length": "9",
+      "X-PetCare-Jetson-Boot-Id": "0123456789abcdef0123456789abcdef",
+      "X-PetCare-Jetson-Command-Id": "fedcba9876543210fedcba9876543210",
+      "X-PetCare-Jetson-Content-SHA256": "225e2e71f6963695684cf5c2aef7d582fff76acb8c028ed8b79c9c52bc93495d",
+      "X-PetCare-Jetson-Started-At": "2026-07-20T03:59:50.000000Z",
+      "X-PetCare-Jetson-Ended-At": "2026-07-20T04:00:20.000000Z",
+      "X-PetCare-Jetson-Events": "eating:41",
+      "X-PetCare-Jetson-Frame-Count": "300",
+      "X-PetCare-Jetson-Video-Codec": "h264",
+      "X-PetCare-Jetson-Pixel-Format": "yuv420p"
+    },
+    "ignored_transport_headers": ["Date", "Connection"],
+    "media": {
+      "width": 640,
+      "height": 480,
+      "frame_count": 300,
+      "frame_rate": "10/1",
+      "duration_seconds": 30.0,
+      "duration_tolerance_ms": 100,
+      "video_codec": "h264",
+      "pixel_format": "yuv420p",
+      "started_at": "2026-07-20T03:59:50.000000Z",
+      "ended_at": "2026-07-20T04:00:20.000000Z",
+      "events": "eating:41"
+    },
+    "wire_body_is_valid_mp4": false
+  },
+  "errors": {
+    "external_codes": [
+      "invalid_request",
+      "unauthorized",
+      "command_conflict",
+      "command_expired",
+      "camera_unavailable",
+      "clip_busy",
+      "clip_not_ready",
+      "clip_gone",
+      "internal_error"
+    ],
+    "auth_internal_reasons": ["stale_request", "replayed_request", "wrong_boot"],
+    "external_by_internal_reason": {
+      "stale_request": {"status": 401, "body": {"code": "unauthorized", "message": "Unauthorized"}},
+      "replayed_request": {"status": 401, "body": {"code": "unauthorized", "message": "Unauthorized"}},
+      "wrong_boot": {"status": 401, "body": {"code": "unauthorized", "message": "Unauthorized"}}
+    },
+    "unauthorized": {
+      "status": 401,
+      "body": {"code": "unauthorized", "message": "Unauthorized"}
+    },
+    "status_by_code": {
+      "invalid_request": 400,
+      "unauthorized": 401,
+      "command_conflict": 409,
+      "command_expired": 409,
+      "camera_unavailable": 503,
+      "clip_busy": 503,
+      "clip_not_ready": 425,
+      "clip_gone": 410,
+      "internal_error": 500
+    }
+  }
+}
