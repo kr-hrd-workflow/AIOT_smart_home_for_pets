@@ -232,7 +232,9 @@ describe("dashboard demo surface", () => {
     expect(demoPage).toMatch(/return <Dashboard data=\{demoDashboardData\} \/>/);
     expect(demoPage).not.toMatch(/fetch|WebSocket|localhost|127\.0\.0\.1|useState|useEffect/);
     expect(dashboard).not.toMatch(/fetch\(|new WebSocket|<img[^>]+https?:\/\//);
-    expect(hosting.replace(/\s/g, "")).toMatch(/^\{"d1":null,"r2":null\}/);
+    expect(hosting.replace(/\s/g, "")).toMatch(
+      /^\{"d1":"DB","r2":"CLIPS"\}/,
+    );
     expect(Object.keys(dependencies)).not.toEqual(
       expect.arrayContaining([
         "lucide-react",
