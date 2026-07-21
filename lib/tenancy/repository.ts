@@ -123,27 +123,33 @@ export class TenantRepository {
         client
           .prepare(`
             INSERT INTO agents (id, home_id, public_key, tunnel_origin)
-            SELECT ?, home_id, ?, ? FROM enrollment_tokens
-            WHERE token_hash = ? AND consumed_at IS NULL AND expires_at > ?
+            SELECT ?, et.home_id, ?, ? FROM enrollment_tokens et
+            JOIN tunnel_routes tr ON tr.home_id = et.home_id
+            WHERE tr.agent_id = ? AND tr.status = 'provisioning'
+              AND et.token_hash = ? AND et.consumed_at IS NULL AND et.expires_at > ?
           `)
           .bind(
             input.agent.id,
             input.agent.publicKey,
             input.agent.tunnelOrigin,
+            input.agent.id,
             input.codeHash,
             input.consumedAt,
           ),
         client
           .prepare(`
             INSERT INTO cameras (id, home_id, agent_id, local_camera_id, created_at)
-            SELECT ?, home_id, ?, ?, ? FROM enrollment_tokens
-            WHERE token_hash = ? AND consumed_at IS NULL AND expires_at > ?
+            SELECT ?, et.home_id, ?, ?, ? FROM enrollment_tokens et
+            JOIN tunnel_routes tr ON tr.home_id = et.home_id
+            WHERE tr.agent_id = ? AND tr.status = 'provisioning'
+              AND et.token_hash = ? AND et.consumed_at IS NULL AND et.expires_at > ?
           `)
           .bind(
             input.camera.id,
             input.agent.id,
             input.camera.localCameraId,
             input.consumedAt,
+            input.agent.id,
             input.codeHash,
             input.consumedAt,
           ),
@@ -151,9 +157,19 @@ export class TenantRepository {
           .prepare(`
             UPDATE enrollment_tokens SET consumed_at = ?
             WHERE token_hash = ? AND consumed_at IS NULL AND expires_at > ?
+              AND EXISTS (
+                SELECT 1 FROM tunnel_routes tr
+                WHERE tr.home_id = enrollment_tokens.home_id
+                  AND tr.agent_id = ? AND tr.status = 'provisioning'
+              )
             RETURNING home_id
           `)
-          .bind(input.consumedAt, input.codeHash, input.consumedAt),
+          .bind(
+            input.consumedAt,
+            input.codeHash,
+            input.consumedAt,
+            input.agent.id,
+          ),
       ]);
       const homeId = results[2].results[0]?.home_id;
       if (

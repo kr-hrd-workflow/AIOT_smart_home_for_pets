@@ -20,22 +20,46 @@ beforeEach(async () => {
     d1Databases: ["DB"],
   });
   db = await mf.getD1Database("DB");
-  const migration = readFileSync(
-    resolve(import.meta.dirname, "../../drizzle/0000_petcare_tenancy.sql"),
-    "utf8",
-  );
-  await db.batch(
-    migration
-      .split("--> statement-breakpoint")
-      .map((statement) => statement.trim())
-      .filter(Boolean)
-      .map((statement) => db.prepare(statement)),
-  );
+  for (const migrationName of [
+    "0000_petcare_tenancy.sql",
+    "0001_petcare_tunnels_clips.sql",
+  ]) {
+    const migration = readFileSync(
+      resolve(import.meta.dirname, `../../drizzle/${migrationName}`),
+      "utf8",
+    );
+    await db.batch(
+      migration
+        .split("--> statement-breakpoint")
+        .map((statement) => statement.trim())
+        .filter(Boolean)
+        .map((statement) => db.prepare(statement)),
+    );
+  }
 });
 
 afterEach(async () => mf.dispose());
 
 describe("TenantRepository", () => {
+  async function reserveRoute(
+    homeId: string,
+    agentId: string,
+    status = "provisioning",
+  ) {
+    await db
+      .prepare(
+        "INSERT INTO tunnel_routes (home_id, agent_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .bind(
+        homeId,
+        agentId,
+        status,
+        "2026-07-20T03:05:00.000Z",
+        "2026-07-20T03:05:00.000Z",
+      )
+      .run();
+  }
+
   it("resolves only the active home owned by the verified subject", async () => {
     const repository = new TenantRepository(getDb(db));
     await repository.ensureHome("owner-a");
@@ -95,6 +119,7 @@ describe("TenantRepository", () => {
       },
       camera: { id: "camera-a", localCameraId: "usb-0" },
     };
+    await reserveRoute(home.id, input.agent.id);
 
     await expect(repository.consumeEnrollment(input)).resolves.toEqual({
       homeId: home.id,
@@ -106,6 +131,94 @@ describe("TenantRepository", () => {
       code: "enrollment_rejected",
     });
   });
+
+  it("rejects a valid token without its reserved provisioning route", async () => {
+    const repository = new TenantRepository(getDb(db));
+    const home = await repository.ensureHome("owner-a");
+    await repository.replaceEnrollmentToken(
+      home.id,
+      "unreserved-hash",
+      "2026-07-20T03:10:00.000Z",
+    );
+
+    await expect(
+      repository.consumeEnrollment({
+        codeHash: "unreserved-hash",
+        consumedAt: "2026-07-20T03:05:00.000Z",
+        agent: {
+          id: "agent-a",
+          publicKey: "public-a",
+          tunnelOrigin: "https://a.invalid",
+        },
+        camera: { id: "camera-a", localCameraId: "usb-0" },
+      }),
+    ).rejects.toMatchObject({ code: "enrollment_rejected" });
+
+    expect(
+      await db
+        .prepare(
+          "SELECT consumed_at FROM enrollment_tokens WHERE token_hash = ?",
+        )
+        .bind("unreserved-hash")
+        .first(),
+    ).toEqual({ consumed_at: null });
+    expect(
+      await db.prepare("SELECT COUNT(*) AS count FROM agents").first(),
+    ).toEqual({ count: 0 });
+    expect(
+      await db.prepare("SELECT COUNT(*) AS count FROM cameras").first(),
+    ).toEqual({ count: 0 });
+  });
+
+  it.each([
+    ["agent", "owner-a", "agent-other", "provisioning"],
+    ["home", "owner-b", "agent-a", "provisioning"],
+    ["status", "owner-a", "agent-a", "activation_pending"],
+  ])(
+    "rejects a valid token when the reserved route has mismatched %s",
+    async (_field, routeOwner, routeAgentId, routeStatus) => {
+      const repository = new TenantRepository(getDb(db));
+      const home = await repository.ensureHome("owner-a");
+      const routeHome =
+        routeOwner === "owner-a"
+          ? home
+          : await repository.ensureHome(routeOwner);
+      await repository.replaceEnrollmentToken(
+        home.id,
+        "mismatched-route-hash",
+        "2026-07-20T03:10:00.000Z",
+      );
+      await reserveRoute(routeHome.id, routeAgentId, routeStatus);
+
+      await expect(
+        repository.consumeEnrollment({
+          codeHash: "mismatched-route-hash",
+          consumedAt: "2026-07-20T03:05:00.000Z",
+          agent: {
+            id: "agent-a",
+            publicKey: "public-a",
+            tunnelOrigin: "https://a.invalid",
+          },
+          camera: { id: "camera-a", localCameraId: "usb-0" },
+        }),
+      ).rejects.toMatchObject({ code: "enrollment_rejected" });
+
+      expect(
+        await db
+          .prepare(
+            "SELECT consumed_at FROM enrollment_tokens WHERE token_hash = ?",
+          )
+          .bind("mismatched-route-hash")
+          .first(),
+      ).toEqual({ consumed_at: null });
+      expect(
+        await db.prepare("SELECT COUNT(*) AS count FROM agents").first(),
+      ).toEqual({ count: 0 });
+      expect(
+        await db.prepare("SELECT COUNT(*) AS count FROM cameras").first(),
+      ).toEqual({ count: 0 });
+    },
+  );
 
   it("rejects expiry without consuming or binding", async () => {
     const repository = new TenantRepository(getDb(db));
@@ -188,6 +301,7 @@ describe("TenantRepository", () => {
       "second-agent-hash",
       "2026-07-20T03:10:00.000Z",
     );
+    await reserveRoute(home.id, "agent-new");
 
     await expect(
       repository.consumeEnrollment({
@@ -250,6 +364,7 @@ describe("TenantRepository", () => {
       "camera-conflict-hash",
       "2026-07-20T03:10:00.000Z",
     );
+    await reserveRoute(home.id, "agent-new");
 
     await expect(
       repository.consumeEnrollment({
