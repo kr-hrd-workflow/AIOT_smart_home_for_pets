@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   CloudflareApiError,
@@ -148,8 +148,16 @@ describe("CloudflareClient", () => {
     const { calls, fetchImpl } = queuedFetch([
       {
         result: [
-          { id: "tunnel-ignore", name: "petcare-home-ab" },
-          { id: "tunnel-1", name: "petcare-home-a" },
+          {
+            id: "tunnel-ignore",
+            name: "petcare-home-ab",
+            config_src: "cloudflare",
+          },
+          {
+            id: "tunnel-1",
+            name: "petcare-home-a",
+            config_src: "cloudflare",
+          },
         ],
       },
       {
@@ -158,31 +166,57 @@ describe("CloudflareClient", () => {
             id: "dns-ignore",
             name: "home-a.agents.example.com",
             type: "A",
+            content: "tunnel-1.cfargotunnel.com",
+            proxied: true,
           },
           {
             id: "dns-1",
             name: "home-a.agents.example.com",
             type: "CNAME",
+            content: "tunnel-1.cfargotunnel.com",
+            proxied: true,
           },
         ],
       },
       {
         result: [
-          { id: "app-ignore", aud: "aud-ignore", domain: "other.invalid" },
+          {
+            id: "app-ignore",
+            aud: "aud-ignore",
+            name: "PetCare home-a",
+            domain: "other.invalid",
+            type: "self_hosted",
+            service_auth_401_redirect: true,
+          },
           {
             id: "app-1",
             aud: "aud-1",
+            name: "PetCare home-a",
             domain: "home-a.agents.example.com",
+            type: "self_hosted",
+            service_auth_401_redirect: true,
           },
         ],
       },
       {
         result: [
-          { id: "policy-ignore", name: "PetCare Sites BFF", decision: "allow" },
+          {
+            id: "policy-ignore",
+            name: "PetCare Sites BFF",
+            decision: "allow",
+            precedence: 1,
+            include: [
+              { service_token: { token_id: "service-token-id" } },
+            ],
+          },
           {
             id: "policy-1",
             name: "PetCare Sites BFF",
             decision: "non_identity",
+            precedence: 1,
+            include: [
+              { service_token: { token_id: "service-token-id" } },
+            ],
           },
         ],
       },
@@ -193,10 +227,16 @@ describe("CloudflareClient", () => {
       id: "tunnel-1",
     });
     await expect(
-      client.findDnsRecordByHostname("home-a.agents.example.com"),
+      client.findDnsRecordByHostname(
+        "home-a.agents.example.com",
+        "tunnel-1",
+      ),
     ).resolves.toEqual({ id: "dns-1" });
     await expect(
-      client.findAccessAppByDomain("home-a.agents.example.com"),
+      client.findAccessAppByDomain(
+        "home-a.agents.example.com",
+        "PetCare home-a",
+      ),
     ).resolves.toEqual({ id: "app-1", aud: "aud-1" });
     await expect(
       client.findAccessPolicyByName("app-1", "PetCare Sites BFF"),
@@ -204,8 +244,8 @@ describe("CloudflareClient", () => {
 
     expect(calls.map(({ url }) => url)).toEqual([
       "https://api.cloudflare.com/client/v4/accounts/acct/cfd_tunnel?name=petcare-home-a&is_deleted=false",
-      "https://api.cloudflare.com/client/v4/zones/zone/dns_records?type=CNAME&name.exact=home-a.agents.example.com&match=all",
-      "https://api.cloudflare.com/client/v4/accounts/acct/access/apps?domain=home-a.agents.example.com&exact=true",
+      "https://api.cloudflare.com/client/v4/zones/zone/dns_records?type=CNAME&name.exact=home-a.agents.example.com&content.exact=tunnel-1.cfargotunnel.com&proxied=true&match=all",
+      "https://api.cloudflare.com/client/v4/accounts/acct/access/apps?domain=home-a.agents.example.com&name=PetCare+home-a&exact=true",
       "https://api.cloudflare.com/client/v4/accounts/acct/access/apps/app-1/policies",
     ]);
     expect(calls.every(({ method, body }) => method === "GET" && body === "")).toBe(true);
@@ -217,12 +257,27 @@ describe("CloudflareClient", () => {
       { status: 404 },
       {
         result: [
-          { id: "app-ignore", aud: "aud-ignore", domain: "other.invalid" },
+          {
+            id: "app-ignore",
+            aud: "aud-ignore",
+            name: "PetCare home-a",
+            domain: "other.invalid",
+            type: "self_hosted",
+            service_auth_401_redirect: true,
+          },
         ],
       },
       {
         result: [
-          { id: "policy-ignore", name: "PetCare Sites BFF", decision: "allow" },
+          {
+            id: "policy-ignore",
+            name: "PetCare Sites BFF",
+            decision: "allow",
+            precedence: 1,
+            include: [
+              { service_token: { token_id: "service-token-id" } },
+            ],
+          },
         ],
       },
     ]);
@@ -230,14 +285,138 @@ describe("CloudflareClient", () => {
 
     await expect(client.findTunnelByName("petcare-home-a")).resolves.toBeNull();
     await expect(
-      client.findDnsRecordByHostname("home-a.agents.example.com"),
+      client.findDnsRecordByHostname(
+        "home-a.agents.example.com",
+        "tunnel-1",
+      ),
     ).resolves.toBeNull();
     await expect(
-      client.findAccessAppByDomain("home-a.agents.example.com"),
+      client.findAccessAppByDomain(
+        "home-a.agents.example.com",
+        "PetCare home-a",
+      ),
     ).resolves.toBeNull();
     await expect(
       client.findAccessPolicyByName("app-1", "PetCare Sites BFF"),
     ).resolves.toBeNull();
+  });
+
+  it("rejects malicious near-matches instead of adopting foreign resources", async () => {
+    const { fetchImpl } = queuedFetch([
+      {
+        result: [
+          {
+            id: "foreign-tunnel",
+            name: "petcare-home-a",
+            config_src: "local",
+            token: "connector-secret",
+          },
+        ],
+      },
+      {
+        result: [
+          {
+            id: "foreign-dns",
+            name: "home-a.agents.example.com",
+            type: "CNAME",
+            content: "attacker.cfargotunnel.com",
+            proxied: true,
+            api_token: "scoped-token",
+          },
+        ],
+      },
+      {
+        result: [
+          {
+            id: "foreign-app",
+            aud: "foreign-aud",
+            name: "PetCare home-a",
+            domain: "home-a.agents.example.com",
+            type: "self_hosted",
+            service_auth_401_redirect: false,
+            secret: "access-client-secret",
+          },
+        ],
+      },
+      {
+        result: [
+          {
+            id: "foreign-policy",
+            name: "PetCare Sites BFF",
+            decision: "non_identity",
+            precedence: 1,
+            include: [
+              { service_token: { token_id: "foreign-service-token" } },
+            ],
+          },
+        ],
+      },
+    ]);
+    const client = new CloudflareClient(config, fetchImpl);
+
+    await expect(client.findTunnelByName("petcare-home-a")).resolves.toBeNull();
+    await expect(
+      client.findDnsRecordByHostname(
+        "home-a.agents.example.com",
+        "tunnel-1",
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      client.findAccessAppByDomain(
+        "home-a.agents.example.com",
+        "PetCare home-a",
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      client.findAccessPolicyByName("app-1", "PetCare Sites BFF"),
+    ).resolves.toBeNull();
+  });
+
+  it("rejects ambiguous exact provider matches with a safe error", async () => {
+    const exactTunnel = {
+      name: "petcare-home-a",
+      config_src: "cloudflare",
+    };
+    const { fetchImpl } = queuedFetch([
+      {
+        result: [
+          { id: "tunnel-1", ...exactTunnel },
+          { id: "tunnel-2", ...exactTunnel },
+        ],
+      },
+    ]);
+
+    await expect(
+      new CloudflareClient(config, fetchImpl).findTunnelByName(
+        "petcare-home-a",
+      ),
+    ).rejects.toMatchObject({
+      code: "cloudflare_api_error",
+      status: 502,
+    });
+  });
+
+  it("bounds every provider request at ten seconds and redacts timeout details", async () => {
+    const aborted = AbortSignal.abort(new DOMException("scoped-token", "AbortError"));
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(aborted);
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      expect(init?.signal).toBe(aborted);
+      throw aborted.reason;
+    };
+
+    try {
+      const error = await new CloudflareClient(config, fetchImpl)
+        .createTunnel("petcare-home-a")
+        .catch((caught: unknown) => caught);
+      expect(timeout).toHaveBeenCalledWith(10_000);
+      expect(error).toMatchObject({
+        code: "cloudflare_api_error",
+        status: 502,
+      });
+      expect(String(error)).not.toMatch(/scoped-token|AbortError/);
+    } finally {
+      timeout.mockRestore();
+    }
   });
 
   it("exposes only a fixed error for HTTP and Cloudflare envelope failures", async () => {
