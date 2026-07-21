@@ -36,6 +36,17 @@ function hasExactServiceTokenRule(
   );
 }
 
+function resourceId(result: unknown): { id: string } {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    throw new CloudflareApiError(502);
+  }
+  const id = (result as { id?: unknown }).id;
+  if (typeof id !== "string" || id.length === 0) {
+    throw new CloudflareApiError(502);
+  }
+  return { id };
+}
+
 export class CloudflareClient {
   constructor(
     private readonly config: CloudflareConfig,
@@ -90,22 +101,20 @@ export class CloudflareClient {
   }
 
   async createTunnel(name: string): Promise<{ id: string }> {
-    return (await this.request<{ id: string }>(
-      `/accounts/${this.config.accountId}/cfd_tunnel`,
-      {
+    return resourceId(
+      await this.request(`/accounts/${this.config.accountId}/cfd_tunnel`, {
         method: "POST",
         body: JSON.stringify({ name, config_src: "cloudflare" }),
-      },
-    ))!;
+      }),
+    );
   }
 
   async createDnsRecord(
     hostname: string,
     tunnelId: string,
   ): Promise<{ id: string }> {
-    return (await this.request<{ id: string }>(
-      `/zones/${this.config.zoneId}/dns_records`,
-      {
+    return resourceId(
+      await this.request(`/zones/${this.config.zoneId}/dns_records`, {
         method: "POST",
         body: JSON.stringify({
           type: "CNAME",
@@ -114,15 +123,15 @@ export class CloudflareClient {
           proxied: true,
           ttl: 1,
         }),
-      },
-    ))!;
+      }),
+    );
   }
 
   async createAccessApp(
     hostname: string,
     name: string,
   ): Promise<{ id: string; aud: string }> {
-    return (await this.request<{ id: string; aud: string }>(
+    const result = await this.request<unknown>(
       `/accounts/${this.config.accountId}/access/apps`,
       {
         method: "POST",
@@ -133,24 +142,32 @@ export class CloudflareClient {
           service_auth_401_redirect: true,
         }),
       },
-    ))!;
+    );
+    const { id } = resourceId(result);
+    const aud = (result as { aud?: unknown }).aud;
+    if (typeof aud !== "string" || aud.length === 0) {
+      throw new CloudflareApiError(502);
+    }
+    return { id, aud };
   }
 
   async createAccessPolicy(appId: string): Promise<{ id: string }> {
-    return (await this.request<{ id: string }>(
-      `/accounts/${this.config.accountId}/access/apps/${appId}/policies`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          name: "PetCare Sites BFF",
-          decision: "non_identity",
-          include: [
-            { service_token: { token_id: this.config.serviceTokenId } },
-          ],
-          precedence: 1,
-        }),
-      },
-    ))!;
+    return resourceId(
+      await this.request(
+        `/accounts/${this.config.accountId}/access/apps/${appId}/policies`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            name: "PetCare Sites BFF",
+            decision: "non_identity",
+            include: [
+              { service_token: { token_id: this.config.serviceTokenId } },
+            ],
+            precedence: 1,
+          }),
+        },
+      ),
+    );
   }
 
   async configureTunnel(
@@ -185,10 +202,14 @@ export class CloudflareClient {
   }
 
   async getConnectorToken(tunnelId: string): Promise<string> {
-    return (await this.request<string>(
+    const token = await this.request<unknown>(
       `/accounts/${this.config.accountId}/cfd_tunnel/${tunnelId}/token`,
       { method: "GET" },
-    ))!;
+    );
+    if (typeof token !== "string" || token.length === 0) {
+      throw new CloudflareApiError(502);
+    }
+    return token;
   }
 
   async findTunnelByName(name: string): Promise<{ id: string } | null> {
