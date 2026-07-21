@@ -1,5 +1,16 @@
 # PetCare Remote Integration And Deployment Implementation Plan
 
+> **Jetson vision override (2026-07-20):** Integration Task 2 supersedes its old `AgentLifecycleComponents(recorder, dispatcher, started_at)`, `.latest_frame_sink`, `stop_agent_dispatcher`, `stop_agent_recorder`, and `test_clip_recorder.py` expectations. The approved one-Jetson USB-camera path consumes exactly:
+
+```python
+AgentLifecycleComponents(jetson_client, clip_admission, clip_delivery, upload_queue, started_at)
+build_agent_components(config_path, tools_path, session_factory, *, now=utc_now)
+start_agent_components(components)
+stop_agent_components(components, *, timeout_seconds=105.0)
+```
+
+`stop_agent_components` uses one 105-second global monotonic deadline and always attempts this exact component-owned sequence with per-step caps: `clip_admission.stop(5)`; `clip_delivery.stop(45)`; `jetson_client.close(2)`; `upload_queue.stop(45)`. Each receives `min(cap, remaining_global_time)`; exhaustion is recorded but later nonblocking cleanup is still attempted. It preserves the first failure only after attempting later cleanup, and repeated calls are safe. Integration Task 2 owns the surrounding lifespan sequence `rule_ingress.stop_accepting -> mqtt.stop -> rule_worker.shutdown -> camera.shutdown -> stop_agent_components -> dispose_database`, again attempting later cleanup after a failure. Its tests assert these exact exports/order without importing or faking the superseded recorder path. Integration Task 4 validates `petcare-jetson-wire-v1.json` separately while preserving `petcare-agent-wire-v1.json` byte-for-byte.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Integrate the existing Task 11/12 loopback PetCare API, the four remote component workstreams, reproducible home-agent runtimes, hermetic multi-tenant tests, exact-SHA CI, and an explicitly approved public Sites release whose live routes remain Supabase-authenticated and tenant-scoped.
@@ -272,10 +283,10 @@ git commit -m "chore(remote): pin agent and cloud runtimes"
 - Modify: `backend/app/main.py`
 
 **Interfaces:**
-- Consumes: Task 11 `RuleIngress`, `RuleWorker`, `RuleEngine`; Task 12's already-implemented exact API router/hub/main; home-agent `ClipTriggerOutbox`, commands `python -m app.agent_runtime enroll|run|status`, restricted status file, in-process `AgentHealthSnapshot`, and `.runtime/agent-tools.json` from `docs/superpowers/plans/2026-07-20-petcare-home-agent-clips.md`.
-- Consumes exact Home exports from `backend/app/agent_lifecycle.py`: `AgentLifecycleComponents(recorder, dispatcher, started_at)` with `.latest_frame_sink`; `build_agent_components(config_path: Path, tools_path: Path, session_factory: sessionmaker[Session], *, now: Callable[[], datetime] = utc_now) -> AgentLifecycleComponents`; `start_agent_components(components) -> None`; `stop_agent_dispatcher(components, *, timeout: float = 10.0) -> None`; and `stop_agent_recorder(components, *, timeout: float = 45.0) -> None`.
+- Consumes: Task 11 `RuleIngress`, `RuleWorker`, `RuleEngine`; Task 12's already-implemented exact API router/hub/main; revised Jetson-aware camera service; home-agent commands `python -m app.agent_runtime enroll|run|status|pair-jetson`, restricted status file, in-process `AgentHealthSnapshot`, `.runtime/agent-tools.json`, and the imported Jetson configuration from `docs/superpowers/plans/2026-07-20-petcare-jetson-vision-node.md`.
+- Consumes exact Home exports from `backend/app/agent_lifecycle.py`: `AgentLifecycleComponents(jetson_client, clip_admission, clip_delivery, upload_queue, started_at)`; `build_agent_components(config_path, tools_path, session_factory, *, now=utc_now)`; `start_agent_components(components)`; and `stop_agent_components(components, *, timeout_seconds=105.0)`.
 - Consumes for uploads: the single `PETCARE-CLIP-V1` canonical string and exact BFF headers `Content-Type`, `Content-Length`, `X-PetCare-Agent-Id`, `X-PetCare-Camera-Id`, `X-PetCare-Timestamp`, `X-PetCare-Nonce`, `X-PetCare-Content-SHA256`, `X-PetCare-Started-At`, `X-PetCare-Ended-At`, `X-PetCare-Events`, and `X-PetCare-Signature`; success is only HTTP `201` with exact `{ id, createdAt, expiresAt }` JSON.
-- Produces: the sole final `backend/app/main.py` production composition, application-state attachment, exact shutdown order, and cross-plan regression evidence. Home retains ownership of `agent_lifecycle.py`, recorder/upload wiring, `agent_runtime.py`, and their unit behavior.
+- Produces: the sole final `backend/app/main.py` production composition, application-state attachment, exact shutdown order, and cross-plan regression evidence. Jetson vision Task 7 retains ownership of `agent_lifecycle.py`, all clip workers/upload queue, `agent_runtime.py`, and their unit behavior; Integration Task 2 modifies none of them.
 - Modifies no Task 12 route, response model, error, ordering, Origin, or bind address; it only composes the frozen Task 12 app with the frozen Home hook.
 
 - [ ] **Step 1: Add a failing lifecycle integration test using sibling fakes**
@@ -305,16 +316,16 @@ def test_agent_mode_preserves_the_existing_api(configured_agent_app) -> None:
 
 def test_agent_status_is_cli_only(agent_health_snapshot, agent_status_cli) -> None:
     payload = agent_health_snapshot.to_dict()
-    assert set(payload) == {
-        "status", "started_at", "camera", "rule_worker",
-        "clip_recorder", "last_successful_upload_at",
-    }
+    assert payload["status"] in {"healthy", "degraded"}
+    assert set(payload["jetson"]) >= {"camera", "boot", "temperature", "throttle"}
+    assert "queue_depth" in payload["clip_delivery"]
+    assert "queue_depth" in payload["upload_queue"]
     assert agent_status_cli(payload).exit_code == 0
     serialized = agent_status_cli(payload).stdout.lower()
-    assert "token" not in serialized
-    assert "private_key" not in serialized
-    assert "database_url" not in serialized
-    assert "mqtt_password" not in serialized
+    assert not any(secret in serialized for secret in (
+        '"url"', '"ip"', '"psk"', '"certificate"', '"token"',
+        '"private_key"', '"database_url"', '"mqtt_password"', '"clip_path"',
+    ))
 
 
 def test_supervisor_uses_task12_loopback_and_token_file(agent_supervisor) -> None:
@@ -332,14 +343,13 @@ def test_main_owns_final_shutdown_order(configured_agent_app, lifecycle_calls) -
         "rule_ingress.stop_accepting",
         "mqtt.stop",
         "rule_worker.shutdown",
-        "stop_agent_dispatcher",
         "camera.shutdown",
-        "stop_agent_recorder",
+        "stop_agent_components",
         "dispose_database",
     ]
 ```
 
-`configured_agent_app` and `lifecycle_calls` are integration fixtures that patch only the Home hook boundaries and existing Task 12 services; they do not reproduce recorder/dispatcher behavior. `agent_health_snapshot`, `agent_status_cli`, and `agent_supervisor` reuse the sibling home-agent test factories through their public helpers. The existing Task 12 route-set tests remain the sole HTTP authority and must stay byte-for-byte green; diagnostics are CLI/status-file only.
+`configured_agent_app` and `lifecycle_calls` are integration fixtures that patch only the revised Home lifecycle boundary and existing Task 12 services; they do not reproduce Jetson client, admission, delivery, or upload-queue behavior. `agent_health_snapshot`, `agent_status_cli`, and `agent_supervisor` reuse the Jetson vision plan's Home test factories through their public helpers. The existing Task 12 route-set tests remain the sole HTTP authority and must stay byte-for-byte green; diagnostics are CLI/status-file only.
 
 - [ ] **Step 2: Run the lifecycle test and verify RED**
 
@@ -352,19 +362,19 @@ Expected: FAIL after Home is complete because Task 12's `backend/app/main.py` do
 
 - [ ] **Step 3: Compose the Home lifecycle into integration-owned main.py**
 
-Preserve Task 12's single FastAPI app, router/hub wiring, `docs_url=None`, `redoc_url=None`, `openapi_url=None`, and `127.0.0.1:8000` supervisor contract. In its existing lifespan, read `PETCARE_AGENT_CONFIG` and `PETCARE_AGENT_TOOLS`; when both are absent, retain byte-for-byte local startup behavior and set `application.state.agent_components = None`. Reject a one-sided configuration before starting background work.
+Preserve Task 12's single FastAPI app, router/hub wiring, `docs_url=None`, `redoc_url=None`, `openapi_url=None`, and `127.0.0.1:8000` supervisor contract. In its existing lifespan, consume the validated agent environment produced by Jetson vision Task 7; when agent mode is absent, retain byte-for-byte local startup behavior and set `application.state.agent_components = None`. Reject a partial agent/Jetson configuration before starting background work.
 
-When both paths exist, call `build_agent_components(Path(config_path), Path(tools_path), session_factory)` exactly once with no copied config/recorder logic. Pass `components.latest_frame_sink` to the Home-extended `build_camera_service`, store the components on `application.state.agent_components`, and call `start_agent_components(components)` before accepting rule/MQTT/camera work. `RuleEngine` receives no recorder callback because the Home outbox owns post-commit delivery.
+In agent mode, call `build_agent_components(Path(config_path), Path(tools_path), session_factory)` exactly once with no copied config, Jetson-client, clip-worker, or upload-queue logic. Store the components on `application.state.agent_components`, call `start_agent_components(components)` before accepting rule/MQTT/camera work, and compose the revised Jetson-aware camera service without a frame sink. `RuleEngine` receives no clip callback because the transactional outbox and fast admission worker own post-commit delivery.
 
-The final lifespan teardown is exactly: `rule_ingress.stop_accepting` -> `mqtt.stop` -> `rule_worker.shutdown` -> `stop_agent_dispatcher(components, timeout=10.0)` -> `camera.shutdown` -> `stop_agent_recorder(components, timeout=45.0)` -> `dispose_database`. Preserve cleanup attempts when an earlier stop raises and surface the first bounded failure after all later cleanup runs. If a test exposes recorder, dispatcher, config, ACL, queue, or hook defects, return those to the Home plan; Task 2 edits only `backend/app/main.py` and its integration test and adds no second runtime factory, outbox, or lifespan.
+The final lifespan teardown is exactly: `rule_ingress.stop_accepting` -> `mqtt.stop` -> `rule_worker.shutdown` -> `camera.shutdown` -> `stop_agent_components(components, timeout_seconds=105.0)` -> `dispose_database`. `stop_agent_components` alone owns the component sequence and global deadline frozen in the title override. Preserve cleanup attempts when an earlier stop raises and surface the first bounded failure after all later cleanup runs. If a test exposes Jetson client, clip worker, upload queue, config, ACL, or hook defects, return those to Jetson vision Task 7; Task 2 edits only `backend/app/main.py` and its integration test and adds no second runtime factory, outbox, clip worker, upload queue, or lifespan.
 
 - [ ] **Step 4: Run Task 11/12 and lifecycle regression tests**
 
 ```powershell
-& $runtime.paths.uv_path run --project backend pytest backend/tests/test_rule_worker.py backend/tests/test_api.py backend/tests/test_websocket.py backend/tests/test_clip_outbox.py backend/tests/test_clip_recorder.py backend/tests/test_agent_config.py backend/tests/test_agent_health.py backend/tests/test_agent_runtime.py backend/tests/integration/test_remote_agent_stack.py -m 'not ffmpeg_smoke' -q
+& $runtime.paths.uv_path run --project backend pytest backend/tests/test_rule_worker.py backend/tests/test_api.py backend/tests/test_websocket.py backend/tests/test_clip_outbox.py backend/tests/test_clip_delivery.py backend/tests/test_clip_upload_queue.py backend/tests/test_jetson_client.py backend/tests/test_agent_config.py backend/tests/test_agent_health.py backend/tests/test_agent_lifecycle.py backend/tests/test_agent_runtime.py backend/tests/integration/test_remote_agent_stack.py -q
 ```
 
-Expected: exit 0; Task 11 shutdown order, all twelve HTTP/one WebSocket contracts, transactional outbox atomicity/retry, queue-full abort plus degraded health, ACL-before-replace persistence, and remote-agent order pass unchanged.
+Expected: exit 0; Task 11 shutdown order, all twelve HTTP/one WebSocket contracts, transactional outbox atomicity/retry, isolated fast admission, bounded slow delivery/upload, Jetson-fault degraded health with sensors alive, ACL-before-replace persistence, and remote-agent order pass unchanged.
 
 - [ ] **Step 5: Commit the integration-owned lifecycle composition**
 
@@ -508,8 +518,13 @@ git commit -m "feat(sites): integrate authenticated PetCare BFF"
 
 ### Task 4: Prove the complete local remote path with real Task 12 and fake cloud providers
 
+**Jetson vision override:** Validate `contracts/petcare-jetson-wire-v1.json` independently from `contracts/petcare-agent-wire-v1.json`; do not modify either fixture, and prove the existing `PETCARE-CLIP-V1` fixture remains byte-for-byte unchanged.
+
 **Files:**
 - Consume: `contracts/petcare-agent-wire-v1.json`
+- Consume: `contracts/petcare-jetson-wire-v1.json`
+- Consume: `backend/tests/test_jetson_wire_contract.py`
+- Consume: `jetson/tests/test_wire_contract.py`
 - Create: `backend/tests/integration/test_agent_wire_contract.py`
 - Create: `dashboard/tests/integration/agent-wire-contract.test.ts`
 - Create: `tools/run_remote_integration.ps1`
@@ -519,7 +534,7 @@ git commit -m "feat(sites): integrate authenticated PetCare BFF"
 
 **Interfaces:**
 - Produces: `powershell -NoProfile -ExecutionPolicy Bypass -File tools/run_remote_integration.ps1 -Mode Fake`.
-- Fake mode uses: real PostgreSQL/Mosquitto/FastAPI/Task 11/12, real FFmpeg, fake Supabase/JWKS/SMTP, fake D1/R2, fake Tunnel/Access/provisioning, and no Internet or account credential.
+- Fake mode uses: real PostgreSQL/Mosquitto/FastAPI/Task 11/12, both independent wire fixtures, validation-only ffprobe, fake Supabase/JWKS/SMTP, fake D1/R2, fake Tunnel/Access/provisioning, and no Internet or account credential.
 - Real mode is disabled here and implemented as an approval gate in Task 10.
 
 - [ ] **Step 1: Write failing orchestration tests**
@@ -542,7 +557,7 @@ if ($child.ExitCode -ne 3) { throw 'unapproved real mode must exit 3' }
 Write-Output 'remote integration command contract PASS'
 ```
 
-Task 1 alone creates `contracts/petcare-agent-wire-v1.json`; both siblings and Task 4 consume it read-only and no clip-only fixture exists. Its enrollment request is exactly `{"enrollment_code":"AQEBAQEBAQEBAQEBAQEBAQ","algorithm":"Ed25519","public_key":"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg","local_camera_id":"pc-webcam-01"}` and its response is exactly `{"agent_id":"agent_01","camera_id":"camera_01","connector_token":"fixture-only-connector-token"}`. Its clip section uses version `PETCARE-CLIP-V1`, body Base64 `bXA0LWJ5dGVz`, SHA-256 `Il4ucfaWNpVoTPXCrvfVgv_3asuMAo7Yt5ycUryTSV0`, seed `AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8`, public key `A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg`, nonce `AAAAAAAAAAAAAAAAAAAAAA`, and this exact canonical UTF-8 string with one final newline:
+Task 1 alone creates `contracts/petcare-agent-wire-v1.json`; Jetson vision Task 1 alone creates `contracts/petcare-jetson-wire-v1.json`. Task 4 consumes both read-only and validates them independently. The agent fixture's enrollment request is exactly `{"enrollment_code":"AQEBAQEBAQEBAQEBAQEBAQ","algorithm":"Ed25519","public_key":"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg","local_camera_id":"pc-webcam-01"}` and its response is exactly `{"agent_id":"agent_01","camera_id":"camera_01","connector_token":"fixture-only-connector-token"}`. Its clip section uses version `PETCARE-CLIP-V1`, body Base64 `bXA0LWJ5dGVz`, SHA-256 `Il4ucfaWNpVoTPXCrvfVgv_3asuMAo7Yt5ycUryTSV0`, seed `AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8`, public key `A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg`, nonce `AAAAAAAAAAAAAAAAAAAAAA`, and this exact canonical UTF-8 string with one final newline:
 
 ```text
 PETCARE-CLIP-V1
@@ -624,7 +639,7 @@ if ($LASTEXITCODE) { throw 'agent runtime bootstrap failed' }
 $AgentRuntimePath = Assert-File $AgentRuntimePath 'agent runtime'
 $agentRuntime = Get-Content -Raw -Encoding UTF8 -LiteralPath $AgentRuntimePath | ConvertFrom-Json
 Assert-ManifestHash $agentRuntime 'agent runtime'
-foreach ($key in 'ffmpeg_path','cloudflared_path') {
+foreach ($key in 'ffprobe_path','cloudflared_path') {
   $toolPath = Assert-File ([string]$agentRuntime.paths.$key) "agent $key"
   if ((Get-FileHash -LiteralPath $toolPath -Algorithm SHA256).Hash -ne [string]$agentRuntime.sha256.$key) {
     throw "agent $key hash mismatch"
@@ -640,15 +655,17 @@ try {
   & $runtime.paths.uv_path run --project (Join-Path $Root 'backend') pytest `
     (Join-Path $Root 'backend/tests/integration/test_remote_agent_stack.py') `
     (Join-Path $Root 'backend/tests/integration/test_agent_wire_contract.py') `
+    (Join-Path $Root 'backend/tests/test_jetson_wire_contract.py') `
     (Join-Path $Root 'backend/tests/test_clip_outbox.py') `
-    (Join-Path $Root 'backend/tests/test_clip_recorder.py') `
+    (Join-Path $Root 'backend/tests/test_clip_delivery.py') `
+    (Join-Path $Root 'backend/tests/test_clip_upload_queue.py') `
     (Join-Path $Root 'backend/tests/test_agent_config.py') `
-    (Join-Path $Root 'backend/tests/test_agent_health.py') -m 'not ffmpeg_smoke' -q
+    (Join-Path $Root 'backend/tests/test_agent_health.py') -q
   if ($LASTEXITCODE) { throw 'remote agent contract tests failed' }
 
-  & $runtime.paths.uv_path run --project (Join-Path $Root 'backend') pytest `
-    (Join-Path $Root 'backend/tests/test_clip_recorder.py') -m ffmpeg_smoke -q
-  if ($LASTEXITCODE) { throw 'real FFmpeg smoke failed' }
+  & $runtime.paths.python_path -m unittest discover `
+    -s (Join-Path $Root 'jetson/tests') -p 'test_wire_contract.py'
+  if ($LASTEXITCODE) { throw 'Jetson stdlib wire contract test failed' }
 
   Push-Location (Join-Path $Root 'dashboard')
   try {
@@ -675,7 +692,7 @@ try {
 Write-Output 'REMOTE_LOCAL_INTEGRATION=PASS'
 ```
 
-`tools/run_integration.ps1 -Provider Native` is the prerequisite Todo 14 owner of PostgreSQL/Mosquitto/FastAPI startup, health waiting, and child cleanup. The sibling BFF/auth test files own fake Supabase/JWKS/SMTP/D1/R2/Tunnel/Access behavior, including asserting `cloudflared tunnel --no-autoupdate run --token-file` followed by the fixture's ignored token-file path, without starting cloudflared. The fake proxy asserts browser status maps only to `/api/dashboard/summary` and MJPEG only to `/api/video_feed`; forbidden aliases fail. The two wire tests consume one shared golden vector and require snake-case enrollment, exact `PETCARE-CLIP-V1` bytes, the eleven headers listed in Task 2, HTTP `201` with the exact receipt, and cross-language Ed25519 verification. The account tests require exact `202 {"status":"cleanup_pending"}` for first/pending deletion, empty `204` for already-absent/completed deletion, idempotent logical cleanup/provider retries, secret redaction, dashboard `POST /auth/logout` plus `/login` redirect after either success, retained Supabase identity, and the other owner unchanged. This wrapper adds no second process supervisor or fake. It prints exactly one terminal marker:
+`tools/run_integration.ps1 -Provider Native` is the prerequisite Todo 14 owner of PostgreSQL/Mosquitto/FastAPI startup, health waiting, and child cleanup. The sibling BFF/auth test files own fake Supabase/JWKS/SMTP/D1/R2/Tunnel/Access behavior, including asserting `cloudflared tunnel --no-autoupdate run --token-file` followed by the fixture's ignored token-file path, without starting cloudflared. The fake proxy asserts browser status maps only to `/api/dashboard/summary` and MJPEG only to `/api/video_feed`; forbidden aliases fail. The Python and TypeScript agent-wire tests consume only `petcare-agent-wire-v1.json` and require snake-case enrollment, exact `PETCARE-CLIP-V1` bytes, the eleven headers listed in Task 2, HTTP `201` with the exact receipt, and cross-language Ed25519 verification. The two Jetson wire tests consume only `petcare-jetson-wire-v1.json`; both also assert the agent fixture remains byte-for-byte unchanged. The account tests require exact `202 {"status":"cleanup_pending"}` for first/pending deletion, empty `204` for already-absent/completed deletion, idempotent logical cleanup/provider retries, secret redaction, dashboard `POST /auth/logout` plus `/login` redirect after either success, retained Supabase identity, and the other owner unchanged. This wrapper adds no second process supervisor or fake. It prints exactly one terminal marker:
 
 ```text
 REMOTE_LOCAL_INTEGRATION=PASS
@@ -690,7 +707,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/run_remote_integration
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/run_remote_integration.ps1 -Mode Fake
 ```
 
-Expected on each run: exit 0 and one `REMOTE_LOCAL_INTEGRATION=PASS`; Task 12 health, `/api/dashboard/summary`, calibration, zones, and `/api/video_feed` respond through the fake Access/Tunnel BFF with no aliases; the transactional outbox survives commit/dispatch boundaries; eligible clips encode/upload/read/delete using only `PETCARE-CLIP-V1`, the exact header set, and exact receipt; ffprobe proves H.264/YUV420P and wall-clock duration `30.0 ± 0.5` seconds for a normal trigger and `45.0 ± 0.5` seconds for one overlap extension; queue-full aborts the partial write and makes health degraded; runtime/token files are protected before atomic replace; account-data deletion denies the target immediately, retries external cleanup, and leaves the foreign owner unchanged; `no_meal_12h` creates no clip; expired reads fail; and no child/listener/temp MP4 remains after teardown.
+Expected on each run: exit 0 and one `REMOTE_LOCAL_INTEGRATION=PASS`; Task 12 health, `/api/dashboard/summary`, calibration, zones, and `/api/video_feed` respond through the fake Access/Tunnel BFF with no aliases; the transactional outbox survives commit/admission boundaries; both wire fixtures validate independently and `PETCARE-CLIP-V1` remains byte-for-byte unchanged; fixture clips upload/read/delete with the exact header set and receipt; queue saturation degrades health without blocking sensor paths; runtime/token files are protected before atomic replace; account-data deletion denies the target immediately, retries external cleanup, and leaves the foreign owner unchanged; `no_meal_12h` creates no clip; expired reads fail; and no child/listener/temp MP4 remains after teardown. Exact Jetson H.264/YUV420P, 640x480, 30/45-second media evidence belongs only to Jetson vision Tasks 8-10.
 
 - [ ] **Step 5: Commit the fake-stack gate**
 
@@ -1024,10 +1041,14 @@ remote-contract:
         & $runtime.paths.uv_path run --project backend pytest `
           backend/tests/integration/test_remote_agent_stack.py `
           backend/tests/integration/test_agent_wire_contract.py `
-          backend/tests/test_clip_recorder.py -m ffmpeg_smoke `
+          backend/tests/test_jetson_wire_contract.py `
+          backend/tests/test_clip_delivery.py `
+          backend/tests/test_clip_upload_queue.py `
           tools/tests/test_remote_manifest_integration.py::test_remote_manifest_pins_are_immutable `
           tools/tests/test_remote_manifest_integration.py::test_auth_and_agent_dependencies_are_exact `
           tools/tests/test_secret_sentinel.py tools/tests/test_privacy_check.py -q
+        if ($LASTEXITCODE) { exit $LASTEXITCODE }
+        & $runtime.paths.python_path -m unittest discover -s jetson/tests -p 'test_wire_contract.py'
         if ($LASTEXITCODE) { exit $LASTEXITCODE }
         Push-Location dashboard
         try {
@@ -1405,7 +1426,7 @@ For each account, exercise status polling, summary, devices, sensors, behaviors,
 
 - [ ] **Step 4: Prove real clip upload/read/delete/expiry/reconciliation**
 
-Trigger only `eating`, `resting`, and `bed_sensor_mismatch`; verify the transactional trigger outbox before recorder acceptance; require the exact `PETCARE-CLIP-V1` canonical bytes, eleven Task 2 request headers, and HTTP `201` with `{ id, createdAt, expiresAt }`; use manifest ffprobe to prove H.264/YUV420P plus `30.0 ± 0.5` seconds for one ten-second pre-roll/twenty-second post-roll trigger and `45.0 ± 0.5` seconds after one overlap extension; require all coalesced reasons in metadata, bounded memory/queue, queue-full abort/degraded health, signed upload replay rejection, pre-write ACL on runtime/token files, temporary-file deletion, private R2, and no `no_meal_12h` clip. Use a clock-controlled test record to prove read denial at exactly seven days and reconciliation of metadata/orphan objects without waiting seven wall-clock days. Copy A clip IDs to B list/read/delete and require 404.
+Trigger only `eating`, `resting`, and `bed_sensor_mismatch`; verify the transactional trigger outbox before Jetson admission and require first acceptance within the frozen real three-second deadline; require the exact `PETCARE-CLIP-V1` canonical bytes, eleven Task 2 request headers, and HTTP `201` with `{ id, createdAt, expiresAt }`; use manifest ffprobe only to validate the Jetson MP4 as H.264/YUV420P 640x480 with `30.0 ± 0.5` seconds for one ten-second pre-roll/twenty-second post-roll trigger and `45.0 ± 0.5` seconds after one overlap extension; require all coalesced reasons in metadata, bounded memory/queue, queue-full abort/degraded health, signed upload replay rejection, pre-write ACL on runtime/token files, temporary-file deletion, private R2, and no `no_meal_12h` clip. Use a clock-controlled test record to prove read denial at exactly seven days and reconciliation of metadata/orphan objects without waiting seven wall-clock days. Copy A clip IDs to B list/read/delete and require 404.
 
 - [ ] **Step 5: Run deployed browser/visual/privacy checks**
 
@@ -1500,7 +1521,7 @@ Every commit stages only its listed paths. Component corrections use the sibling
 
 - Todo 11/12 behavior and exact local REST/WebSocket contract remain green and loopback-only; the home-agent lifecycle wraps them without moving hardware/rule state into Sites.
 - Manifest/runtime closure records exact FFmpeg/cloudflared paths, versions, and hashes for Windows x64, Linux x64 CI, and Raspberry Pi arm64; no runtime PATH fallback exists.
-- Real FFmpeg/ffprobe proves bounded ten-second pre-roll, twenty-second post-roll, `30.0 ± 0.5` second normal and `45.0 ± 0.5` second overlap clips, H.264/YUV420P output, transactional outbox retry, queue-full abort/degraded health, pre-write ACL, and temp cleanup under fake cloud providers.
+- Jetson vision Tasks 8-10 prove bounded ten-second pre-roll, twenty-second post-roll, `30.0 ± 0.5` second normal and `45.0 ± 0.5` second overlap clips plus H.264/YUV420P 640x480 output; Remote Task 4 separately proves both wire contracts, transactional admission/delivery retry, queue-full degraded health, validation-only ffprobe, pre-write ACL, and temp cleanup under fake cloud providers.
 - Supabase/JWKS, D1 tenancy, enrollment/provisioning, Tunnel/Access, R2 retention, signed uploads, and BFF proxying pass hermetically with two accounts and no external credential.
 - Every protected resource path uses verified `sub` first and returns 404 for a copied foreign selector; anonymous access is 401/redirect as appropriate.
 - Remote live data polls every two seconds, live/clip responses are private/no-store/no-transform, offline is explicit, and demo data is never substituted for live failure.
@@ -1515,7 +1536,7 @@ Every commit stages only its listed paths. Component corrections use the sibling
 
 ## Plan Self-Review
 
-- Spec coverage: Task 1 covers FFmpeg/cloudflared and dependency pins; Tasks 2–4 integrate Task 11/12, the home agent, BFF, D1/R2/Tunnel fakes, and real FFmpeg; Tasks 5–7 cover privacy, two-account E2E, and browser/accessibility QA; Task 8 covers CI; Task 9 covers operator/external docs; Tasks 10–13 separate local completion from approved real resources and public Sites; Task 14 enforces F2/F3/F4 parallel and F1 last.
+- Spec coverage: Task 1 covers the unchanged FFmpeg/cloudflared manifest pins; Tasks 2-4 integrate Task 11/12, the Jetson-aware Home agent, both wire contracts, BFF, and D1/R2/Tunnel fakes without a Home encoder; Tasks 5-7 cover privacy, two-account E2E, and browser/accessibility QA; Task 8 covers CI; Task 9 covers operator/external docs; Tasks 10-13 separate local completion from approved real resources and public Sites; Task 14 enforces F2/F3/F4 parallel and F1 last.
 - Component boundary: Auth/tenancy, home-agent clips, BFF/Tunnel/R2, and remote dashboard implementations remain in their four sibling plans. This plan owns only shared wiring, orchestration, release, and cross-component evidence.
 - Placeholder scan: Runtime IDs and SHAs are always computed from exact commands or copied unchanged from connector results. No `TBD`, speculative endpoint, secret example, or “implement later” step remains.
 - Type consistency: The integration consumes sibling exports and the remote dashboard's exact same-origin routes; it does not rename their models or add a second interface.

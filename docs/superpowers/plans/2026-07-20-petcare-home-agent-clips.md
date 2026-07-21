@@ -1,5 +1,7 @@
 # PetCare Home Agent And Event Clips Implementation Plan
 
+> **Jetson vision override (2026-07-20):** For the approved one-Jetson USB-camera deployment, do not execute this plan's Home `FrameRing`, local sampler/FFmpeg encoder, `ClipRecorder`, camera `latest_frame_sink`, or related lifecycle/bootstrap/smoke steps. Execute `2026-07-20-petcare-jetson-vision-node.md`; retain Home clip value objects, transactional event outbox, validation-only ffprobe, signed `PETCARE-CLIP-V1` upload queue, enrollment, services, and loopback/tunnel duties.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Package the existing loopback-only backend as an always-on Windows or Raspberry Pi home agent that enrolls securely, captures one bounded H.264 event clip for eligible committed events, uploads it with an agent signature, reports health, and cleans every local clip artifact after verified upload or bounded expiry.
@@ -173,6 +175,8 @@ Expected: no diff and no status entries attributable to Home Task 1. There is in
 ---
 
 ### Task 2: Freeze Clip Value Objects And Exact Frame Ring
+
+**Status:** Superseded by the Jetson vision plan for the approved hardware path. Retain only the Home clip value objects in existing `clip_contracts.py` and its tests; do not create Home `frame_ring.py` or `test_frame_ring.py`. Jetson vision Task 2 owns the only `FrameRing`.
 
 **Files:**
 - Create: `backend/app/clip_contracts.py`
@@ -701,6 +705,8 @@ git commit -m "feat(agent): add secure enrollment and signed uploads"
 
 ### Task 4: Exact 10 Hz Sampler, Bounded FFmpeg Recorder, Retry, And Cleanup
 
+**Status:** Superseded by the Jetson vision plan for the approved hardware path. Do not create the Home sampler, FFmpeg encoder, `ClipRecorder`, or `test_clip_recorder.py`; Jetson vision Tasks 2-4 own capture, buffering, encoding, and temporary media.
+
 **Files:**
 - Create: `backend/app/clip_recorder.py`
 - Create: `backend/tests/test_clip_recorder.py`
@@ -835,6 +841,8 @@ git commit -m "feat(agent): record exact bounded event clips"
 
 ### Task 5: Wire Latest Annotated Frames And A Transactional Trigger Outbox
 
+**Status:** Superseded by the Jetson vision plan for the approved hardware path. Do not execute any camera callback or recorder-dispatch step below. Retain only transactional eligible-event plus outbox insertion in `rules.py`, models, migration, and their tests. Jetson vision Task 6 alone owns `ClipAdmissionWorker`, `ClipDeliveryWorker`, `ClipUploadQueue`, and their tests.
+
 **Files:**
 - Modify: `backend/app/camera_service.py`
 - Modify: `backend/app/rules.py`
@@ -934,6 +942,8 @@ git commit -m "feat(agent): persist clip trigger outbox"
 ---
 
 ### Task 6: Agent Status, Loopback Runtime, And Lifecycle Hook
+
+**Status:** Superseded by the Jetson vision plan for the approved hardware path. Do not implement the recorder, dispatcher, `latest_frame_sink`, or either split stop export below. Jetson vision Task 7 alone owns the revised lifecycle/runtime exports and runtime/package tests; Remote Integration Task 2 alone owns final `main.py` lifespan composition/tests and must not edit `agent_lifecycle.py`, any clip worker, or the upload queue.
 
 **Files:**
 - Create: `backend/app/agent_health.py`
@@ -1072,6 +1082,8 @@ git commit -m "feat(agent): export runtime lifecycle hook"
 ---
 
 ### Task 7: Manifest-Backed Windows And Raspberry Pi Agent Tools Bootstrap
+
+**Status:** Superseded by the Jetson vision plan for the approved hardware path. Do not execute this task where it requires Home FFmpeg encoding. Keep the existing manifest authority untouched and retain Python/cloudflared plus ffprobe solely for validation of untrusted Jetson MP4s; do not bootstrap a Home encoder.
 
 **Files:**
 - Create: `tools/bootstrap_agent_runtime.ps1`
@@ -1339,6 +1351,8 @@ git commit -m "feat(agent): package Raspberry Pi service"
 ---
 
 ### Task 10: End-To-End Local Verification And Service Evidence
+
+**Status:** Superseded by the Jetson vision plan for the approved hardware path. Do not execute the local FFmpeg recorder smoke/evidence below. Execute Jetson vision Tasks 8-10 instead; retain the non-recorder Home, service, upload, privacy, and loopback checks.
 
 **Files:**
 - Modify only if a test exposes an in-scope defect: files already listed in Tasks 1-9.
