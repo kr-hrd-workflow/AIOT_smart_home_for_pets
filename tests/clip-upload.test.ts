@@ -11,6 +11,7 @@ const repository = vi.hoisted(() => ({
   markAgentSeen: vi.fn(),
   checkRateLimit: vi.fn(),
   consumeNonce: vi.fn(),
+  findExactClip: vi.fn(),
   publishClip: vi.fn(),
   queueObjectDeletion: vi.fn(),
 }));
@@ -21,6 +22,7 @@ vi.mock("../lib/petcare/repository", () => ({
     markAgentSeen = repository.markAgentSeen;
     checkRateLimit = repository.checkRateLimit;
     consumeNonce = repository.consumeNonce;
+    findExactClip = repository.findExactClip;
     publishClip = repository.publishClip;
     queueObjectDeletion = repository.queueObjectDeletion;
   },
@@ -68,6 +70,19 @@ class FakeR2 {
   failPut = false;
   failDelete = false;
   reportedSizeDelta = 0;
+
+  async get(key: string): Promise<{ body: ReadableStream<Uint8Array> } | null> {
+    const value = this.objects.get(key);
+    if (!value) return null;
+    return {
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(value);
+          controller.close();
+        },
+      }),
+    };
+  }
 
   async put(key: string, body: ReadableStream<Uint8Array>): Promise<{ key: string; size: number }> {
     if (this.failPut) throw new Error("secret-r2-failure");
@@ -128,11 +143,30 @@ async function resignedRequest(
   };
 }
 
+async function signedRequest(
+  privateKey: CryptoKey,
+  overrides: Record<string, string>,
+  body: Uint8Array = fixtureBody,
+): Promise<Request> {
+  const unsigned = parseSignedClipHeaders(uploadRequest(body, overrides));
+  const signature = new Uint8Array(
+    await crypto.subtle.sign(
+      { name: "Ed25519" },
+      privateKey,
+      Uint8Array.from(canonicalClipRequest(unsigned)).buffer,
+    ),
+  );
+  return uploadRequest(body, {
+    ...overrides,
+    "X-PetCare-Signature": encodeBase64Url(signature),
+  });
+}
+
 function env(r2: FakeR2) {
   return { DB: {} as never, CLIPS: r2 as never } as never;
 }
 
-async function activationPendingDb(): Promise<FakeD1> {
+async function activationPendingDb(publicKey = fixture.clip.public_key): Promise<FakeD1> {
   const db = new FakeD1();
   await db
     .prepare("INSERT INTO homes (id, owner_sub, created_at) VALUES (?, ?, ?)")
@@ -142,7 +176,7 @@ async function activationPendingDb(): Promise<FakeD1> {
     .prepare(
       "INSERT INTO agents (id, home_id, public_key, tunnel_origin) VALUES (?, ?, ?, ?)",
     )
-    .bind("agent_01", "home_01", fixture.clip.public_key, "https://agent.example.test/")
+    .bind("agent_01", "home_01", publicKey, "https://agent.example.test/")
     .run();
   await db
     .prepare(
@@ -178,6 +212,7 @@ beforeEach(() => {
   });
   repository.checkRateLimit.mockResolvedValue(undefined);
   repository.consumeNonce.mockResolvedValue(undefined);
+  repository.findExactClip.mockResolvedValue(null);
   repository.markAgentSeen.mockResolvedValue(undefined);
   repository.publishClip.mockResolvedValue(undefined);
   repository.queueObjectDeletion.mockResolvedValue(undefined);
@@ -325,7 +360,8 @@ describe("clip upload", () => {
         { eventType: "resting", eventId: "105" },
       ],
     });
-    expect(published.objectKey).toMatch(/^clips\/[0-9a-f-]{36}\.mp4$/);
+    expect(published.id).toMatch(/^[0-9a-f]{64}$/);
+    expect(published.objectKey).toBe(`clips/${published.id}.mp4`);
     expect(published.objectKey).not.toContain("agent_01");
     expect(published.objectKey).not.toContain("camera_01");
     expect(r2.objects.get(published.objectKey)).toEqual(fixtureBody);
@@ -335,6 +371,64 @@ describe("clip upload", () => {
     expect(repository.markAgentSeen).toHaveBeenCalledOnce();
     expect(repository.markAgentSeen).toHaveBeenCalledWith("agent_01", "2026-07-20T04:00:21.000Z");
     expect(repository.markAgentSeen).toHaveBeenCalledBefore(repository.publishClip);
+    expect([...r2.objects.keys()]).toEqual([published.objectKey]);
+  });
+
+  it("returns the original receipt for a lost-response retry without reading the body", async () => {
+    const original = {
+      id: "a".repeat(64),
+      createdAt: "2026-07-20T03:59:00.000Z",
+      expiresAt: "2026-07-27T03:59:00.000Z",
+    };
+    repository.findExactClip.mockResolvedValue(original);
+    const r2 = new FakeR2();
+    const request = uploadRequest();
+
+    const response = await uploadSignedClip(request, env(r2), fixedNow);
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual(original);
+    expect(repository.checkRateLimit).toHaveBeenCalledOnce();
+    expect(repository.consumeNonce).toHaveBeenCalledOnce();
+    expect(repository.markAgentSeen).toHaveBeenCalledOnce();
+    expect(request.bodyUsed).toBe(false);
+    expect(r2.objects.size).toBe(0);
+    expect(repository.publishClip).not.toHaveBeenCalled();
+  });
+
+  it("returns the original receipt when a concurrent publish wins", async () => {
+    const original = {
+      id: "b".repeat(64),
+      createdAt: "2026-07-20T03:59:00.000Z",
+      expiresAt: "2026-07-27T03:59:00.000Z",
+    };
+    repository.findExactClip.mockResolvedValueOnce(null).mockResolvedValueOnce(original);
+    repository.publishClip.mockRejectedValue(new PetCareError(409, "clip_conflict"));
+    const r2 = new FakeR2();
+
+    const response = await uploadSignedClip(uploadRequest(), env(r2), fixedNow);
+
+    expect(await response.json()).toEqual(original);
+    expect([...r2.objects.keys()]).toEqual([
+      expect.stringMatching(/^clips\/[0-9a-f]{64}\.mp4$/),
+    ]);
+    expect(r2.deleted).toHaveLength(1);
+    expect(r2.deleted[0]).toMatch(/^pending\/[0-9a-f-]{36}\.mp4$/);
+  });
+
+  it("never promotes an invalid concurrent body to the deterministic live key", async () => {
+    const changed = Uint8Array.from(fixtureBody);
+    changed[0] ^= 1;
+    const r2 = new FakeR2();
+
+    await expect(uploadSignedClip(uploadRequest(changed), env(r2), fixedNow)).rejects.toMatchObject({
+      status: 400,
+      code: "digest_mismatch",
+    });
+
+    expect([...r2.objects.keys()].filter((key) => key.startsWith("clips/"))).toEqual([]);
+    expect(r2.deleted).toHaveLength(1);
+    expect(r2.deleted[0]).toMatch(/^pending\/[0-9a-f-]{36}\.mp4$/);
   });
 
   it.each([-300, 300])("accepts the signed timestamp boundary at %+d seconds", async (delta) => {
@@ -558,6 +652,9 @@ describe("clip upload", () => {
       code: "account_deleted",
     });
     expect(r2.deleted).toHaveLength(2);
+    expect([...r2.objects.keys()]).toEqual([
+      expect.stringMatching(/^clips\/[0-9a-f]{64}\.mp4$/),
+    ]);
   });
 
   it("fails closed and rolls back when cleanup or revocation wins the activation race", async () => {
@@ -582,7 +679,7 @@ describe("clip upload", () => {
     });
     expect(repository.queueObjectDeletion).toHaveBeenCalledWith(
       "home_01",
-      expect.stringMatching(/^clips\//),
+      expect.stringMatching(/^pending\//),
       "2026-07-20T04:00:21.000Z",
     );
   });
@@ -682,6 +779,80 @@ describe("clip upload activation handshake", () => {
       invalidSignatureDb.dispose();
       digestMismatchDb.dispose();
       validDb.dispose();
+    }
+  });
+
+  it("returns one real D1 receipt after a post-201 lost response retry", async () => {
+    vi.resetModules();
+    vi.doUnmock("../lib/petcare/repository");
+    const { uploadSignedClip: uploadWithRealRepository } = await import(
+      "../lib/petcare/clip-upload"
+    );
+    const keys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
+    const publicKey = encodeBase64Url(
+      new Uint8Array(await crypto.subtle.exportKey("raw", keys.publicKey)),
+    );
+    const db = await activationPendingDb(publicKey);
+    const r2 = new FakeR2();
+    try {
+      const first = await uploadWithRealRepository(
+        await signedRequest(keys.privateKey, {
+          "X-PetCare-Nonce": encodeBase64Url(new Uint8Array(16).fill(1)),
+        }),
+        { DB: db, CLIPS: r2 } as never,
+        fixedNow,
+      );
+      const original = await first.json();
+      const retryNow = new Date(fixedNow.getTime() + 60_000);
+      const retry = await uploadWithRealRepository(
+        await signedRequest(keys.privateKey, {
+          "X-PetCare-Nonce": encodeBase64Url(new Uint8Array(16).fill(2)),
+          "X-PetCare-Timestamp": String(Math.floor(retryNow.getTime() / 1000)),
+        }),
+        { DB: db, CLIPS: r2 } as never,
+        retryNow,
+      );
+
+      expect(await retry.json()).toEqual(original);
+      expect(db.rows.clips).toHaveLength(1);
+      expect([...r2.objects.keys()]).toEqual([
+        expect.stringMatching(/^clips\/[0-9a-f]{64}\.mp4$/),
+      ]);
+    } finally {
+      db.dispose();
+    }
+  });
+
+  it("publishes one real D1 row for concurrent identical uploads", async () => {
+    vi.resetModules();
+    vi.doUnmock("../lib/petcare/repository");
+    const { uploadSignedClip: uploadWithRealRepository } = await import(
+      "../lib/petcare/clip-upload"
+    );
+    const keys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
+    const publicKey = encodeBase64Url(
+      new Uint8Array(await crypto.subtle.exportKey("raw", keys.publicKey)),
+    );
+    const db = await activationPendingDb(publicKey);
+    const r2 = new FakeR2();
+    try {
+      const requests = await Promise.all([3, 4].map((byte) =>
+        signedRequest(keys.privateKey, {
+          "X-PetCare-Nonce": encodeBase64Url(new Uint8Array(16).fill(byte)),
+        }),
+      ));
+      const responses = await Promise.all(requests.map((request) =>
+        uploadWithRealRepository(request, { DB: db, CLIPS: r2 } as never, fixedNow),
+      ));
+
+      expect(await Promise.all(responses.map((response) => response.json()))).toEqual([
+        expect.objectContaining({ id: expect.stringMatching(/^[0-9a-f]{64}$/) }),
+        expect.objectContaining({ id: expect.stringMatching(/^[0-9a-f]{64}$/) }),
+      ]);
+      expect(db.rows.clips).toHaveLength(1);
+      expect([...r2.objects.keys()]).toHaveLength(1);
+    } finally {
+      db.dispose();
     }
   });
 });
