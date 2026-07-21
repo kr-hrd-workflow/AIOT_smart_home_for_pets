@@ -3,11 +3,13 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import secrets
+import stat
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 import httpx
 from cryptography.hazmat.primitives import serialization
@@ -59,6 +61,43 @@ def content_sha256(path: Path) -> str:
         while chunk := source.read(1024 * 1024):
             digest.update(chunk)
     return b64url(digest.digest())
+
+
+def _open_regular_file(path: Path) -> BinaryIO:
+    path = Path(path)
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    before = path.lstat()
+    if not stat.S_ISREG(before.st_mode) or getattr(before, "st_file_attributes", 0) & reparse:
+        raise ValueError("invalid upload source")
+    descriptor = os.open(path, flags)
+    try:
+        opened = os.fstat(descriptor)
+        after = path.lstat()
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or getattr(opened, "st_file_attributes", 0) & reparse
+            or not os.path.samestat(before, opened)
+            or not os.path.samestat(opened, after)
+        ):
+            raise ValueError("invalid upload source")
+        return os.fdopen(descriptor, "rb")
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def _validate_content_digest(value: str) -> str:
+    message = "invalid content digest"
+    if type(value) is not str or len(value) != 43 or "=" in value:
+        raise ValueError(message)
+    try:
+        decoded = base64.b64decode(value + "=", altchars=b"-_", validate=True)
+    except (ValueError, base64.binascii.Error) as error:
+        raise ValueError(message) from error
+    if len(decoded) != 32 or b64url(decoded) != value:
+        raise ValueError(message)
+    return value
 
 
 def generate_private_key() -> Ed25519PrivateKey:
@@ -212,8 +251,53 @@ class SignedClipUploadClient:
         self._client.close()
 
     def upload(self, path: Path, metadata: ClipMetadata) -> UploadReceipt:
-        path = Path(path)
-        content_digest = content_sha256(path)
+        source: BinaryIO | None
+        try:
+            source = _open_regular_file(Path(path))
+        except (OSError, ValueError):
+            source = None
+        if source is None:
+            raise UploadVerificationError("invalid upload source")
+        with source:
+            digest = hashlib.sha256()
+            size = 0
+            while chunk := source.read(1024 * 1024):
+                digest.update(chunk)
+                size += len(chunk)
+            source.seek(0)
+            return self.upload_open_file(
+                source,
+                size=size,
+                content_digest=b64url(digest.digest()),
+                metadata=metadata,
+            )
+
+    def upload_open_file(
+        self,
+        source: BinaryIO,
+        *,
+        size: int,
+        content_digest: str,
+        metadata: ClipMetadata,
+    ) -> UploadReceipt:
+        if type(size) is not int or size < 0:
+            raise ValueError("invalid upload size")
+        content_digest = _validate_content_digest(content_digest)
+        try:
+            status = os.fstat(source.fileno())
+            if (
+                not source.readable()
+                or not source.seekable()
+                or type(source.read(0)) is not bytes
+                or not stat.S_ISREG(status.st_mode)
+            ):
+                raise ValueError("invalid upload source")
+        except (AttributeError, OSError, TypeError, ValueError) as cause:
+            raise ValueError("invalid upload source") from cause
+        if status.st_size != size:
+            raise ValueError("invalid upload size")
+        if source.tell() != 0:
+            raise ValueError("invalid upload position")
         now = self._now()
         if now.tzinfo is None or now.utcoffset() is None:
             raise ValueError("upload clock must be timezone-aware")
@@ -245,7 +329,7 @@ class SignedClipUploadClient:
         signature = b64url(self.private_key.sign(canonical))
         headers = {
             "Content-Type": "video/mp4",
-            "Content-Length": str(path.stat().st_size),
+            "Content-Length": str(size),
             "X-PetCare-Agent-Id": self.agent_id,
             "X-PetCare-Camera-Id": self.camera_id,
             "X-PetCare-Timestamp": timestamp,
@@ -256,8 +340,7 @@ class SignedClipUploadClient:
             "X-PetCare-Events": events,
             "X-PetCare-Signature": signature,
         }
-        with path.open("rb") as source:
-            response = self._client.post(UPLOAD_PATH, headers=headers, content=source)
+        response = self._client.post(UPLOAD_PATH, headers=headers, content=source)
         if response.status_code != 201:
             raise UploadVerificationError(f"unexpected upload status: {response.status_code}")
         return parse_upload_receipt(response.content)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -346,6 +347,108 @@ def test_signed_upload_streams_body_with_canonical_events_and_exact_headers(tmp_
 
     receipt = upload_client(private_key, handler).upload(video, metadata(*events))
     assert receipt.id == "clip_01"
+
+
+def test_upload_open_file_streams_supplied_same_handle_without_closing(tmp_path: Path) -> None:
+    video = tmp_path / "clip.mp4"
+    body = b"mp4-bytes"
+    video.write_bytes(body)
+    digest = b64url(hashlib.sha256(body).digest())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.read() == body
+        assert request.headers["Content-Length"] == str(len(body))
+        assert request.headers["X-PetCare-Content-SHA256"] == digest
+        return httpx.Response(201, json={
+            "id": "clip_01",
+            "createdAt": "2026-07-20T04:00:00.000Z",
+            "expiresAt": "2026-07-20T05:00:00.000Z",
+        })
+
+    client = upload_client(Ed25519PrivateKey.generate(), handler)
+    with video.open("rb") as source:
+        receipt = client.upload_open_file(
+            source,
+            size=len(body),
+            content_digest=digest,
+            metadata=metadata(),
+        )
+        assert source.closed is False
+    assert receipt.id == "clip_01"
+
+
+def test_upload_opens_path_once_and_streams_that_handle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    video = tmp_path / "clip.mp4"
+    body = b"original-mp4"
+    video.write_bytes(body)
+    captured: dict[str, bytes] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = request.read()
+        return httpx.Response(201, json={
+            "id": "clip_01",
+            "createdAt": "2026-07-20T04:00:00.000Z",
+            "expiresAt": "2026-07-20T05:00:00.000Z",
+        })
+
+    client = upload_client(Ed25519PrivateKey.generate(), handler)
+    original_open = os.open
+    open_count = 0
+
+    def counted_open(*args: object, **kwargs: object) -> int:
+        nonlocal open_count
+        open_count += 1
+        return original_open(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr("app.agent_client.os.open", counted_open)
+    client.upload(video, metadata())
+    assert captured["body"] == body
+    assert open_count == 1
+
+
+def test_upload_open_file_rejects_invalid_size_digest_and_position_before_network(
+    tmp_path: Path,
+) -> None:
+    called = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal called
+        called = True
+        return httpx.Response(500)
+
+    video = tmp_path / "clip.mp4"
+    body = b"mp4-bytes"
+    video.write_bytes(body)
+    digest = b64url(hashlib.sha256(body).digest())
+    client = upload_client(Ed25519PrivateKey.generate(), handler)
+
+    with video.open("rb") as source:
+        with pytest.raises(ValueError, match="upload size"):
+            client.upload_open_file(source, size=True, content_digest=digest, metadata=metadata())
+        with pytest.raises(ValueError, match="upload size"):
+            client.upload_open_file(source, size=len(body) + 1, content_digest=digest, metadata=metadata())
+        with pytest.raises(ValueError, match="content digest"):
+            client.upload_open_file(source, size=len(body), content_digest="not-a-digest", metadata=metadata())
+        source.seek(1)
+        with pytest.raises(ValueError, match="position"):
+            client.upload_open_file(source, size=len(body), content_digest=digest, metadata=metadata())
+    with pytest.raises(ValueError, match="invalid upload source"):
+        client.upload_open_file(source, size=len(body), content_digest=digest, metadata=metadata())
+    assert called is False
+
+
+def test_upload_rejects_non_regular_path_without_disclosing_it(tmp_path: Path) -> None:
+    secret_path = tmp_path / "private-name"
+    secret_path.mkdir()
+    client = upload_client(Ed25519PrivateKey.generate(), lambda request: httpx.Response(500))
+
+    with pytest.raises(UploadVerificationError) as error:
+        client.upload(secret_path, metadata())
+    assert str(secret_path) not in str(error.value)
+    assert error.value.__cause__ is None
+    assert error.value.__context__ is None
 
 
 @pytest.mark.parametrize(
