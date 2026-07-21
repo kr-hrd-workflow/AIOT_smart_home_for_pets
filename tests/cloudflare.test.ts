@@ -438,6 +438,45 @@ describe("CloudflareClient", () => {
     }
   });
 
+  it.each([
+    [
+      "tunnel",
+      { id: "" },
+      (client: CloudflareClient) => client.createTunnel("petcare-home-a"),
+    ],
+    [
+      "DNS record",
+      { id: 7 },
+      (client: CloudflareClient) =>
+        client.createDnsRecord("home-a.agents.example.com", "tunnel-1"),
+    ],
+    [
+      "Access app",
+      { id: "app-1", aud: "" },
+      (client: CloudflareClient) =>
+        client.createAccessApp(
+          "home-a.agents.example.com",
+          "PetCare home-a",
+        ),
+    ],
+    [
+      "Access policy",
+      {},
+      (client: CloudflareClient) => client.createAccessPolicy("app-1"),
+    ],
+    [
+      "connector token",
+      7,
+      (client: CloudflareClient) => client.getConnectorToken("tunnel-1"),
+    ],
+  ])("rejects a malformed successful %s result", async (_name, result, call) => {
+    const { fetchImpl } = queuedFetch([{ result }]);
+
+    await expect(
+      call(new CloudflareClient(config, fetchImpl)),
+    ).rejects.toMatchObject({ code: "cloudflare_api_error", status: 502 });
+  });
+
   it("deletes policy, app, DNS, and tunnel in order and treats 404 as deleted", async () => {
     const { calls, fetchImpl } = queuedFetch([
       { status: 404 },
