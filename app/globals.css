@@ -743,14 +743,14 @@ a:focus-visible {
 /* Public landing and authentication entry surfaces */
 .landing-page,
 .auth-scene-shell {
-  --landing-canvas: #0b0f13;
-  --landing-surface: rgba(15, 20, 25, 0.9);
-  --landing-surface-solid: #11171c;
-  --landing-text: #edf3f2;
-  --landing-muted: #aebdbc;
-  --landing-line: rgba(198, 220, 219, 0.24);
-  --landing-cyan: #b8e6ea;
-  --landing-amber: #d2a75d;
+  --landing-canvas: #090b0d;
+  --landing-surface: rgba(15, 18, 20, 0.82);
+  --landing-surface-solid: #111416;
+  --landing-text: #f1f0ec;
+  --landing-muted: #bdc2bf;
+  --landing-line: rgba(220, 226, 222, 0.2);
+  --landing-cyan: #abd8da;
+  --landing-amber: #d5a35d;
   color: var(--landing-text);
   background: var(--landing-canvas);
 }
@@ -765,6 +765,7 @@ a:focus-visible {
   top: 0;
   height: 100dvh;
   overflow: hidden;
+  pointer-events: none;
   background: var(--landing-canvas);
 }
 
@@ -777,7 +778,7 @@ a:focus-visible {
 .landing-fallback img {
   display: block;
   object-fit: cover;
-  opacity: 0.72;
+  opacity: 0.82;
 }
 
 .pet-home-experience,
@@ -802,6 +803,7 @@ a:focus-visible {
   justify-content: space-between;
   margin: 0 auto;
   border-bottom: 1px solid var(--landing-line);
+  background: linear-gradient(180deg, rgba(9, 11, 13, 0.86), rgba(9, 11, 13, 0));
 }
 
 .landing-wordmark {
@@ -829,6 +831,13 @@ a:focus-visible {
   border: 1px solid transparent;
   border-radius: 8px;
   font-weight: 720;
+  transition: transform 180ms ease, background-color 180ms ease;
+}
+
+.landing-header nav a:active,
+.landing-actions a:active,
+.landing-final a:active {
+  transform: translateY(1px);
 }
 
 .landing-header nav > a:first-child,
@@ -860,27 +869,20 @@ a:focus-visible {
   min-height: 100dvh;
   align-items: center;
   margin: 0 auto;
-  padding: 112px 0 72px;
+  padding: 96px 0 56px;
 }
 
 .landing-hero {
-  align-items: flex-end;
-  padding-bottom: 8vh;
+  background: linear-gradient(90deg, rgba(9, 11, 13, 0.92), rgba(9, 11, 13, 0.34) 42%, transparent 68%);
 }
 
-.landing-hero-copy,
-.landing-chapter-copy,
-.landing-final > div {
+.landing-hero-copy {
   width: min(100%, 620px);
-  padding: clamp(24px, 4vw, 48px);
-  border: 1px solid var(--landing-line);
-  border-radius: 18px;
-  background: var(--landing-surface);
-  box-shadow: inset 0 1px 0 rgba(237, 243, 242, 0.08);
+  padding: clamp(28px, 5vw, 64px) 0;
+  text-shadow: 0 2px 24px rgba(5, 7, 8, 0.62);
 }
 
 .landing-kicker,
-.landing-chapter-copy > p:first-child,
 .landing-final > div > p:first-child {
   margin: 0 0 14px;
   color: var(--landing-amber);
@@ -890,11 +892,11 @@ a:focus-visible {
 }
 
 .landing-hero h1 {
-  max-width: 13ch;
+  max-width: 12ch;
   margin: 0;
-  font-size: clamp(42px, 6vw, 76px);
-  line-height: 0.98;
-  letter-spacing: -0.06em;
+  font-size: clamp(42px, 5.4vw, 72px);
+  line-height: 1.04;
+  letter-spacing: -0.055em;
 }
 
 .landing-lede,
@@ -914,8 +916,42 @@ a:focus-visible {
   position: relative;
 }
 
+.landing-chapter {
+  background: linear-gradient(90deg, rgba(9, 11, 13, 0.86), transparent 58%);
+}
+
 .landing-chapter:nth-child(even) {
   justify-content: flex-end;
+  background: linear-gradient(270deg, rgba(9, 11, 13, 0.86), transparent 58%);
+}
+
+.landing-chapter-copy {
+  width: min(100%, 540px);
+  padding: clamp(28px, 4vw, 48px) clamp(24px, 3vw, 40px);
+  border-left: 1px solid var(--landing-line);
+  background: linear-gradient(90deg, var(--landing-surface), rgba(15, 18, 20, 0.34));
+  backdrop-filter: blur(14px) saturate(112%);
+  -webkit-backdrop-filter: blur(14px) saturate(112%);
+}
+
+.landing-chapter:nth-child(even) .landing-chapter-copy {
+  border-right: 1px solid var(--landing-line);
+  border-left: 0;
+  background: linear-gradient(270deg, var(--landing-surface), rgba(15, 18, 20, 0.34));
+}
+
+.landing-chapter:last-child {
+  align-items: flex-end;
+  justify-content: center;
+  background: linear-gradient(0deg, rgba(9, 11, 13, 0.9), transparent 62%);
+}
+
+.landing-chapter:last-child .landing-chapter-copy {
+  width: min(100%, 720px);
+  border-top: 1px solid var(--landing-line);
+  border-right: 0;
+  border-left: 0;
+  background: linear-gradient(0deg, var(--landing-surface), rgba(15, 18, 20, 0.22));
 }
 
 .landing-chapter h2,
@@ -930,11 +966,16 @@ a:focus-visible {
 .landing-final {
   justify-content: center;
   text-align: center;
+  background: radial-gradient(circle at center, rgba(66, 78, 77, 0.22), transparent 54%);
 }
 
 .landing-final > div {
   display: grid;
+  width: min(100%, 720px);
   justify-items: center;
+  padding: clamp(36px, 6vw, 72px) 0;
+  border-top: 1px solid var(--landing-line);
+  border-bottom: 1px solid var(--landing-line);
 }
 
 .landing-final a {
@@ -952,7 +993,7 @@ a:focus-visible {
   border-right: 1px solid var(--landing-line);
   background-color: var(--landing-canvas);
   background-image: url("/og.png");
-  background-position: center;
+  background-position: center 42%;
   background-size: cover;
 }
 
@@ -1054,15 +1095,29 @@ a:focus-visible {
 
   .landing-hero {
     align-items: flex-end;
-    padding-bottom: 24px;
+    padding-bottom: 28px;
+    background: linear-gradient(180deg, transparent 16%, rgba(9, 11, 13, 0.95) 72%);
   }
 
-  .landing-hero-copy,
-  .landing-chapter-copy,
-  .landing-final > div {
+  .landing-hero-copy {
     width: 100%;
-    padding: 24px;
-    border-radius: 12px;
+    padding: 24px 0;
+  }
+
+  .landing-chapter,
+  .landing-chapter:nth-child(even) {
+    background: linear-gradient(180deg, transparent 16%, rgba(9, 11, 13, 0.95) 72%);
+  }
+
+  .landing-chapter-copy,
+  .landing-chapter:nth-child(even) .landing-chapter-copy,
+  .landing-chapter:last-child .landing-chapter-copy {
+    width: 100%;
+    padding: 28px 24px;
+    border-top: 0;
+    border-right: 0;
+    border-left: 1px solid var(--landing-line);
+    background: var(--landing-surface);
   }
 
   .landing-hero h1 {
@@ -1095,6 +1150,15 @@ a:focus-visible {
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .landing-chapter-copy,
+  .landing-chapter:nth-child(even) .landing-chapter-copy {
+    background: var(--landing-surface-solid);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 }
 
