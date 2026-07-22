@@ -1,12 +1,27 @@
+import { loadFont } from "@remotion/fonts";
 import { ThreeCanvas } from "@remotion/three";
 import {
   AbsoluteFill,
   Easing,
+  Img,
   Sequence,
   interpolate,
+  staticFile,
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
+
+const FONT_FAMILY = "PetCare Pretendard";
+
+if (typeof FontFace !== "undefined") {
+  void loadFont({
+    family: FONT_FAMILY,
+    url: staticFile("fonts/Pretendard-Bold.woff2"),
+    format: "woff2",
+    weight: "700",
+    display: "block",
+  });
+}
 
 export const PETCARE_PROMO = {
   id: "PetCarePromo",
@@ -25,109 +40,125 @@ export function sceneAtFrame(frame: number): PromoScene {
   return "events";
 }
 
+const SCENE_START: Record<PromoScene, number> = {
+  home: 0,
+  feeding: 120,
+  rest: 240,
+  events: 360,
+};
+
+const SCENE_DURATION: Record<PromoScene, number> = {
+  home: 120,
+  feeding: 120,
+  rest: 120,
+  events: 90,
+};
+
 type Position = [number, number, number];
 
-function Block({
-  position,
-  size,
-  color,
-}: {
+const ACCENTS: ReadonlyArray<{
+  scene: Exclude<PromoScene, "home">;
   position: Position;
-  size: Position;
   color: string;
-}) {
+}> = [
+  { scene: "feeding", position: [-4.7, -2.45, 0], color: "#e3b36a" },
+  { scene: "rest", position: [-3.35, -1.55, 0], color: "#8bc7cd" },
+  { scene: "events", position: [-5.05, 1.55, 0], color: "#c8dcda" },
+];
+
+function ApartmentBackdrop() {
+  const frame = useCurrentFrame();
+  const scale = interpolate(frame, [0, PETCARE_PROMO.durationInFrames - 1], [1.02, 1.075], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: Easing.bezier(0.45, 0, 0.55, 1),
+  });
+  const translateX = interpolate(frame, [0, PETCARE_PROMO.durationInFrames - 1], [12, -20], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: Easing.bezier(0.45, 0, 0.55, 1),
+  });
+
   return (
-    <mesh position={position} castShadow receiveShadow>
-      <boxGeometry args={size} />
-      <meshStandardMaterial color={color} roughness={0.82} metalness={0.04} />
-    </mesh>
+    <AbsoluteFill style={{ overflow: "hidden", backgroundColor: "#0b0f13" }}>
+      <Img
+        src={staticFile("og.png")}
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          objectPosition: "center",
+          scale,
+          translate: `${translateX}px 0`,
+        }}
+      />
+      <AbsoluteFill
+        style={{
+          background:
+            "linear-gradient(90deg, rgba(5, 8, 11, 0.08) 0%, rgba(5, 8, 11, 0.2) 42%, rgba(5, 8, 11, 0.9) 76%, rgba(5, 8, 11, 0.97) 100%)",
+        }}
+      />
+      <AbsoluteFill
+        style={{
+          background:
+            "linear-gradient(180deg, rgba(5, 8, 11, 0.34) 0%, transparent 32%, transparent 72%, rgba(5, 8, 11, 0.42) 100%)",
+        }}
+      />
+    </AbsoluteFill>
   );
 }
 
-function KoreanApartment() {
+function SensorAccents() {
   const frame = useCurrentFrame();
   const scene = sceneAtFrame(frame);
-  const rotation = interpolate(frame, [0, 449], [-0.28, 0.18], {
+  const localFrame = frame - SCENE_START[scene];
+  const duration = SCENE_DURATION[scene];
+  const pulse = interpolate(localFrame, [0, 16, duration - 18, duration - 1], [0.35, 1, 1, 0.35], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
     easing: Easing.bezier(0.16, 1, 0.3, 1),
   });
-  const feedingLift = scene === "feeding" ? 0.55 : 0.12;
-  const restLift = scene === "rest" ? 0.5 : 0.12;
-  const screenLift = scene === "events" ? 0.65 : 0.16;
+  const rotation = interpolate(frame, [0, PETCARE_PROMO.durationInFrames - 1], [-0.16, 0.18], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: Easing.bezier(0.45, 0, 0.55, 1),
+  });
 
   return (
-    <group position={[3, -0.7, 0]} rotation={[0, rotation, 0]} scale={0.72}>
-      <Block position={[0, -0.25, 0]} size={[18, 0.5, 11]} color="#65594b" />
-      <Block position={[0, 2.5, -5.5]} size={[18, 5.5, 0.3]} color="#171d21" />
-      <Block position={[-9, 2.5, 0]} size={[0.3, 5.5, 11]} color="#171d21" />
-      <Block position={[9, 2.5, 0]} size={[0.3, 5.5, 11]} color="#171d21" />
-
-      <mesh position={[-1.5, 2.75, -5.3]}>
-        <boxGeometry args={[6.5, 3.7, 0.08]} />
-          <meshStandardMaterial color="#20404b" emissive="#173842" emissiveIntensity={0.62} />
-      </mesh>
-      {[-4.7, -3.1, -1.5, 0.1, 1.7].map((x) => (
-        <Block key={x} position={[x, 2.75, -5.2]} size={[0.08, 3.8, 0.12]} color="#303a3f" />
-      ))}
-
-      <Block position={[4.6, 1.05, -5.1]} size={[6.6, 2.1, 0.7]} color="#252b2f" />
-      <Block position={[4.5, 0.82, -2.65]} size={[4.1, 1.65, 1.65]} color="#30363a" />
-      <Block position={[4.5, 1.7, -2.65]} size={[4.3, 0.12, 1.8]} color="#77736b" />
-
-      <Block position={[-1.75, 0.78, -3.35]} size={[3.8, 0.18, 1.55]} color="#6b5543" />
-      {[-3.15, -0.35].flatMap((x) =>
-        [-2.35, -4.35].map((z) => (
-          <Block key={`${x}-${z}`} position={[x, 0.48, z]} size={[0.72, 0.95, 0.72]} color="#34393b" />
-        )),
-      )}
-
-      <group position={[1.1, 0, 0.45]}>
-        <Block position={[0, 0.46, 0]} size={[4.8, 0.55, 1.5]} color="#55524d" />
-        <Block position={[0, 1.02, -0.58]} size={[4.8, 1.0, 0.3]} color="#474642" />
-      </group>
-      <Block position={[0.5, 0.28, 2.55]} size={[2.5, 0.22, 1.2]} color="#353533" />
-
-      <Block position={[7.6, 1.35, 3.4]} size={[1.5, 2.7, 3.6]} color="#252b2f" />
-      <Block position={[6.15, 1.2, 5.25]} size={[4.4, 2.4, 0.4]} color="#303539" />
-      <Block position={[6.0, 1.5, 3.55]} size={[0.18, 3.0, 2.35]} color="#3a4347" />
-
-      <group position={[-5.15, 0, 2.2]}>
-        <mesh position={[0, 0.24, 0]}>
-          <cylinderGeometry args={[1.5, 1.65, 0.45, 32]} />
-          <meshStandardMaterial color="#6d655c" roughness={0.96} />
-        </mesh>
-        <mesh position={[0, 0.56, 0]} scale={[1.18, 0.5, 0.72]}>
-          <sphereGeometry args={[0.72, 24, 18]} />
-          <meshStandardMaterial color="#b89268" roughness={0.95} />
-        </mesh>
-        <mesh position={[-0.72, 0.82, 0.08]}>
-          <sphereGeometry args={[0.43, 24, 18]} />
-          <meshStandardMaterial color="#bb946a" roughness={0.95} />
-        </mesh>
-      </group>
-
-      <group position={[-6.55, feedingLift, 4.35]}>
-        <mesh>
-          <cylinderGeometry args={[0.72, 0.55, 0.36, 32]} />
-          <meshStandardMaterial color="#b8b1a5" roughness={0.68} />
-        </mesh>
-        <mesh position={[1.1, 0.24, 0]}>
-          <cylinderGeometry args={[0.22, 0.25, 0.84, 24]} />
-          <meshStandardMaterial color="#e1ded4" roughness={0.55} />
-        </mesh>
-      </group>
-
-      <pointLight position={[-6.2, 2.0, 4.2]} intensity={feedingLift} color="#d2a75d" distance={5} />
-      <pointLight position={[-4.8, 2.8, 2.0]} intensity={restLift} color="#78bac7" distance={6} />
-
-      <group position={[-8.78, 2.45, -0.1]} rotation={[0, Math.PI / 2, 0]} scale={1 + screenLift * 0.06}>
-        <Block position={[0, 0, 0]} size={[0.16, 2.1, 3.35]} color="#0e1418" />
-        <mesh position={[0.1, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
-          <planeGeometry args={[3, 1.75]} />
-          <meshStandardMaterial color="#24343a" emissive="#17272e" emissiveIntensity={screenLift} />
-        </mesh>
-      </group>
+    <group rotation={[0, 0, rotation]}>
+      {ACCENTS.map((accent) => {
+        const strength = scene === "home" ? 0.44 : scene === accent.scene ? pulse : 0.12;
+        return (
+          <group
+            key={accent.scene}
+            position={accent.position}
+            scale={0.82 + strength * 0.24}
+          >
+            <mesh>
+              <torusGeometry args={[0.46, 0.035, 16, 64]} />
+              <meshStandardMaterial
+                color={accent.color}
+                emissive={accent.color}
+                emissiveIntensity={1.8 * strength}
+                metalness={0.18}
+                opacity={0.22 + strength * 0.64}
+                roughness={0.42}
+                transparent
+              />
+            </mesh>
+            <mesh scale={0.72 + strength * 0.4}>
+              <sphereGeometry args={[0.075, 24, 24]} />
+              <meshStandardMaterial
+                color={accent.color}
+                emissive={accent.color}
+                emissiveIntensity={2.4 * strength}
+                opacity={0.4 + strength * 0.6}
+                transparent
+              />
+            </mesh>
+          </group>
+        );
+      })}
     </group>
   );
 }
@@ -135,30 +166,35 @@ function KoreanApartment() {
 const messages: Record<PromoScene, { title: string; body: string }> = {
   home: {
     title: "집을 비운 시간도 안심하세요",
-    body: "50평 한국 가정의 식사와 휴식 공간을 하나의 PetCare 홈으로 연결합니다.",
+    body: "넓은 한국 가정의 식사와 휴식 공간을 하나의 PetCare 홈으로 연결합니다.",
   },
   feeding: {
     title: "식사 순간을 함께 확인합니다",
-    body: "Pico 2 W 센서와 카메라가 같은 변화를 감지할 때 필요한 장면을 준비합니다.",
+    body: "Pico 2 W 센서와 카메라가 같은 변화를 감지하면 필요한 장면을 준비합니다.",
   },
   rest: {
     title: "달라진 휴식을 발견합니다",
-    body: "침대 센서와 영상이 어긋나면 확인할 수 있는 경고를 남깁니다.",
+    body: "침대 센서와 영상이 어긋나면 보호자가 확인할 수 있는 경고를 남깁니다.",
   },
   events: {
-    title: "이벤트만 기록하고 7일 후 삭제합니다",
-    body: "계정별로 분리된 짧은 클립을 어디서든 안전하게 확인하세요.",
+    title: "필요한 순간만 남깁니다",
+    body: "계정별로 분리된 짧은 클립을 안전하게 확인하고 7일 뒤 자동 삭제합니다.",
   },
 };
 
-function Message({ scene }: { scene: PromoScene }) {
+function Message({ scene, durationInFrames }: { scene: PromoScene; durationInFrames: number }) {
   const frame = useCurrentFrame();
-  const opacity = interpolate(frame, [0, 16, 94, 116], [0, 1, 1, 0], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-    easing: Easing.bezier(0.16, 1, 0.3, 1),
-  });
-  const translate = interpolate(frame, [0, 20], [36, 0], {
+  const opacity = interpolate(
+    frame,
+    [0, 14, durationInFrames - 22, durationInFrames - 1],
+    [0, 1, 1, 0],
+    {
+      extrapolateLeft: "clamp",
+      extrapolateRight: "clamp",
+      easing: Easing.bezier(0.16, 1, 0.3, 1),
+    },
+  );
+  const translateY = interpolate(frame, [0, 20], [34, 0], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
     easing: Easing.bezier(0.16, 1, 0.3, 1),
@@ -169,45 +205,51 @@ function Message({ scene }: { scene: PromoScene }) {
     <div
       style={{
         position: "absolute",
-        left: 110,
+        top: 100,
+        right: 104,
         bottom: 100,
         width: 760,
-        padding: "42px 48px",
-        border: "1px solid rgba(198, 220, 219, 0.28)",
-        borderRadius: 22,
-        backgroundColor: "rgba(15, 20, 25, 0.92)",
-        color: "#edf3f2",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        color: "#f3f5f4",
         opacity,
-        translate: `0 ${translate}px`,
-        fontFamily: "Arial, sans-serif",
+        translate: `0 ${translateY}px`,
+        fontFamily: FONT_FAMILY,
+        textShadow: "0 8px 30px rgba(0, 0, 0, 0.5)",
       }}
     >
       <div
         style={{
-          color: "#d2a75d",
+          color: "#e3b36a",
           fontSize: 32,
           fontWeight: 700,
-          marginBottom: 18,
+          letterSpacing: "0.06em",
+          marginBottom: 22,
         }}
       >
         PetCare
       </div>
       <div
         style={{
-          fontSize: 86,
-          fontWeight: 760,
-          lineHeight: 1.04,
-          letterSpacing: "-0.055em",
+          fontSize: 92,
+          fontWeight: 700,
+          lineHeight: 1.12,
+          letterSpacing: "-0.045em",
+          wordBreak: "keep-all",
         }}
       >
         {message.title}
       </div>
       <div
         style={{
-          color: "#aebdbc",
+          color: "#d7dfdd",
           fontSize: 44,
-          lineHeight: 1.45,
-          marginTop: 24,
+          fontWeight: 700,
+          lineHeight: 1.48,
+          marginTop: 28,
+          maxWidth: 720,
+          wordBreak: "keep-all",
         }}
       >
         {message.body}
@@ -221,20 +263,49 @@ export function PetCarePromo() {
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#0b0f13" }}>
+      <ApartmentBackdrop />
       <ThreeCanvas
         width={width}
         height={height}
-        camera={{ position: [0, 7, 17], rotation: [-0.35, 0, 0], fov: 42 }}
-        shadows
+        camera={{ position: [0, 0, 12], fov: 34 }}
+        gl={{ alpha: true }}
       >
-        <ambientLight intensity={1.15} color="#c7e1e4" />
-        <directionalLight position={[8, 13, 9]} intensity={2.2} color="#e0eceb" castShadow />
-        <KoreanApartment />
+        <ambientLight intensity={0.7} color="#c8dcda" />
+        <pointLight position={[-4, 1, 5]} intensity={2.4} color="#e3b36a" />
+        <SensorAccents />
       </ThreeCanvas>
-      <Sequence from={0} durationInFrames={120}><Message scene="home" /></Sequence>
-      <Sequence from={120} durationInFrames={120}><Message scene="feeding" /></Sequence>
-      <Sequence from={240} durationInFrames={120}><Message scene="rest" /></Sequence>
-      <Sequence from={360} durationInFrames={90}><Message scene="events" /></Sequence>
+      <Sequence
+        from={0}
+        durationInFrames={120}
+        premountFor={PETCARE_PROMO.fps}
+        layout="none"
+      >
+        <Message scene="home" durationInFrames={120} />
+      </Sequence>
+      <Sequence
+        from={120}
+        durationInFrames={120}
+        premountFor={PETCARE_PROMO.fps}
+        layout="none"
+      >
+        <Message scene="feeding" durationInFrames={120} />
+      </Sequence>
+      <Sequence
+        from={240}
+        durationInFrames={120}
+        premountFor={PETCARE_PROMO.fps}
+        layout="none"
+      >
+        <Message scene="rest" durationInFrames={120} />
+      </Sequence>
+      <Sequence
+        from={360}
+        durationInFrames={90}
+        premountFor={PETCARE_PROMO.fps}
+        layout="none"
+      >
+        <Message scene="events" durationInFrames={90} />
+      </Sequence>
     </AbsoluteFill>
   );
 }
