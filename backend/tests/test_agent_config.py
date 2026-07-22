@@ -157,13 +157,33 @@ def test_runtime_file_is_protected_before_first_secret_byte(tmp_path: Path, monk
     output = tmp_path / "agent.json"
     observed_sizes: list[int] = []
 
-    def observe_empty(path: Path, windows_identity_sid: str | None = None) -> None:
-        observed_sizes.append(path.stat().st_size)
+    def observe_empty(
+        path: Path, windows_identity_sid: str | None = None, descriptor: int | None = None
+    ) -> None:
+        assert descriptor is not None
+        observed_sizes.append(os.fstat(descriptor).st_size)
 
     monkeypatch.setattr("app.agent_config.protect_runtime_file", observe_empty)
     write_runtime_config(output, runtime_config(), windows_identity_sid="S-1-5-21-1000")
     assert observed_sizes == [0]
     assert output.stat().st_size > 0
+
+
+def test_optional_windows_service_sid_is_forwarded_to_acl_builder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = tmp_path / "empty"
+    output.touch()
+    calls: list[tuple[Path, str]] = []
+    monkeypatch.setattr("app.agent_config.os.name", "nt")
+    monkeypatch.setattr(
+        "app.agent_config._protect_windows_runtime_file",
+        lambda path, sid, descriptor=None: calls.append((path, sid)),
+    )
+
+    protect_runtime_file(output, "S-1-5-80-12345")
+
+    assert calls == [(output, "S-1-5-80-12345")]
 
 
 def test_atomic_writer_uses_the_acl_protected_exclusive_file_descriptor(
@@ -174,8 +194,12 @@ def test_atomic_writer_uses_the_acl_protected_exclusive_file_descriptor(
     written_identity: list[tuple[int, int]] = []
     real_fdopen = os.fdopen
 
-    def observe_protected(path: Path, windows_identity_sid: str | None = None) -> None:
-        status = path.stat()
+    def observe_protected(
+        path: Path, windows_identity_sid: str | None = None, descriptor: int | None = None
+    ) -> None:
+        assert descriptor is not None
+        status = os.fstat(descriptor)
+        assert os.path.samestat(status, path.stat())
         protected_identity.append((status.st_dev, status.st_ino))
 
     def observe_written(descriptor: int, *args: object, **kwargs: object):
@@ -198,24 +222,75 @@ def test_posix_runtime_file_is_mode_0600(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows ACL assertion")
-def test_windows_acl_uses_only_user_and_system_sids(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    output = tmp_path / "empty"
+def test_windows_atomic_writer_protects_the_existing_secret_descriptor(tmp_path: Path) -> None:
+    from app.config import _owner_only_descriptor
+
+    output = tmp_path / "agent.json"
+    write_runtime_config(output, runtime_config())
+
+    descriptor = os.open(output, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+    try:
+        assert _owner_only_descriptor(descriptor, os.fstat(descriptor))
+    finally:
+        os.close(descriptor)
+    assert load_runtime_config(output) == runtime_config()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows ACL assertion")
+def test_windows_acl_is_protected_and_exactly_current_user_plus_system(tmp_path: Path) -> None:
+    import win32api
+    import win32con
+    import win32security
+    import ntsecuritycon
+
+    from app.config import _owner_only_descriptor
+
+    token = win32security.OpenProcessToken(win32api.GetCurrentProcess(), win32con.TOKEN_QUERY)
+    current = win32security.GetTokenInformation(token, win32security.TokenUser)[0]
+    system = win32security.ConvertStringSidToSid("S-1-5-18")
+    parent = tmp_path / "protected-parent"
+    parent.mkdir()
+    parent_dacl = win32security.ACL()
+    parent_dacl.AddAccessAllowedAce(win32security.ACL_REVISION, win32con.GENERIC_ALL, current)
+    parent_dacl.AddAccessAllowedAce(win32security.ACL_REVISION, win32con.GENERIC_ALL, system)
+    parent_security = win32security.SECURITY_DESCRIPTOR()
+    parent_security.SetSecurityDescriptorDacl(True, parent_dacl, False)
+    parent_security.SetSecurityDescriptorControl(
+        win32security.SE_DACL_PROTECTED, win32security.SE_DACL_PROTECTED
+    )
+    win32security.SetFileSecurity(str(parent), win32security.DACL_SECURITY_INFORMATION, parent_security)
+
+    output = parent / "empty"
     output.touch()
-    calls: list[list[str]] = []
+    protect_runtime_file(output)
 
-    def fake_run(arguments: list[str], **kwargs: object) -> object:
-        calls.append(arguments)
-        return object()
-
-    monkeypatch.setattr("app.agent_config.subprocess.run", fake_run)
-    protect_runtime_file(output, "S-1-5-21-1000")
-    assert calls == [[
-        "icacls.exe",
+    expected = {
+        win32security.ConvertSidToStringSid(current),
+        win32security.ConvertSidToStringSid(system),
+    }
+    security = win32security.GetNamedSecurityInfo(
         str(output),
-        "/inheritance:r",
-        "/grant:r",
-        "*S-1-5-21-1000:(F)",
-        "*S-1-5-18:(F)",
-        "/remove:g",
-        "*S-1-5-32-545",
-    ]]
+        win32security.SE_FILE_OBJECT,
+        win32security.OWNER_SECURITY_INFORMATION | win32security.DACL_SECURITY_INFORMATION,
+    )
+    owner = win32security.ConvertSidToStringSid(security.GetSecurityDescriptorOwner())
+    dacl = security.GetSecurityDescriptorDacl()
+    assert owner in expected
+    assert dacl is not None and dacl.GetAceCount() == 2
+    assert {
+        win32security.ConvertSidToStringSid(dacl.GetAce(index)[-1])
+        for index in range(dacl.GetAceCount())
+    } == expected
+    assert all(
+        dacl.GetAce(index)[0][0] == win32security.ACCESS_ALLOWED_ACE_TYPE
+        and dacl.GetAce(index)[1] == ntsecuritycon.FILE_ALL_ACCESS
+        for index in range(dacl.GetAceCount())
+    )
+    control, _revision = security.GetSecurityDescriptorControl()
+    assert control & win32security.SE_DACL_PROTECTED
+
+    descriptor = os.open(output, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+    try:
+        assert _owner_only_descriptor(descriptor, os.fstat(descriptor))
+    finally:
+        os.close(descriptor)

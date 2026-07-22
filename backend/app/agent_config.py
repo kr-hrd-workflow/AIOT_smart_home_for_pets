@@ -4,7 +4,6 @@ import base64
 import json
 import os
 import secrets
-import subprocess
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -181,24 +180,121 @@ def _current_windows_sid() -> str:
     return win32security.ConvertSidToStringSid(sid)
 
 
-def protect_runtime_file(path: Path, windows_identity_sid: str | None = None) -> None:
+def _protect_windows_runtime_file(path: Path, identity_sid: str, descriptor: int | None = None) -> None:
+    import msvcrt
+    import ntsecuritycon
+    import win32con
+    import win32file
+    import win32security
+
+    owned_descriptor = False
+    handle = None
+    try:
+        before = path.lstat()
+        if descriptor is not None:
+            opened = os.fstat(descriptor)
+            if not os.path.samestat(before, opened):
+                raise ValueError("runtime file changed before ACL protection")
+            handle = win32file.ReOpenFile(
+                msvcrt.get_osfhandle(descriptor),
+                win32con.READ_CONTROL | win32con.WRITE_DAC,
+                win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | win32con.FILE_SHARE_DELETE,
+                0,
+            )
+            security_handle = handle
+        elif path.is_dir():
+            handle = win32file.CreateFile(
+                str(path),
+                win32con.READ_CONTROL | win32con.WRITE_DAC,
+                win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | win32con.FILE_SHARE_DELETE,
+                None,
+                win32con.OPEN_EXISTING,
+                win32con.FILE_FLAG_BACKUP_SEMANTICS,
+                None,
+            )
+            security_handle = handle
+        else:
+            descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+            owned_descriptor = True
+            opened = os.fstat(descriptor)
+            if not os.path.samestat(before, opened):
+                raise ValueError("runtime file changed before ACL protection")
+            handle = win32file.ReOpenFile(
+                msvcrt.get_osfhandle(descriptor),
+                win32con.READ_CONTROL | win32con.WRITE_DAC,
+                win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | win32con.FILE_SHARE_DELETE,
+                0,
+            )
+            security_handle = handle
+
+        identity = win32security.ConvertStringSidToSid(identity_sid)
+        system = win32security.ConvertStringSidToSid("S-1-5-18")
+        identity_sid = win32security.ConvertSidToStringSid(identity)
+        system_sid = win32security.ConvertSidToStringSid(system)
+        dacl = win32security.ACL()
+        dacl.AddAccessAllowedAce(win32security.ACL_REVISION, win32con.GENERIC_ALL, identity)
+        if identity_sid != system_sid:
+            dacl.AddAccessAllowedAce(win32security.ACL_REVISION, win32con.GENERIC_ALL, system)
+        win32security.SetSecurityInfo(
+            security_handle,
+            win32security.SE_FILE_OBJECT,
+            win32security.DACL_SECURITY_INFORMATION | win32security.PROTECTED_DACL_SECURITY_INFORMATION,
+            None,
+            None,
+            dacl,
+            None,
+        )
+        security = win32security.GetSecurityInfo(
+            security_handle,
+            win32security.SE_FILE_OBJECT,
+            win32security.OWNER_SECURITY_INFORMATION | win32security.DACL_SECURITY_INFORMATION,
+        )
+        current_sid = _current_windows_sid()
+        expected_sids = {identity_sid, system_sid}
+        owner_sid = win32security.ConvertSidToStringSid(security.GetSecurityDescriptorOwner())
+        allowed_owners = expected_sids | {current_sid}
+        actual_dacl = security.GetSecurityDescriptorDacl()
+        control, _revision = security.GetSecurityDescriptorControl()
+        if (
+            owner_sid not in allowed_owners
+            or actual_dacl is None
+            or actual_dacl.GetAceCount() != len(expected_sids)
+            or not control & win32security.SE_DACL_PROTECTED
+        ):
+            raise PermissionError("runtime file ACL verification failed")
+        actual_sids: set[str] = set()
+        for index in range(actual_dacl.GetAceCount()):
+            ace = actual_dacl.GetAce(index)
+            ace_sid = win32security.ConvertSidToStringSid(ace[-1])
+            if (
+                ace[0][0] != win32security.ACCESS_ALLOWED_ACE_TYPE
+                or ace[1] != ntsecuritycon.FILE_ALL_ACCESS
+                or ace_sid not in expected_sids
+            ):
+                raise PermissionError("runtime file ACL verification failed")
+            actual_sids.add(ace_sid)
+        if actual_sids != expected_sids:
+            raise PermissionError("runtime file ACL verification failed")
+        if descriptor is not None and not os.path.samestat(os.fstat(descriptor), path.lstat()):
+            raise ValueError("runtime file changed during ACL protection")
+        if descriptor is not None and identity_sid == current_sid:
+            from .config import _owner_only_descriptor
+
+            if not _owner_only_descriptor(descriptor, os.fstat(descriptor)):
+                raise PermissionError("runtime file owner verification failed")
+    finally:
+        if owned_descriptor and descriptor is not None:
+            os.close(descriptor)
+        if handle is not None:
+            handle.Close()
+
+
+def protect_runtime_file(
+    path: Path, windows_identity_sid: str | None = None, descriptor: int | None = None
+) -> None:
     if os.name == "nt":
         sid = windows_identity_sid or _current_windows_sid()
-        subprocess.run(
-            [
-                "icacls.exe",
-                str(path),
-                "/inheritance:r",
-                "/grant:r",
-                f"*{sid}:(F)",
-                "*S-1-5-18:(F)",
-                "/remove:g",
-                "*S-1-5-32-545",
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        _protect_windows_runtime_file(Path(path), sid, descriptor)
     else:
         os.chmod(path, 0o600)
 
@@ -215,7 +311,7 @@ def write_runtime_config(
     descriptor: int | None = None
     try:
         descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        protect_runtime_file(temporary, windows_identity_sid)
+        protect_runtime_file(temporary, windows_identity_sid, descriptor)
         serialized = json.dumps(
             _runtime_payload(config),
             ensure_ascii=False,
