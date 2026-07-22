@@ -12,6 +12,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+MOSQUITTO_ENTRYPOINT = ROOT / "infra" / "mosquitto" / "docker-entrypoint.sh"
 MANIFEST = json.loads((ROOT / "tools" / "platform-manifest.json").read_text(encoding="utf-8"))
 CHECKOUT = MANIFEST["managed_exact"]["actions"]["actions/checkout"]
 PLANNING_SHA = "5944c4e366b764e8ffd228177eeda4858ffd3263"
@@ -62,6 +63,7 @@ def test_ci_commands_keep_tool_and_platform_identities_explicit() -> None:
     assert "compose.yml" in integration
     assert "pg_isready" in integration
     assert "databaseReady" in integration
+    assert "mqttReady" in integration
     assert "compose_plugin_path" in integration
     assert "test_malformed_or_stale_messages_fail" in integration
     assert "test_real_postgres_mqtt_production_handlers_drive_the_full_sequence" in integration
@@ -85,6 +87,11 @@ def test_ci_commands_keep_tool_and_platform_identities_explicit() -> None:
     for name in WORK_JOBS:
         body = "\n".join(str(step.get("run", "")) for step in workflow["jobs"][name]["steps"][2:])
         assert not forbidden.search(body), name
+
+
+def test_mosquitto_runtime_credentials_belong_to_the_broker_user() -> None:
+    entrypoint = MOSQUITTO_ENTRYPOINT.read_text(encoding="utf-8")
+    assert 'chown -R mosquitto:mosquitto "$runtime"' in entrypoint
 
 
 def test_aggregate_fails_when_any_required_job_fails() -> None:

@@ -24,4 +24,5 @@ sed \
   -e "s/{{BIND_HOST}}/$container_bind_host/" \
   -e "s#{{PASSWORD_FILE}}#$password_file#" \
   /petcare/mosquitto.conf >"$config_file"
+chown -R mosquitto:mosquitto "$runtime"
 exec mosquitto -c "$config_file"

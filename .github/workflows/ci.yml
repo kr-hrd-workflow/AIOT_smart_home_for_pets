@@ -245,11 +245,20 @@ jobs:
             }
             if (-not $databaseReady) { throw 'PostgreSQL did not become ready' }
 
+            $mqttReady = $false
+            for ($attempt = 0; $attempt -lt 60 -and -not $mqttReady; $attempt++) {
+              & $backendPython -c 'from tools.e2e_check import _anonymous_mqtt_rejected; raise SystemExit(0 if _anonymous_mqtt_rejected("127.0.0.1", 18883) else 1)'
+              if ($LASTEXITCODE -eq 0) {
+                $mqttReady = $true
+              } else {
+                Start-Sleep -Seconds 1
+              }
+            }
+            if (-not $mqttReady) { throw 'Mosquitto did not become ready with anonymous access disabled' }
+
             & $backendPython -c 'import psycopg,sys; c=psycopg.connect(sys.argv[1], autocommit=True); found=c.execute("SELECT 1 FROM pg_database WHERE datname=''petcare_test''").fetchone(); c.execute("CREATE DATABASE petcare_test") if found is None else None; c.close()' `
               "postgresql://petcare:$encodedDb@127.0.0.1:55432/postgres"
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
-            & $backendPython -c 'from tools.e2e_check import _anonymous_mqtt_rejected; raise SystemExit(0 if _anonymous_mqtt_rejected("127.0.0.1", 18883) else 1)'
-            if ($LASTEXITCODE) { throw 'Anonymous MQTT access was accepted' }
             Push-Location backend
             try {
               & $backendPython -m alembic -c alembic.ini upgrade head
