@@ -170,6 +170,17 @@ describe("dashboard demo surface", () => {
     }
   });
 
+  it("explains an empty behavior timeline", () => {
+    const empty = structuredClone(demoDashboardData);
+    empty.behaviors = [];
+
+    render(<Dashboard data={empty} />);
+
+    expect(screen.getByText(/아직 기록된 행동이 없습니다\./)).toHaveTextContent(
+      "센서와 카메라가 함께 확인하면 여기에 표시됩니다.",
+    );
+  });
+
   it("uses the exact warm-homecare tokens and accessible control contrast", () => {
     const css = readFileSync(resolve(root, "app/globals.css"), "utf8");
     const dashboardCss = css.split("/* Public landing and authentication entry surfaces */", 1)[0];

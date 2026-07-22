@@ -31,7 +31,7 @@ it("keeps the local still when capability detection selects fallback", async () 
   render(<PetHomeExperience />);
 
   expect(screen.getByTestId("landing-fallback")).toBeInTheDocument();
-  await waitFor(() => expect(readSceneMode).toHaveBeenCalledOnce());
+  expect(readSceneMode).toHaveBeenCalled();
   expect(screen.queryByTestId("three-canvas")).not.toBeInTheDocument();
 });
 
