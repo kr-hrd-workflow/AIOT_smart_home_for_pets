@@ -267,12 +267,12 @@ jobs:
               Pop-Location
             }
 
-            & $runtime.paths.uv_path run --project backend --frozen pytest `
+            & $backendPython -m pytest `
               tools/tests/test_pico_mqtt_smoke.py::test_malformed_or_stale_messages_fail `
               backend/tests/test_mqtt_ingest.py::test_strict_parsing_rejects_coercion_extras_order_and_topic_mismatch `
               -q
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
-            & $runtime.paths.uv_path run --project backend --frozen pytest `
+            & $backendPython -m pytest `
               backend/tests/integration/test_live_stack.py::test_real_postgres_mqtt_production_handlers_drive_the_full_sequence `
               backend/tests/test_rule_worker.py `
               -q

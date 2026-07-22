@@ -65,6 +65,8 @@ def test_ci_commands_keep_tool_and_platform_identities_explicit() -> None:
     assert "databaseReady" in integration
     assert "mqttReady" in integration
     assert "compose_plugin_path" in integration
+    assert integration.count("& $backendPython -m pytest") == 2
+    assert "uv_path run --project backend --frozen pytest" not in integration
     assert "test_malformed_or_stale_messages_fail" in integration
     assert "test_real_postgres_mqtt_production_handlers_drive_the_full_sequence" in integration
     assert "postgres:" not in integration and "eclipse-mosquitto:" not in integration
