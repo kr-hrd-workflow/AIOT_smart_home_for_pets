@@ -136,7 +136,13 @@ beforeEach(() => {
 it("renders the four public auth forms with accessible native controls", async () => {
   render(await LoginPage({ searchParams: Promise.resolve({}) }));
   expect(screen.getByRole("heading", { name: "로그인" })).toBeInTheDocument();
+  expect(screen.getByRole("main")).toHaveClass("auth-scene-shell");
+  const form = document.querySelector("form");
+  expect(form).toHaveAttribute("action", "/auth/login");
+  expect(form).toHaveAttribute("method", "post");
+  expect(screen.getByLabelText("이메일")).toHaveAttribute("name", "email");
   expect(screen.getByLabelText("이메일")).toHaveAttribute("autocomplete", "email");
+  expect(screen.getByLabelText("비밀번호")).toHaveAttribute("name", "password");
   expect(screen.getByLabelText("비밀번호")).toHaveAttribute(
     "autocomplete",
     "current-password",
