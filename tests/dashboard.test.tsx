@@ -309,15 +309,18 @@ describe("dashboard demo surface", () => {
     const demoPage = readFileSync(resolve(root, "app/demo/page.tsx"), "utf8");
     const dashboard = readFileSync(resolve(root, "components/dashboard.tsx"), "utf8");
     const packageJson = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
-    const hosting = readFileSync(resolve(root, ".openai/hosting.json"), "utf8");
+    const hosting = JSON.parse(
+      readFileSync(resolve(root, ".openai/hosting.json"), "utf8"),
+    );
     const dependencies = { ...packageJson.dependencies, ...packageJson.devDependencies };
 
     expect(demoPage).toMatch(/return <Dashboard data=\{demoDashboardData\} \/>/);
     expect(demoPage).not.toMatch(/fetch|WebSocket|localhost|127\.0\.0\.1|useState|useEffect/);
     expect(dashboard).not.toMatch(/fetch\(|new WebSocket|<img[^>]+https?:\/\//);
-    expect(hosting.replace(/\s/g, "")).toMatch(
-      /^\{"d1":"DB","r2":"CLIPS"\}/,
-    );
+    expect(Object.keys(hosting).sort()).toEqual(["d1", "project_id", "r2"]);
+    expect(hosting).toMatchObject({ d1: "DB", r2: "CLIPS" });
+    expect(hosting.project_id).toEqual(expect.any(String));
+    expect(hosting.project_id).not.toHaveLength(0);
     expect(Object.keys(dependencies)).not.toEqual(
       expect.arrayContaining([
         "lucide-react",
