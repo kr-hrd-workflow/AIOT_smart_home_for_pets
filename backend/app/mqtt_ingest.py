@@ -290,7 +290,7 @@ class MqttIngestor:
         if reason_code == 0:
             self._connected.set()
             self.last_error = None
-            client.subscribe(EXACT_SUBSCRIPTIONS)
+            client.subscribe(list(EXACT_SUBSCRIPTIONS))
         else:
             self._connected.clear()
             self.last_error = f"MQTT connection failed: {reason_code}"

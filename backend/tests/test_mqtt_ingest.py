@@ -410,6 +410,8 @@ class FakeClient:
         self.calls.append(("loop_start",))
 
     def subscribe(self, topics: list[tuple[str, int]]) -> None:
+        if not isinstance(topics, list):
+            raise TypeError("Paho requires a list for multiple subscriptions")
         self.calls.append(("subscribe", tuple(topics)))
 
     def disconnect(self) -> None:
