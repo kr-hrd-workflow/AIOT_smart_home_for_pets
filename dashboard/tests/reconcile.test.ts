@@ -13,6 +13,7 @@ import { CloudflareClient } from "../lib/petcare/cloudflare";
 import { provisioningResourceNames } from "../lib/petcare/enrollment";
 import { reconcilePetCare } from "../lib/petcare/reconcile";
 import { PetCareRepository } from "../lib/petcare/repository";
+import { miniflarePort } from "./helpers/miniflare";
 
 const NOW = new Date("2026-07-27T00:00:00.000Z");
 const NOW_ISO = NOW.toISOString();
@@ -176,6 +177,7 @@ beforeEach(async () => {
   );
   mf = new Miniflare({
     modules: true,
+    port: miniflarePort(2),
     script: "export default { fetch() { return new Response('ok') } }",
     d1Databases: ["DB"],
     r2Buckets: ["CLIPS"],

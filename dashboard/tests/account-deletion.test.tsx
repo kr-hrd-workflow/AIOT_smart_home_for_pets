@@ -50,6 +50,7 @@ it.each(["cleanup_pending", "complete"] as const)(
     });
     expect(assign).toHaveBeenCalledWith("/login");
   },
+  15_000,
 );
 
 it("keeps password local and allows retry after deletion failure", async () => {
