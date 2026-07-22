@@ -26,6 +26,8 @@ for candidate in "${PYTHON_PATH:-}" "$(command -v python3 || true)" "$(command -
   if [[ -n "$candidate" ]] && "$candidate" -c 'import sys' >/dev/null 2>&1; then BASE_PYTHON="$candidate"; break; fi
 done
 [[ -n "$BASE_PYTHON" ]] || { printf 'bootstrap Python is unavailable\n' >&2; exit 1; }
+BASE_PYTHON="$(to_unix_path "$BASE_PYTHON")"
+if [[ "$BASE_PYTHON" != *.exe && -e "$BASE_PYTHON.exe" ]]; then BASE_PYTHON="$BASE_PYTHON.exe"; fi
 BASE_SHA256="$(command -v sha256sum)"
 "$BASE_PYTHON" "$ROOT/tools/validate_platform_manifest.py" --manifest "$MANIFEST"
 MANIFEST_SHA256="$("$BASE_SHA256" "$MANIFEST")"
@@ -125,7 +127,7 @@ if [[ -n "$FIXTURE_ROOT" ]]; then
       chmod +x "${paths[$key]}"
     fi
   done
-  if [[ -x "$ROOT/.runtime/cpython-3.12.13+20260623/python/python.exe" ]]; then paths[python_path]="$ROOT/.runtime/cpython-3.12.13+20260623/python/python.exe"; fi
+  paths[python_path]="$BASE_PYTHON"
   if [[ -x "$ROOT/.runtime/uv-0.11.28/uv.exe" ]]; then paths[uv_path]="$ROOT/.runtime/uv-0.11.28/uv.exe"; fi
   for key in "${keys[@]}"; do versions[$key]='fixture-verified'; done
   versions[git_path]="$CAP_GIT"; versions[bash_path]="$CAP_BASH"; versions[uv_path]="$UV_VERSION"; versions[python_path]="$PYTHON_VERSION+$PYTHON_BUILD"

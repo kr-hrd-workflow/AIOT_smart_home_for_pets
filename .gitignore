@@ -43,6 +43,9 @@
 build/
 Build/
 build-*/
+!dashboard/build/
+dashboard/build/*
+!dashboard/build/sites-vite-plugin.ts
 
 # CMake generated files
 CMakeFiles/

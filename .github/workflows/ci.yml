@@ -233,6 +233,18 @@ jobs:
               if (-not $ready) { throw "Live service did not bind loopback port $port" }
             }
 
+            $databaseReady = $false
+            for ($attempt = 0; $attempt -lt 60 -and -not $databaseReady; $attempt++) {
+              & $runtime.paths.compose_plugin_path -f compose.yml exec -T postgres `
+                pg_isready -U petcare -d petcare | Out-Null
+              if ($LASTEXITCODE -eq 0) {
+                $databaseReady = $true
+              } else {
+                Start-Sleep -Seconds 1
+              }
+            }
+            if (-not $databaseReady) { throw 'PostgreSQL did not become ready' }
+
             & $backendPython -c 'import psycopg,sys; c=psycopg.connect(sys.argv[1], autocommit=True); found=c.execute("SELECT 1 FROM pg_database WHERE datname=''petcare_test''").fetchone(); c.execute("CREATE DATABASE petcare_test") if found is None else None; c.close()' `
               "postgresql://petcare:$encodedDb@127.0.0.1:55432/postgres"
             if ($LASTEXITCODE) { exit $LASTEXITCODE }

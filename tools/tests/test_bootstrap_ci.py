@@ -85,6 +85,11 @@ def test_linux_bootstrap_accepts_the_managed_python_symlink():
     assert "find \"$MANAGED/python\" -type f -path '*/bin/python3'" not in script
 
 
+def test_fixture_runtime_uses_a_real_python_interpreter():
+    script = SCRIPT.read_text(encoding="utf-8")
+    assert 'paths[python_path]="$BASE_PYTHON"' in script
+
+
 def test_linux_host_build_uses_only_runtime_manifest_paths(tmp_path):
     bash = os.environ["PETCARE_TEST_BASH"]
     output = tmp_path / "platform-linux.json"
@@ -184,6 +189,7 @@ def test_ignore_rules_are_root_scoped_and_preserve_source_assets():
 
     assert ignored("progress-monitor/file")
     assert not ignored("nested/progress-monitor/file")
+    assert not ignored("dashboard/build/sites-vite-plugin.ts")
     assert not ignored("assets/demo.png")
     assert not ignored("src/icon.jpeg")
     assert ignored(".runtime/frames/frame.png")
