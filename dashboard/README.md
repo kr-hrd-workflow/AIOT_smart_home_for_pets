@@ -1,8 +1,8 @@
-# vinext-starter
+# PetCare Dashboard
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+The PetCare dashboard runs on [vinext](https://github.com/cloudflare/vinext).
+It provides the public landing page, isolated `/demo`, loopback-only local live
+dashboard, and authenticated remote dashboard backed by Cloudflare D1 and R2.
 
 ## Prerequisites
 
@@ -11,21 +11,22 @@ Drizzle support.
 ## Quick Start
 
 ```bash
-npm install
+npm ci
 npm run dev
 npm run build
 ```
 
-This starter does not use `wrangler.jsonc`.
+The project does not use `wrangler.jsonc`; Sites bindings are declared in
+`.openai/hosting.json` and simulated by `vite.config.ts` for local tests.
 
 ## Included Shape
 
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
+- `app/` contains the landing, demo, auth, and enrollment routes.
+- `components/` contains the shared, local connected, and authenticated remote UI.
+- `lib/petcare/` owns tenant-scoped enrollment, proxy, clip, cleanup, and reconciliation logic.
+- `db/schema.ts` and `drizzle/` define the D1 tenancy, agent, camera, clip, and cleanup schema.
+- `.openai/hosting.json` declares the Sites D1 and R2 bindings.
+- `tests/` and `e2e/` cover unit, integration, responsive, accessibility, and network-isolation behavior.
 
 ## Workspace Auth Headers
 
@@ -89,8 +90,12 @@ actions tied to the current ChatGPT user. Leave public content anonymous.
 
 - `npm run dev`: start local development
 - `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
+- `npm test`: run the Vitest dashboard suite
+- `npm run test:e2e:demo:dev`: verify the isolated demo against the dev server
+- `npm run test:e2e:demo:production`: build and verify the isolated demo against the production server
+- `npm run test:e2e:connected`: verify local connected states and ROI editing
+- `npm run lint`: run ESLint
+- `npm run db:generate`: generate Drizzle migrations after intentional schema changes
 
 ## Learn More
 
