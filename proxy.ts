@@ -21,6 +21,13 @@ export async function proxy(request: NextRequest) {
   if (request.nextUrl.pathname === "/demo") {
     return nextWithAuth(request, false);
   }
+  if (
+    request.nextUrl.pathname === "/" &&
+    (request.nextUrl.hostname === "127.0.0.1" ||
+      request.nextUrl.hostname === "localhost")
+  ) {
+    return nextWithAuth(request, false);
+  }
   const authEnv = env as unknown as AuthEnv;
   const session = createSupabaseSession(request, authEnv);
   let authenticated = false;

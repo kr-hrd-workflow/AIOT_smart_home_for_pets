@@ -107,6 +107,22 @@ it("keeps /demo public without constructing a Supabase client", async () => {
   expect(mocks.requireAuth).not.toHaveBeenCalled();
 });
 
+it.each(["http://127.0.0.1/", "http://localhost/"])(
+  "keeps loopback root local without constructing a Supabase client: %s",
+  async (url) => {
+    const response = await proxy(
+      new NextRequest(url, { headers: { "x-petcare-authenticated": "1" } }),
+    );
+    expect(response.status).toBe(200);
+    expect(
+      response.headers.get("x-middleware-request-x-petcare-authenticated"),
+    ).toBe("0");
+    expect(mocks.createServerClient).not.toHaveBeenCalled();
+    expect(mocks.getClaims).not.toHaveBeenCalled();
+    expect(mocks.requireAuth).not.toHaveBeenCalled();
+  },
+);
+
 it("keeps the anonymous root public and overwrites a forged auth marker", async () => {
   mocks.getClaims.mockResolvedValue({ data: null, error: new Error("anonymous") });
   mocks.requireAuth.mockRejectedValue(new AuthError("Authentication required"));
