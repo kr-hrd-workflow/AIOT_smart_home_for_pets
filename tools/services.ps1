@@ -67,7 +67,7 @@ function Protect-Path([string]$Path) {
 function Get-SubstTarget([string]$Drive) {
   $output = & "$env:SystemRoot\System32\subst.exe" 2>$null
   foreach ($line in $output) {
-    if ([string]$line -match '^([A-Z]:)\\:\s*=>' -and $Matches[1] -eq $Drive) { return $Drive }
+    if ([string]$line -match '^([A-Z]:)\\?:\s*=>' -and $Matches[1] -eq $Drive) { return $Drive }
   }
   return ''
 }

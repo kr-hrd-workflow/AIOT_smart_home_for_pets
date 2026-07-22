@@ -61,6 +61,7 @@ foreach ($required in @(
   '127.0.0.1:55432:5432','18883','PGPASSFILE','WindowStyle Hidden',
   "importlib.metadata","version('paho-mqtt')",'-DOPENSSL_ROOT_DIR','mosquitto_passwd --parallel',
   'subst.exe','ascii-drive.txt','PSIsContainer','PackageNotFoundError','pgArgumentLine','ReadConsole',"ArgumentList @('-U'",
+  '^([A-Z]:)\\?:\s*=>',
   "postgresHost = '127.0.0.1'",'Test-ExpectedMosquittoProcess','mqtt-proof-','PETCARE_MQTT_PUBLISH_HOST',
   'container_bind_host','Invoke-PostgresProof','Get-NetIPAddress',
   'capabilityVersions','docker_version','compose_version','before1883',
