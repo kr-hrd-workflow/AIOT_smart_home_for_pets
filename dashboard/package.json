@@ -9,8 +9,11 @@
     "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev",
     "build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
-    "test": "vitest run",
+    "test": "vitest run tests",
     "test:d1": "vitest run tests/db tests/tenancy/repository.d1.test.ts",
+    "test:e2e:demo:dev": "PETCARE_E2E_TARGET=demo-dev playwright test --project=demo-dev",
+    "test:e2e:demo:production": "npm run build && PETCARE_E2E_TARGET=demo-production playwright test --project=demo-production",
+    "test:e2e:connected": "PETCARE_E2E_TARGET=connected playwright test --project=connected",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },
@@ -28,7 +31,9 @@
     "three": "^0.185.1"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.12.1",
     "@cloudflare/vite-plugin": "1.37.1",
+    "@playwright/test": "1.61.1",
     "@remotion/cli": "4.0.496",
     "@remotion/fonts": "4.0.496",
     "@remotion/three": "4.0.496",
