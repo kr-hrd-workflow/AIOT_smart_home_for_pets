@@ -1,0 +1,24 @@
+[Unit]
+Description=PetCare Jetson Vision Node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=petcare-vision
+Group=petcare-vision
+SupplementaryGroups=video
+WorkingDirectory=/opt/petcare-vision
+ExecStart=/usr/bin/python3 /opt/petcare-vision/vision_node.py --config /var/lib/petcare-vision/config.json
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/petcare-vision
+UMask=0077
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
