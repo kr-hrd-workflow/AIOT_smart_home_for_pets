@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useSyncExternalStore, type ReactNode } from "react";
 import { AnomalyList } from "./anomaly-list";
 import { BedPanel } from "./bed-panel";
 import { LiveCamera } from "./live-camera";
@@ -28,12 +28,27 @@ export function selectDashboardMode(
     : "demo";
 }
 
-export function ClientDashboardEntry({ fallback }: { fallback: ReactNode }) {
-  const [mode, setMode] = useState<DashboardMode>(() => selectDashboardMode("/", undefined));
+function subscribeDashboardMode() {
+  return () => undefined;
+}
 
-  useEffect(() => {
-    setMode(selectDashboardMode(window.location.pathname, window.location.hostname));
-  }, []);
+function readDashboardMode() {
+  return selectDashboardMode(
+    window.location.pathname,
+    window.location.hostname,
+  );
+}
+
+function readServerDashboardMode() {
+  return selectDashboardMode("/", undefined);
+}
+
+export function ClientDashboardEntry({ fallback }: { fallback: ReactNode }) {
+  const mode = useSyncExternalStore(
+    subscribeDashboardMode,
+    readDashboardMode,
+    readServerDashboardMode,
+  );
 
   if (mode === "connected") return <ConnectedDashboard />;
   if (mode === "not_found") return null;
@@ -213,16 +228,22 @@ export function Dashboard({
 
             <section id="timeline" className="timeline-section" data-dashboard-section="timeline">
               <SectionHeading title="최근 행동 기록" meta="최신순" />
-              <ol className="timeline-list">
-                {data.behaviors.map((behavior) => (
-                  <li key={behavior.id}>
-                    <time dateTime={behavior.started_at}>{formatTime(behavior.started_at)}</time>
-                    <strong>{behavior.subject_id}</strong>
-                    <span>{behavior.behavior_type === "resting" ? "휴식 추정" : "식사"}</span>
-                    <span>{behavior.duration_seconds === null ? "진행 중" : seconds(behavior.duration_seconds)}</span>
-                  </li>
-                ))}
-              </ol>
+              {data.behaviors.length === 0 ? (
+                <p className="empty-state">
+                  아직 기록된 행동이 없습니다.<br />센서와 카메라가 함께 확인하면 여기에 표시됩니다.
+                </p>
+              ) : (
+                <ol className="timeline-list">
+                  {data.behaviors.map((behavior) => (
+                    <li key={behavior.id}>
+                      <time dateTime={behavior.started_at}>{formatTime(behavior.started_at)}</time>
+                      <strong>{behavior.subject_id}</strong>
+                      <span>{behavior.behavior_type === "resting" ? "휴식 추정" : "식사"}</span>
+                      <span>{behavior.duration_seconds === null ? "진행 중" : seconds(behavior.duration_seconds)}</span>
+                    </li>
+                  ))}
+                </ol>
+              )}
             </section>
 
             <section className="roi-section" data-dashboard-section="roi">

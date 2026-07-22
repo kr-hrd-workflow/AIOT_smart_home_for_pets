@@ -1,15 +1,16 @@
+import Link from "next/link";
 import { LANDING_CHAPTERS } from "./landing-copy";
 
 export function LandingOverlay() {
   return (
     <div className="landing-overlay">
       <header className="landing-header">
-        <a className="landing-wordmark" href="/" aria-label="PetCare 홈">
+        <Link className="landing-wordmark" href="/" aria-label="PetCare 홈">
           PetCare
-        </a>
+        </Link>
         <nav aria-label="주요 메뉴">
-          <a href="/demo">데모 보기</a>
-          <a className="landing-header-cta" href="/login">로그인</a>
+          <Link href="/demo">데모 보기</Link>
+          <Link className="landing-header-cta" href="/login">로그인</Link>
         </nav>
       </header>
 
@@ -22,8 +23,8 @@ export function LandingOverlay() {
             이벤트가 생긴 순간만 짧게 보관합니다.
           </p>
           <div className="landing-actions">
-            <a className="landing-primary" href="/login">로그인</a>
-            <a className="landing-secondary" href="/demo">데모 보기</a>
+            <Link className="landing-primary" href="/login">로그인</Link>
+            <Link className="landing-secondary" href="/demo">데모 보기</Link>
           </div>
         </div>
       </section>
@@ -48,7 +49,7 @@ export function LandingOverlay() {
         <div>
           <p>나의 PetCare 홈</p>
           <h2 id="landing-final-title">필요한 순간을 바로 확인하세요</h2>
-          <a className="landing-primary" href="/login">로그인</a>
+          <Link className="landing-primary" href="/login">로그인</Link>
         </div>
       </section>
     </div>

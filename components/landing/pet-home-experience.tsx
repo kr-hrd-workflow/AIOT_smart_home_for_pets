@@ -5,8 +5,7 @@ import {
   lazy,
   type ReactNode,
   Suspense,
-  useEffect,
-  useState,
+  useSyncExternalStore,
 } from "react";
 import { LandingFallback } from "./landing-fallback";
 import {
@@ -18,6 +17,10 @@ import {
 const LazyPetHomeCanvas = lazy(() => import("./pet-home-canvas").then((module) => ({
   default: module.PetHomeCanvas,
 })));
+
+function subscribeSceneQuality() {
+  return () => undefined;
+}
 
 class SceneBoundary extends Component<
   { children: ReactNode },
@@ -35,15 +38,18 @@ class SceneBoundary extends Component<
 }
 
 export function PetHomeExperience() {
-  const [mode, setMode] = useState<SceneMode | null>(null);
-  const [compact, setCompact] = useState(true);
+  const mode = useSyncExternalStore<SceneMode>(
+    subscribeSceneQuality,
+    readSceneMode,
+    () => "fallback",
+  );
+  const compact = useSyncExternalStore(
+    subscribeSceneQuality,
+    readCompactScene,
+    () => true,
+  );
 
-  useEffect(() => {
-    setMode(readSceneMode());
-    setCompact(readCompactScene());
-  }, []);
-
-  if (mode === null || mode === "fallback") return <LandingFallback />;
+  if (mode === "fallback") return <LandingFallback />;
 
   const animated = mode === "animated";
   return (
