@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, MutableMapping, MutableSet
+from collections import deque
+from collections.abc import Callable, Iterator, MutableMapping, MutableSet
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
@@ -38,6 +39,42 @@ EXACT_SUBSCRIPTIONS = (
     ("home/pico/+/sensor/+", 1),
     ("home/pico/+/status", 1),
 )
+STATUS_IDENTITY_LIMIT = 4096
+
+
+StatusIdentity = tuple[str, str, datetime]
+
+
+class _RecentStatusIdentities(MutableSet[StatusIdentity]):
+    def __init__(self, limit: int) -> None:
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        self._limit = limit
+        self._seen: set[StatusIdentity] = set()
+        self._order: deque[StatusIdentity] = deque()
+
+    def __contains__(self, identity: object) -> bool:
+        return identity in self._seen
+
+    def __iter__(self) -> Iterator[StatusIdentity]:
+        return iter(self._order)
+
+    def __len__(self) -> int:
+        return len(self._seen)
+
+    def add(self, identity: StatusIdentity) -> None:
+        if identity in self._seen:
+            return
+        self._seen.add(identity)
+        self._order.append(identity)
+        if len(self._order) > self._limit:
+            self._seen.remove(self._order.popleft())
+
+    def discard(self, identity: StatusIdentity) -> None:
+        if identity not in self._seen:
+            return
+        self._seen.remove(identity)
+        self._order.remove(identity)
 
 
 class IngestResult(str, Enum):
@@ -247,7 +284,7 @@ class MqttIngestor:
         self._client_factory = client_factory or self._new_client
         self._client: Any | None = None
         self._watermarks: dict[tuple[str, str], datetime] = {}
-        self._status_seen: set[tuple[str, str, datetime]] = set()
+        self._status_seen = _RecentStatusIdentities(STATUS_IDENTITY_LIMIT)
         self._started = False
         self._connected = Event()
         self.last_result: IngestResult | None = None

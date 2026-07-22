@@ -118,7 +118,7 @@ class RuleIngress:
     @property
     def queue_full(self) -> bool:
         with self._condition:
-            return self._ready_event_count >= self._capacity
+            return len(self._ready) >= self._capacity
 
     @property
     def last_released_ticket_id(self) -> int:
@@ -181,8 +181,7 @@ class RuleIngress:
                 break
             if (
                 not ignore_capacity
-                and isinstance(pending.item, RuleEnvelope)
-                and self._ready_event_count >= self._capacity
+                and len(self._ready) >= self._capacity
             ):
                 break
             item = pending.item
@@ -255,7 +254,7 @@ class RuleIngress:
     ) -> bool:
         timeout_at = time.monotonic() + timeout
         with self._condition:
-            while self._accepting and (self._pending or self._ready_event_count >= self._capacity):
+            while self._accepting and (self._pending or len(self._ready) >= self._capacity):
                 remaining = timeout_at - time.monotonic()
                 if remaining <= 0:
                     return False

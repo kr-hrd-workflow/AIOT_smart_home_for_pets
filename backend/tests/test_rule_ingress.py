@@ -83,6 +83,29 @@ def test_tombstone_advances_order_and_ticket_resolves_once() -> None:
         ingress.resolve_tombstone(ticket, "again")
 
 
+def test_tombstone_capacity_blocks_next_producer_until_worker_pops() -> None:
+    ingress = RuleIngress(FakeClock(), capacity=1)
+    first = ingress.begin("mqtt")
+    ingress.resolve_tombstone(first, "validation_error")
+    retained = ingress.begin("mqtt")
+    admitted = threading.Event()
+
+    def resolve_retained() -> None:
+        ingress.resolve_tombstone(retained, "duplicate")
+        admitted.set()
+
+    thread = threading.Thread(target=resolve_retained)
+    thread.start()
+    time.sleep(0.27)
+
+    assert ingress.queue_full
+    assert not admitted.is_set()
+    assert ingress.get(timeout=0.1) == IngressTombstone(ticket_id=1, reason="validation_error")
+    thread.join(1)
+    assert admitted.is_set()
+    assert ingress.get(timeout=0.1) == IngressTombstone(ticket_id=2, reason="duplicate")
+
+
 def test_exact_capacity_retains_same_ticket_until_space_is_available() -> None:
     ingress = RuleIngress(FakeClock())
     assert ingress.capacity == EVENT_QUEUE_MAXSIZE == 1024

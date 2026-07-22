@@ -19,6 +19,7 @@ from app.config import AppConfig, load_config
 from app.events import DeviceStatusCommitted, SensorReadingCommitted
 from app.mqtt_ingest import (
     EXACT_SUBSCRIPTIONS,
+    STATUS_IDENTITY_LIMIT,
     IngestResult,
     MqttEndpoint,
     MqttIngestor,
@@ -254,6 +255,18 @@ def test_status_staleness_offline_and_process_local_duplicates() -> None:
     assert result is IngestResult.duplicate
     assert ingress.tombstones[0][1] == "duplicate"
     assert not session.committed
+
+
+def test_status_duplicate_history_is_bounded_and_evicts_oldest_identity() -> None:
+    ingestor = MqttIngestor.disabled()
+    oldest = ("entrance-01", "online", NOW)
+
+    for offset in range(STATUS_IDENTITY_LIMIT + 1):
+        ingestor._status_seen.add(("entrance-01", "online", NOW + timedelta(seconds=offset)))
+
+    assert len(ingestor._status_seen) == STATUS_IDENTITY_LIMIT
+    assert oldest not in ingestor._status_seen
+    assert ("entrance-01", "online", NOW + timedelta(seconds=STATUS_IDENTITY_LIMIT)) in ingestor._status_seen
 
 
 def test_database_rollback_resolves_explicit_tombstone() -> None:
