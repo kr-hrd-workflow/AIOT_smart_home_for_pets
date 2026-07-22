@@ -30,6 +30,7 @@
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.37.1",
     "@remotion/cli": "4.0.496",
+    "@remotion/fonts": "4.0.496",
     "@remotion/three": "4.0.496",
     "@tailwindcss/postcss": "4.2.1",
     "@testing-library/jest-dom": "6.9.1",
