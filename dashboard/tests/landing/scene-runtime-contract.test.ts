@@ -26,3 +26,11 @@ it("selects the compact scene profile at the mobile breakpoint", () => {
     'matchMedia?.("(max-width: 767px)")',
   );
 });
+
+it("keeps Korean landing copy on word boundaries", () => {
+  const styles = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
+
+  expect(styles).toMatch(
+    /\.landing-hero h1,\s*\.landing-chapter h2,\s*\.landing-final h2,\s*\.landing-lede,\s*\.landing-chapter-copy > p:last-child\s*\{[^}]*word-break: keep-all;/s,
+  );
+});

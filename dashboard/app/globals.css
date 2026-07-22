@@ -891,6 +891,14 @@ a:focus-visible {
   letter-spacing: 0.04em;
 }
 
+.landing-hero h1,
+.landing-chapter h2,
+.landing-final h2,
+.landing-lede,
+.landing-chapter-copy > p:last-child {
+  word-break: keep-all;
+}
+
 .landing-hero h1 {
   max-width: 12ch;
   margin: 0;
