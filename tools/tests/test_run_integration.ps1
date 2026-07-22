@@ -28,6 +28,8 @@ foreach ($required in @(
     "Add-Type -AssemblyName System.Net.Http -ErrorAction Stop",
     "Stop-ProcessTree",
     "AllowOpenStreams",
+    "`$streamDrainTimeoutMilliseconds = 10000",
+    "`$streams.Wait(`$streamDrainTimeoutMilliseconds)",
     "backend-lock-sync",
     "'--locked'",
     "'--offline'",

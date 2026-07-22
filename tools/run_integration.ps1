@@ -26,6 +26,7 @@ $backendRoot = Join-Path $root 'backend'
 $backendPythonPath = Join-Path $backendRoot '.venv\Scripts\python.exe'
 $backendVenvConfigPath = Join-Path $backendRoot '.venv\pyvenv.cfg'
 $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+$streamDrainTimeoutMilliseconds = 10000
 $powerShellPath = (Get-Process -Id $PID).Path
 
 function Get-RequiredJson([string]$Path, [string]$Label) {
@@ -307,7 +308,7 @@ function Complete-Child($Child, [string]$LogRoot, [string[]]$Secrets) {
     if ($Child.Completed) { return $Child.Process.ExitCode }
     $Child.Process.WaitForExit()
     $streams = [Threading.Tasks.Task]::WhenAll([Threading.Tasks.Task[]]@($Child.Stdout,$Child.Stderr))
-    $streamsClosed = $streams.Wait(2000)
+    $streamsClosed = $streams.Wait($streamDrainTimeoutMilliseconds)
     if (-not $streamsClosed -and -not $Child.AllowOpenStreams) {
         throw "child output streams remained open: $($Child.Name)"
     }
