@@ -5,12 +5,15 @@ import { resolve } from "node:path";
 import { Miniflare } from "miniflare";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { miniflarePort } from "../helpers/miniflare";
+
 let mf: Miniflare;
 let db: D1Database;
 
 beforeEach(async () => {
   mf = new Miniflare({
     modules: true,
+    port: miniflarePort(0),
     script: "export default { fetch() { return new Response('ok') } }",
     d1Databases: ["DB"],
   });

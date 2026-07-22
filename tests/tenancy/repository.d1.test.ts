@@ -9,6 +9,7 @@ vi.mock("cloudflare:workers", () => ({ env: {} }));
 
 import { getDb } from "../../db";
 import { TenantRepository } from "../../lib/tenancy/repository";
+import { miniflarePort } from "../helpers/miniflare";
 
 let mf: Miniflare;
 let db: D1Database;
@@ -16,6 +17,7 @@ let db: D1Database;
 beforeEach(async () => {
   mf = new Miniflare({
     modules: true,
+    port: miniflarePort(1),
     script: "export default { fetch() { return new Response('ok') } }",
     d1Databases: ["DB"],
   });
