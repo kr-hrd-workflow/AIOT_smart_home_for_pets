@@ -122,6 +122,17 @@ it("keeps the anonymous root public and overwrites a forged auth marker", async 
   ).toBe("0");
 });
 
+it("keeps the root public when the provider claims refresh throws", async () => {
+  mocks.getClaims.mockRejectedValue(new Error("provider unavailable"));
+  const response = await proxy(new NextRequest("https://app.test/"));
+  expect(response.status).toBe(200);
+  expect(response.headers.get("location")).toBeNull();
+  expect(
+    response.headers.get("x-middleware-request-x-petcare-authenticated"),
+  ).toBe("0");
+  expect(mocks.requireAuth).not.toHaveBeenCalled();
+});
+
 it("marks the root authenticated only after verification", async () => {
   const response = await proxy(
     new NextRequest("https://app.test/", {
