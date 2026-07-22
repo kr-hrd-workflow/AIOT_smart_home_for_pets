@@ -780,6 +780,12 @@ a:focus-visible {
   opacity: 0.72;
 }
 
+.pet-home-experience,
+.pet-home-experience > div {
+  width: 100%;
+  height: 100%;
+}
+
 .landing-overlay {
   position: relative;
   margin-top: -100dvh;
