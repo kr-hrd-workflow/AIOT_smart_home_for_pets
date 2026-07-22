@@ -322,6 +322,24 @@ function Enable-AsciiServicePaths([string]$AliasRoot) {
   }
 }
 
+function Stop-NativeServices {
+  if (Test-Path -LiteralPath $asciiAliasState) { Enable-AsciiServicePaths (Ensure-AsciiAlias $Root $asciiAliasState) }
+  $pgStopExit = 0
+  if (Test-Path -LiteralPath (Join-Path $pgData 'PG_VERSION')) {
+    $pg = Start-Process -FilePath $runtime.paths.pg_ctl_path -WindowStyle Hidden -Wait -PassThru -ArgumentList @('-D',$pgData,'stop','-m','fast')
+    $pgStopExit = $pg.ExitCode
+  }
+  if (Test-Path -LiteralPath $mqttPidFile) {
+    $mqttPid = [int](Get-Content -Raw -LiteralPath $mqttPidFile)
+    if (Test-ExpectedMosquittoProcess $mqttPid $bindHost 18883) { Stop-Process -Id $mqttPid -Force }
+    Remove-Item -LiteralPath $mqttPidFile -Force -ErrorAction SilentlyContinue
+  }
+  if (Get-PortIdentity 55432) { throw 'PostgreSQL stop failed; preserving the ASCII alias' }
+  if (Get-PortIdentity 18883) { throw 'Mosquitto stop failed; preserving the ASCII alias' }
+  Remove-AsciiAlias $Root $asciiAliasState
+  if ($pgStopExit -and $pgStopExit -ne 1) { throw 'PostgreSQL stop command failed after the listener closed' }
+}
+
 switch ($Action) {
 'Start' {
   if ($Profile -eq 'hardware' -and -not (Test-HardwareFirewall $bindHost)) { throw 'hardware NOT_RUN: matching Private/LocalSubnet firewall evidence is unavailable' }
@@ -397,21 +415,7 @@ switch ($Action) {
   }
 }
 'Stop' {
-  if (Test-Path -LiteralPath $asciiAliasState) { Enable-AsciiServicePaths (Ensure-AsciiAlias $Root $asciiAliasState) }
-  $pgStopExit = 0
-  if (Test-Path -LiteralPath (Join-Path $pgData 'PG_VERSION')) {
-    $pg = Start-Process -FilePath $runtime.paths.pg_ctl_path -WindowStyle Hidden -Wait -PassThru -ArgumentList @('-D',$pgData,'stop','-m','fast')
-    $pgStopExit = $pg.ExitCode
-  }
-  if (Test-Path -LiteralPath $mqttPidFile) {
-    $mqttPid = [int](Get-Content -Raw -LiteralPath $mqttPidFile)
-    if (Test-ExpectedMosquittoProcess $mqttPid $bindHost 18883) { Stop-Process -Id $mqttPid -Force }
-    Remove-Item -LiteralPath $mqttPidFile -Force -ErrorAction SilentlyContinue
-  }
-  if (Get-PortIdentity 55432) { throw 'PostgreSQL stop failed; preserving the ASCII alias' }
-  if (Get-PortIdentity 18883) { throw 'Mosquitto stop failed; preserving the ASCII alias' }
-  Remove-AsciiAlias $Root $asciiAliasState
-  if ($pgStopExit -and $pgStopExit -ne 1) { throw 'PostgreSQL stop command failed after the listener closed' }
+  Stop-NativeServices
   Write-Output 'native services stopped'
 }
 'Status' {
@@ -436,7 +440,7 @@ switch ($Action) {
 }
 'Reset' {
   if (-not $ConfirmReset) { throw 'Reset requires -ConfirmReset' }
-  & $PSCommandPath -Action Stop -RuntimePath $RuntimePath -Provider native -Profile $Profile -HardwareAddress $HardwareAddress
+  Stop-NativeServices
   $resolved = [IO.Path]::GetFullPath($physicalServiceRoot)
   if (-not $resolved.StartsWith($allowedRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'refusing unsafe reset target' }
   if (Test-Path -LiteralPath $resolved) { Remove-Item -LiteralPath $resolved -Recurse -Force }

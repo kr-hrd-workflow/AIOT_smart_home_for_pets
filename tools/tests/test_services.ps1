@@ -67,7 +67,7 @@ foreach ($required in @(
   'mosquitto-dependencies.json','libssl_sha256','mosquitto_sha256',
   'auth.on_message','subscribed.wait','received.wait','postgresql-build.json','archive_sha256',
   "throw 'PostgreSQL is not ready'",'PostgreSQL credential file is missing',
-  "throw 'Mosquitto stop failed; preserving the ASCII alias'"
+  "throw 'Mosquitto stop failed; preserving the ASCII alias'",'function Stop-NativeServices'
 )) { if (-not $allText.Contains($required)) { throw "ASSERT: missing contract $required" } }
 foreach ($forbidden in @('mosquitto_passwd -b','mosquitto_passwd.exe -b',' --pw ',' -P ','$DockerPath compose','0.0.0.0:18883','"5432:5432"','-DWITH_TLS=OFF')) {
   if ($allText.Contains($forbidden)) { throw "ASSERT: forbidden contract $forbidden" }
@@ -75,6 +75,7 @@ foreach ($forbidden in @('mosquitto_passwd -b','mosquitto_passwd.exe -b',' --pw 
 foreach ($forbidden in @('winget.exe upgrade','mosquitto-$mosquittoVersion-install-windows-x64.exe')) {
   if ($allText.Contains($forbidden)) { throw "ASSERT: native source build bypassed: $forbidden" }
 }
+if ($allText.Contains('& $PSCommandPath -Action Stop')) { throw 'ASSERT: native reset recursively invokes the service script' }
 $envExample = Get-Content -Encoding UTF8 (Join-Path $root '.env.example')
 if ($envExample | Where-Object { $_ -match '=.+$' }) { throw 'ASSERT: example must not contain credential values' }
 Write-Output 'Service contract fixture PASS'
