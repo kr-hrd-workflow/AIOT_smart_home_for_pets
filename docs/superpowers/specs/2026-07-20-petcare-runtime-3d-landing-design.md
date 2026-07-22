@@ -15,7 +15,9 @@ Three directions were considered:
 2. **Abstract data sculpture:** lighter and easier to optimize, but less clearly communicates webcam, feeding, and rest monitoring.
 3. **Multiple room scenes:** visually broad, but duplicates assets, increases load time, and makes mobile quality harder to control.
 
-The chosen design uses one dark, premium pet-home environment with cool cyan ambient light and restrained warm amber sensor highlights. The scene moves through feeding, rest, and event-review chapters without page-theme changes.
+The chosen design uses one dark, premium contemporary Korean apartment with cool cyan ambient light and restrained warm amber sensor highlights. It represents a spacious 50-pyeong home, approximately 165 square meters, as one connected single-level scene. The wide living room, window wall, island kitchen and dining zone, entry middle door, and built-in storage make it read as a lived-in Korean home rather than a compact diorama or Western mansion. The scene moves through feeding, rest, and event-review chapters without page-theme changes.
+
+The architecture must not include an internal staircase, double-height mansion foyer, glass-walled bedroom, visible human bed, or duplicate pet. Feeding, rest, camera, and event-review zones remain spatially distinct inside the one connected apartment.
 
 ## Experience Architecture
 
@@ -38,7 +40,7 @@ The clean route split is:
 
 ### Scene chapters
 
-1. **Hero:** an isometric pet home appears from darkness. A slow idle camera move establishes the space. The primary CTA is `로그인`; the secondary CTA opens `/demo`.
+1. **Hero:** an isometric 50-pyeong Korean apartment appears from darkness. A slow idle camera move establishes the wide living core, kitchen, dining area, and entry. The primary CTA is `로그인`; the secondary CTA opens `/demo`.
 2. **Feeding:** camera travels to the bowl area. A restrained amber pulse explains Pico sensor events and event-only recording.
 3. **Rest:** camera moves to the bed area. Lighting softens while copy explains rest detection and anomaly alerts.
 4. **Event review:** a floating in-world display frames an event clip preview and the seven-day retention promise.
