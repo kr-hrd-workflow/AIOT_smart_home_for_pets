@@ -32,6 +32,8 @@ try {
   $env:PATH = "$env:SystemRoot\System32"
   & $runtime.paths.python_path (Join-Path $PSScriptRoot 'validate_platform_manifest.py') --manifest $manifest
   if ($LASTEXITCODE) { exit $LASTEXITCODE }
+  & $runtime.paths.python_path (Join-Path $PSScriptRoot 'docs_check.py') --root $Root
+  if ($LASTEXITCODE) { exit $LASTEXITCODE }
   & $runtime.paths.python_path -c "import sys; assert sys.version_info[:3] == (3, 12, 13); print(sys.version)"
   if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
