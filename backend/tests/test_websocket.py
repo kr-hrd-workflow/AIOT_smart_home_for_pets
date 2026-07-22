@@ -31,6 +31,12 @@ from app.dashboard_hub import DashboardHub
 NOW = datetime(2026, 7, 20, 12, 0, tzinfo=UTC)
 
 
+def test_uvicorn_has_a_websocket_protocol() -> None:
+    from uvicorn.protocols.websockets.auto import AutoWebSocketsProtocol
+
+    assert AutoWebSocketsProtocol is not None
+
+
 def bed_status(raw: int = 100) -> BedStatus:
     return BedStatus(
         device_id="petzone-01",

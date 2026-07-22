@@ -208,7 +208,11 @@ if ((& $ninjaPath --version) -ne '1.13.2') { throw 'managed Ninja version mismat
 if ((& (Join-Path $armBin 'arm-none-eabi-gcc.exe') --version | Select-Object -First 1) -notmatch '14\.2\.1') { throw 'managed Arm GNU version mismatch' }
 
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
-$vsInstall = (& $vswhere -utf8 -latest -products Microsoft.VisualStudio.Product.BuildTools -version '[17.14,17.15)' -property installationPath | Select-Object -First 1)
+$previousConsoleOutputEncoding = [Console]::OutputEncoding
+try {
+  [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+  $vsInstall = (& $vswhere -utf8 -latest -products Microsoft.VisualStudio.Product.BuildTools -version '[17.14,17.15)' -property installationPath | Select-Object -First 1)
+} finally { [Console]::OutputEncoding = $previousConsoleOutputEncoding }
 if (-not $vsInstall) { throw 'Visual Studio Build Tools 17.14 is missing' }
 foreach ($component in $components) {
   if (-not (& $vswhere -products Microsoft.VisualStudio.Product.BuildTools -version '[17.14,17.15)' -requires $component -property installationPath)) { throw "missing Visual Studio component: $component" }

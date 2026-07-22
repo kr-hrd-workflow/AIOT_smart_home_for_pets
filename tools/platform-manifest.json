@@ -88,7 +88,7 @@
     "actions": {"actions/checkout": "93cb6efe18208431cddfb8368fd83d5badbf9bfd"},
     "sites_plugin": {"version": "0.1.30", "starter": "vinext"},
     "backend_dependencies": {
-      "fastapi": "0.139.0", "pydantic": "2.13.4", "SQLAlchemy": "2.0.51", "alembic": "1.18.5", "psycopg[binary]": "3.3.4", "paho-mqtt": "2.1.0", "uvicorn": "0.51.0", "ultralytics": "8.3.0", "numpy": "1.26.4", "opencv-python": "4.10.0.84", "pytest": "9.1.1", "pytest-asyncio": "1.4.0", "httpx": "0.28.1", "cryptography": "49.0.0", "pywin32": "312"
+      "fastapi": "0.139.0", "pydantic": "2.13.4", "SQLAlchemy": "2.0.51", "alembic": "1.18.5", "psycopg[binary]": "3.3.4", "paho-mqtt": "2.1.0", "uvicorn": "0.51.0", "websockets": "16.1.1", "ultralytics": "8.3.0", "numpy": "1.26.4", "opencv-python": "4.10.0.84", "pytest": "9.1.1", "pytest-asyncio": "1.4.0", "httpx": "0.28.1", "cryptography": "49.0.0", "pywin32": "312"
     },
     "sites_dependencies": {
       "drizzle-orm": "0.45.2", "next": "16.2.6", "react": "19.2.6", "react-dom": "19.2.6", "react-loading-skeleton": "3.5.0", "@cloudflare/vite-plugin": "1.37.1", "@tailwindcss/postcss": "4.2.1", "@types/node": "22.19.19", "@types/react": "19.2.14", "@types/react-dom": "19.2.3", "@vitejs/plugin-react": "6.0.2", "@vitejs/plugin-rsc": "0.5.26", "drizzle-kit": "0.31.10", "eslint": "9.39.4", "eslint-config-next": "16.2.6", "react-server-dom-webpack": "19.2.6", "tailwindcss": "4.2.1", "typescript": "5.9.3", "vinext": "0.0.50", "vite": "8.0.13", "wrangler": "4.92.0", "@supabase/ssr": "0.12.3", "@supabase/supabase-js": "2.110.7", "jose": "6.2.3"

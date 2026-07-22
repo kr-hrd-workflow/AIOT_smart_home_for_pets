@@ -177,7 +177,7 @@ EXPECTED = {
         "backend_dependencies": {
             "fastapi": "0.139.0", "pydantic": "2.13.4", "SQLAlchemy": "2.0.51",
             "alembic": "1.18.5", "psycopg[binary]": "3.3.4", "paho-mqtt": "2.1.0",
-            "uvicorn": "0.51.0", "ultralytics": "8.3.0", "numpy": "1.26.4",
+            "uvicorn": "0.51.0", "websockets": "16.1.1", "ultralytics": "8.3.0", "numpy": "1.26.4",
             "opencv-python": "4.10.0.84", "pytest": "9.1.1", "pytest-asyncio": "1.4.0",
             "httpx": "0.28.1", "cryptography": "49.0.0", "pywin32": "312",
         },
