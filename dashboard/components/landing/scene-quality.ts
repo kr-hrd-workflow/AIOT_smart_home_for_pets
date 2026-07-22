@@ -42,3 +42,8 @@ export function readSceneMode(): SceneMode {
     webgl: supportsWebGL(),
   });
 }
+
+export function readCompactScene(): boolean {
+  if (typeof window === "undefined") return true;
+  return window.matchMedia?.("(max-width: 767px)").matches ?? window.innerWidth < 768;
+}

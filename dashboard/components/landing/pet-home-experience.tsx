@@ -1,10 +1,23 @@
 "use client";
 
-import { Canvas } from "@react-three/fiber";
-import { Component, type ReactNode, useEffect, useState } from "react";
+import {
+  Component,
+  lazy,
+  type ReactNode,
+  Suspense,
+  useEffect,
+  useState,
+} from "react";
 import { LandingFallback } from "./landing-fallback";
-import { PetHomeScene } from "./pet-home-scene";
-import { readSceneMode, type SceneMode } from "./scene-quality";
+import {
+  readCompactScene,
+  readSceneMode,
+  type SceneMode,
+} from "./scene-quality";
+
+const LazyPetHomeCanvas = lazy(() => import("./pet-home-canvas").then((module) => ({
+  default: module.PetHomeCanvas,
+})));
 
 class SceneBoundary extends Component<
   { children: ReactNode },
@@ -23,9 +36,11 @@ class SceneBoundary extends Component<
 
 export function PetHomeExperience() {
   const [mode, setMode] = useState<SceneMode | null>(null);
+  const [compact, setCompact] = useState(true);
 
   useEffect(() => {
     setMode(readSceneMode());
+    setCompact(readCompactScene());
   }, []);
 
   if (mode === null || mode === "fallback") return <LandingFallback />;
@@ -33,17 +48,9 @@ export function PetHomeExperience() {
   const animated = mode === "animated";
   return (
     <SceneBoundary>
-      <div className="pet-home-experience">
-        <Canvas
-          camera={{ position: [12, 9, 16], fov: 42, near: 0.1, far: 80 }}
-          dpr={[1, animated ? 1.5 : 1.2]}
-          frameloop={animated ? "always" : "demand"}
-          gl={{ antialias: animated, powerPreference: "high-performance" }}
-          shadows={animated}
-        >
-          <PetHomeScene animated={animated} />
-        </Canvas>
-      </div>
+      <Suspense fallback={<LandingFallback />}>
+        <LazyPetHomeCanvas animated={animated} compact={compact} />
+      </Suspense>
     </SceneBoundary>
   );
 }

@@ -2,8 +2,12 @@
 
 import { useEffect, useRef } from "react";
 import { useThree } from "@react-three/fiber";
+import { gsap } from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger.js";
 import type { Group, PointLight } from "three";
 import { createSceneDirector } from "./scene-director";
+
+gsap.registerPlugin(ScrollTrigger);
 
 type Position = [number, number, number];
 
@@ -50,12 +54,49 @@ function Chair({ position, rotation = [0, 0, 0] }: { position: Position; rotatio
 function Sofa() {
   return (
     <group position={[1.1, 0, 0.7]} rotation={[0, -0.1, 0]}>
-      <Block position={[0, 0.48, 0]} size={[4.8, 0.55, 1.55]} color="#55524d" castShadow />
-      <Block position={[0, 1.05, -0.58]} size={[4.8, 1.05, 0.34]} color="#484743" castShadow />
-      <Block position={[-2.25, 0.9, 0]} size={[0.3, 0.9, 1.5]} color="#454440" />
-      <Block position={[2.25, 0.9, 0]} size={[0.3, 0.9, 1.5]} color="#454440" />
-      <Block position={[-1.2, 0.88, 0.25]} size={[1.85, 0.28, 1.05]} color="#615e58" />
-      <Block position={[1.0, 0.88, 0.25]} size={[1.85, 0.28, 1.05]} color="#615e58" />
+      <Block position={[0, 0.48, 0]} size={[4.8, 0.55, 1.55]} color="#625c55" castShadow />
+      <Block position={[0, 1.05, -0.58]} size={[4.8, 1.05, 0.34]} color="#514d48" castShadow />
+      <Block position={[-2.25, 0.9, 0]} size={[0.3, 0.9, 1.5]} color="#4d4945" />
+      <Block position={[2.25, 0.9, 0]} size={[0.3, 0.9, 1.5]} color="#4d4945" />
+      <Block position={[-1.2, 0.88, 0.25]} size={[1.85, 0.28, 1.05]} color="#716a62" />
+      <Block position={[1.0, 0.88, 0.25]} size={[1.85, 0.28, 1.05]} color="#716a62" />
+      <Block position={[1.65, 0.46, 1.2]} size={[1.45, 0.5, 2.5]} color="#625c55" castShadow />
+    </group>
+  );
+}
+
+const CITY_LIGHTS: ReadonlyArray<[number, number, string]> = [
+  [-5.6, 1.8, "#d8a85d"],
+  [-4.9, 3.4, "#6e9ca4"],
+  [-3.9, 2.5, "#d8a85d"],
+  [-2.8, 1.5, "#789ba2"],
+  [-1.8, 3.7, "#d8a85d"],
+  [-0.7, 2.1, "#82aeb5"],
+  [0.3, 3.2, "#d8a85d"],
+] as const;
+
+function CityWindowWall() {
+  return (
+    <group>
+      <mesh position={[-2.7, 2.8, -5.78]}>
+        <boxGeometry args={[8.4, 3.8, 0.08]} />
+        <meshStandardMaterial
+          color="#111c21"
+          emissive="#0c1920"
+          emissiveIntensity={0.52}
+          metalness={0.18}
+          roughness={0.28}
+        />
+      </mesh>
+      {[-6.1, -4.7, -3.3, -1.9, -0.5, 0.9].map((x) => (
+        <Block key={x} position={[x, 2.8, -5.68]} size={[0.07, 3.8, 0.12]} color="#30373a" />
+      ))}
+      {CITY_LIGHTS.map(([x, y, color]) => (
+        <mesh key={`${x}-${y}`} position={[x, y, -5.62]}>
+          <boxGeometry args={[0.18, 0.1, 0.03]} />
+          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={1.1} />
+        </mesh>
+      ))}
     </group>
   );
 }
@@ -86,9 +127,9 @@ function EntryAndStorage() {
   return (
     <group>
       <Block position={[7.75, 1.35, 3.55]} size={[1.45, 2.7, 3.9]} color="#252b2f" />
-      <Block position={[6.2, 1.2, 5.55]} size={[4.5, 2.4, 0.45]} color="#303539" />
+      <Block position={[6.2, 1.2, 5.55]} size={[4.5, 2.4, 0.45]} color="#292b2c" />
       <Block position={[6.0, 1.55, 3.9]} size={[0.14, 3.1, 2.5]} color="#22282c" />
-      <Block position={[6.0, 1.55, 3.9]} size={[0.2, 2.65, 1.9]} color="#3b4448" />
+      <Block position={[6.0, 1.55, 3.9]} size={[0.2, 2.65, 1.9]} color="#45423e" />
       <Block position={[6.0, 1.55, 3.9]} size={[0.22, 2.35, 0.1]} color="#151a1e" />
     </group>
   );
@@ -146,12 +187,15 @@ function FeedingZone() {
 
 export function PetHomeScene({ animated }: { animated: boolean }) {
   const camera = useThree((state) => state.camera);
+  const invalidate = useThree((state) => state.invalidate);
+  const cameraTarget = useRef({ x: 0, y: 0.7, z: 0 });
   const bowlLight = useRef<PointLight>(null);
   const bedLight = useRef<PointLight>(null);
   const eventScreen = useRef<Group>(null);
 
   useEffect(() => {
-    camera.lookAt(0, 0.7, 0);
+    camera.lookAt(cameraTarget.current.x, cameraTarget.current.y, cameraTarget.current.z);
+    invalidate();
     if (!animated || !bowlLight.current || !bedLight.current || !eventScreen.current) {
       return;
     }
@@ -160,21 +204,23 @@ export function PetHomeScene({ animated }: { animated: boolean }) {
     return createSceneDirector({
       root,
       camera,
+      target: cameraTarget.current,
       bowlLight: bowlLight.current,
       bedLight: bedLight.current,
       eventScreen: eventScreen.current,
+      invalidate,
     });
-  }, [animated, camera]);
+  }, [animated, camera, invalidate]);
 
   return (
     <>
-      <color attach="background" args={["#0b0f13"]} />
-      <fog attach="fog" args={["#0b0f13", 21, 36]} />
-      <ambientLight intensity={0.7} color="#b9d7dc" />
+      <color attach="background" args={["#090b0d"]} />
+      <fog attach="fog" args={["#090b0d", 23, 38]} />
+      <ambientLight intensity={0.58} color="#b9ced0" />
       <directionalLight
         position={[7, 13, 8]}
-        intensity={1.45}
-        color="#d7e8e8"
+        intensity={1.35}
+        color="#d8d8d2"
         castShadow
         shadow-mapSize-width={1024}
         shadow-mapSize-height={1024}
@@ -183,21 +229,16 @@ export function PetHomeScene({ animated }: { animated: boolean }) {
       <pointLight ref={bedLight} position={[-4.5, 3.0, 1.8]} intensity={0.25} color="#78bac7" distance={6} />
 
       <group>
-        <Block position={[0, -0.3, 0]} size={[18, 0.6, 12]} color="#5f5245" />
-        <Block position={[0, 2.6, -6]} size={[18, 5.8, 0.35]} color="#171d21" />
-        <Block position={[-9, 2.6, 0]} size={[0.35, 5.8, 12]} color="#171d21" />
-        <Block position={[9, 2.6, 0]} size={[0.35, 5.8, 12]} color="#171d21" />
+        <Block position={[0, -0.3, 0]} size={[18, 0.6, 12]} color="#594638" />
+        <Block position={[0, 2.6, -6]} size={[18, 5.8, 0.35]} color="#17191b" />
+        <Block position={[-9, 2.6, 0]} size={[0.35, 5.8, 12]} color="#17191b" />
+        <Block position={[9, 2.6, 0]} size={[0.35, 5.8, 12]} color="#17191b" />
 
-        <mesh position={[-1.5, 2.8, -5.78]}>
-          <boxGeometry args={[6.3, 3.7, 0.08]} />
-          <meshStandardMaterial color="#18313b" emissive="#102832" emissiveIntensity={0.38} roughness={0.25} />
-        </mesh>
-        {[-4.7, -3.15, -1.6, -0.05, 1.6].map((x) => (
-          <Block key={x} position={[x, 2.8, -5.68]} size={[0.08, 3.8, 0.12]} color="#2c363b" />
-        ))}
+        <CityWindowWall />
 
         <KitchenAndDining />
         <Sofa />
+        <Block position={[-0.15, -0.01, 1.25]} size={[7.2, 0.08, 4.5]} color="#3f3a35" />
         <Block position={[0.8, 0.35, 2.65]} size={[2.5, 0.22, 1.3]} color="#383735" castShadow />
         <EntryAndStorage />
         <PetAndRestZone />
