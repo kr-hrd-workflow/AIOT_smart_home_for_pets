@@ -137,7 +137,11 @@ class CameraService:
                 self._fail_frame(ticket, "camera_error")
                 return False
             try:
-                processed = self.pipeline.process(frame, ticket.received_at_utc)
+                observed_at = ticket.received_at_utc
+                latest = self.latest_frame
+                if latest is not None and observed_at <= latest.observed_at:
+                    observed_at = latest.observed_at + timedelta(microseconds=1)
+                processed = self.pipeline.process(frame, observed_at)
             except CameraUnavailable as error:
                 self._fail_frame(ticket, str(error) or "camera_unavailable")
                 return False

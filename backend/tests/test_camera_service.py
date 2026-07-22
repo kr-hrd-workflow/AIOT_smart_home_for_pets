@@ -233,6 +233,23 @@ def test_frame_event_has_ordered_bed_facts(
     assert ingress.committed[0].selected_bed_subject_id == selected
 
 
+def test_equal_local_receipt_times_get_strictly_increasing_frame_times() -> None:
+    detections = ({"detected_type": "dog", "confidence": 0.8, "xyxy": (330, 190, 430, 290)},)
+    service, ingress, sessions, _calls = service_for(
+        Source(FRAME, FRAME),
+        Detector(detections),
+        times=[NOW, NOW],
+    )
+
+    assert service.process_once() is True
+    assert service.process_once() is True
+
+    expected = (NOW, NOW + timedelta(microseconds=1))
+    assert tuple(event.observed_at for event in ingress.committed) == expected
+    assert tuple(session.events[0].observed_at for session in sessions) == expected
+    assert service.status.last_frame_at == expected[-1]
+
+
 def test_missing_source_inference_and_database_failures_resolve_tombstones() -> None:
     cases = [
         (Source(CameraUnavailable("frame_unavailable")), Detector(), False, "frame_unavailable"),
