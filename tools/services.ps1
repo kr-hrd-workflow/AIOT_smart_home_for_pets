@@ -60,8 +60,9 @@ function Require-Secret([string]$Name) {
 function Protect-Path([string]$Path) {
   $item = Get-Item -LiteralPath $Path
   $grant = if ($item.PSIsContainer) { "${env:USERNAME}:(OI)(CI)F" } else { "${env:USERNAME}:F" }
-  & "$env:SystemRoot\System32\icacls.exe" $Path '/inheritance:r' '/grant:r' $grant | Out-Null
-  if ($LASTEXITCODE) { throw "failed to restrict ACL: $Path" }
+  $acl = Start-Process -FilePath "$env:SystemRoot\System32\icacls.exe" -WindowStyle Hidden -Wait -PassThru `
+    -ArgumentList @($Path,'/inheritance:r','/grant:r',$grant)
+  if ($acl.ExitCode) { throw "failed to restrict ACL: $Path" }
 }
 
 function Get-SubstTarget([string]$Drive) {
