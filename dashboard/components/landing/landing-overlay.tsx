@@ -37,7 +37,6 @@ export function LandingOverlay() {
             aria-labelledby={`${chapter.id}-title`}
           >
             <div className="landing-chapter-copy">
-              <p>{chapter.eyebrow}</p>
               <h2 id={`${chapter.id}-title`}>{chapter.title}</h2>
               <p>{chapter.body}</p>
             </div>
