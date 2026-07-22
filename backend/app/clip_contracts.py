@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 
 EligibleEventType = Literal["eating", "resting", "bed_sensor_mismatch"]
 ELIGIBLE_EVENT_TYPES = frozenset(("eating", "resting", "bed_sensor_mismatch"))
+REMOTE_ID = re.compile(r"[0-9a-f]{32}\Z")
 
 
 def utc_text(value: datetime) -> str:
@@ -75,11 +76,97 @@ class ClipEventMetadata:
 
 
 @dataclass(frozen=True, slots=True)
+class ClipIntent:
+    outbox_id: int
+    event_type: EligibleEventType
+    event_id: int
+    occurred_at: datetime
+    created_at: datetime
+    deadline_at: datetime
+    attempts: int
+    remote_boot_id: str | None
+    remote_command_id: str | None
+    accepted_at: datetime | None
+
+    def __post_init__(self) -> None:
+        ClipTrigger(self.event_type, self.event_id, self.occurred_at)
+        if type(self.outbox_id) is not int or self.outbox_id <= 0:
+            raise ValueError("outbox_id must be positive")
+        if type(self.attempts) is not int or self.attempts < 0:
+            raise ValueError("attempts must be nonnegative")
+        utc_text(self.created_at)
+        utc_text(self.deadline_at)
+        if self.deadline_at - self.created_at != timedelta(seconds=3):
+            raise ValueError("deadline must be three seconds after creation")
+        for value in (self.remote_boot_id, self.remote_command_id):
+            if value is not None and (type(value) is not str or REMOTE_ID.fullmatch(value) is None):
+                raise ValueError("invalid remote identifier")
+        if self.remote_boot_id is not None and self.remote_command_id is None:
+            raise ValueError("remote boot requires command")
+        if self.remote_boot_id is not None and self.accepted_at is None:
+            raise ValueError("remote boot requires acceptance")
+        if self.accepted_at is not None:
+            utc_text(self.accepted_at)
+            if self.remote_boot_id is None or self.remote_command_id is None:
+                raise ValueError("accepted intent requires remote identity")
+            if not (
+                self.created_at - timedelta(milliseconds=200)
+                <= self.accepted_at
+                <= self.deadline_at
+            ):
+                raise ValueError("accepted time is outside the admission window")
+
+    def command_body(self) -> dict[str, object]:
+        return {
+            "committed_at": self.created_at,
+            "event_id": self.event_id,
+            "event_type": self.event_type,
+            "occurred_at": self.occurred_at,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ClipDeliveryIdentity:
+    events: tuple[ClipEventMetadata, ...]
+    remote_command_ids: tuple[str, ...]
+    accepted_at: tuple[datetime, ...]
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.events) is not tuple
+            or not self.events
+            or any(not isinstance(event, ClipEventMetadata) for event in self.events)
+            or self.events != tuple(sorted(set(self.events), key=lambda event: (event.event_type, event.event_id)))
+        ):
+            raise ValueError("events must use canonical order")
+        if (
+            type(self.remote_command_ids) is not tuple
+            or len(self.remote_command_ids) != len(self.events)
+            or self.remote_command_ids != tuple(sorted(set(self.remote_command_ids)))
+            or any(type(value) is not str or REMOTE_ID.fullmatch(value) is None for value in self.remote_command_ids)
+        ):
+            raise ValueError("command IDs must use canonical order")
+        if (
+            type(self.accepted_at) is not tuple
+            or len(self.accepted_at) != len(self.remote_command_ids)
+            or any(not isinstance(value, datetime) for value in self.accepted_at)
+        ):
+            raise ValueError("accepted times must match commands")
+        for value in self.accepted_at:
+            utc_text(value)
+
+    @property
+    def canonical_events(self) -> str:
+        return ",".join(f"{event.event_type}:{event.event_id}" for event in self.events)
+
+
+@dataclass(frozen=True, slots=True)
 class ClipMetadata:
     camera_id: Literal["pc-webcam-01"]
     started_at: datetime
     ended_at: datetime
     events: tuple[ClipEventMetadata, ...]
+    remote_command_ids: tuple[str, ...] = field(default=(), compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if (
@@ -99,6 +186,15 @@ class ClipMetadata:
             raise ValueError("clip events must be unique")
         if self.events != tuple(sorted(self.events, key=lambda event: (event.event_type, event.event_id))):
             raise ValueError("clip events must use canonical order")
+        if (
+            type(self.remote_command_ids) is not tuple
+            or any(
+                type(value) is not str or REMOTE_ID.fullmatch(value) is None
+                for value in self.remote_command_ids
+            )
+            or self.remote_command_ids != tuple(sorted(set(self.remote_command_ids)))
+        ):
+            raise ValueError("remote command ids must use canonical order")
 
     def canonical_json(self) -> bytes:
         value = {

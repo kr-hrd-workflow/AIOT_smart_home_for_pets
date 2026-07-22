@@ -195,6 +195,57 @@ class AnomalyEvent(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 
 
+class ClipTriggerOutbox(Base):
+    __tablename__ = "clip_trigger_outbox"
+    __table_args__ = (
+        CheckConstraint("event_type IN ('eating','resting','bed_sensor_mismatch')", name="event_type"),
+        CheckConstraint("event_id > 0", name="event_id"),
+        CheckConstraint("deadline_at=created_at+INTERVAL '3 seconds'", name="deadline"),
+        CheckConstraint("attempts >= 0", name="attempts"),
+        CheckConstraint("remote_boot_id IS NULL OR remote_boot_id ~ '^[0-9a-f]{32}$'", name="remote_boot_id"),
+        CheckConstraint("remote_command_id IS NULL OR remote_command_id ~ '^[0-9a-f]{32}$'", name="remote_command_id"),
+        CheckConstraint("(remote_boot_id IS NULL)=(accepted_at IS NULL) AND (accepted_at IS NULL OR remote_command_id IS NOT NULL)", name="accepted_identity"),
+        CheckConstraint("accepted_at IS NULL OR (accepted_at>=created_at-INTERVAL '200 milliseconds' AND accepted_at<=deadline_at)", name="accepted_window"),
+        CheckConstraint("accepted_at IS NULL OR put_started_at IS NOT NULL", name="accepted_put"),
+        CheckConstraint("last_error IS NULL OR last_error ~ '^[a-z0-9_]{1,64}$'", name="last_error"),
+        CheckConstraint("put_started_at IS NULL OR remote_command_id IS NOT NULL", name="put_command"),
+        CheckConstraint("put_started_at IS NULL OR (put_started_at>=created_at AND put_started_at<deadline_at)", name="put_window"),
+        CheckConstraint("terminal_reason IS NULL OR terminal_reason='clip_missed'", name="terminal_reason"),
+        CheckConstraint("accepted_at IS NULL OR terminal_reason IS NULL OR last_error='clip_gone'", name="accepted_terminal"),
+        CheckConstraint("terminal_reason IS NULL OR processed_at IS NOT NULL", name="terminal_processed"),
+        CheckConstraint("processed_at IS NULL OR accepted_at IS NOT NULL OR terminal_reason IS NOT NULL", name="processed_state"),
+        UniqueConstraint("event_type", "event_id", name="uq_clip_trigger_outbox_event_type_event_id"),
+        Index(
+            "ix_clip_trigger_outbox_due",
+            "next_attempt_at",
+            "id",
+            postgresql_where=text("processed_at IS NULL"),
+        ),
+        Index(
+            "uq_clip_trigger_outbox_remote_command_id",
+            "remote_command_id",
+            unique=True,
+            postgresql_where=text("remote_command_id IS NOT NULL"),
+        ),
+    )
+
+    id = Column(BigInteger, Identity(), primary_key=True)
+    event_type = Column(String(32), nullable=False)
+    event_id = Column(BigInteger, nullable=False)
+    occurred_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    deadline_at = Column(DateTime(timezone=True), nullable=False)
+    next_attempt_at = Column(DateTime(timezone=True), nullable=False)
+    attempts = Column(Integer, nullable=False, default=0)
+    last_error = Column(String(64), nullable=True)
+    remote_boot_id = Column(String(32), nullable=True)
+    remote_command_id = Column(String(32), nullable=True)
+    put_started_at = Column(DateTime(timezone=True), nullable=True)
+    accepted_at = Column(DateTime(timezone=True), nullable=True)
+    processed_at = Column(DateTime(timezone=True), nullable=True)
+    terminal_reason = Column(String(32), nullable=True)
+
+
 class BedCalibration(Base):
     __tablename__ = "bed_calibrations"
     __table_args__ = (

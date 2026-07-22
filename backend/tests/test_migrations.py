@@ -22,6 +22,7 @@ APP_TABLES = {
     "anomaly_events",
     "bed_calibrations",
     "rest_sessions",
+    "clip_trigger_outbox",
 }
 EXPECTED_COLUMNS = {
     "devices": ("device_id", "status", "last_seen_at", "created_at", "updated_at"),
@@ -33,9 +34,27 @@ EXPECTED_COLUMNS = {
     "anomaly_events": ("id", "subject_id", "anomaly_type", "severity", "mismatch_kind", "source_behavior_event_id", "source_key", "message", "occurred_at", "created_at"),
     "bed_calibrations": ("id", "device_id", "calibrated_at", "window_start", "window_end", "left_sample_count", "left_baseline", "left_polarity", "left_stability_limit", "center_sample_count", "center_baseline", "center_polarity", "center_stability_limit", "right_sample_count", "right_baseline", "right_polarity", "right_stability_limit", "entry_threshold", "exit_threshold", "created_at"),
     "rest_sessions": ("id", "subject_id", "behavior_event_id", "started_at", "last_confirmed_at", "ended_at", "duration_seconds", "close_reason", "created_at", "updated_at"),
+    "clip_trigger_outbox": ("id", "event_type", "event_id", "occurred_at", "created_at", "deadline_at", "next_attempt_at", "attempts", "last_error", "remote_boot_id", "remote_command_id", "put_started_at", "accepted_at", "processed_at", "terminal_reason"),
 }
 
 EXPECTED_COLUMN_SIGNATURES = {
+    "clip_trigger_outbox": [
+        ["id", "BIGINT", False, None, True],
+        ["event_type", "VARCHAR(32)", False, None, False],
+        ["event_id", "BIGINT", False, None, False],
+        ["occurred_at", "TIMESTAMP_TZ=True", False, None, False],
+        ["created_at", "TIMESTAMP_TZ=True", False, None, False],
+        ["deadline_at", "TIMESTAMP_TZ=True", False, None, False],
+        ["next_attempt_at", "TIMESTAMP_TZ=True", False, None, False],
+        ["attempts", "INTEGER", False, None, False],
+        ["last_error", "VARCHAR(64)", True, None, False],
+        ["remote_boot_id", "VARCHAR(32)", True, None, False],
+        ["remote_command_id", "VARCHAR(32)", True, None, False],
+        ["put_started_at", "TIMESTAMP_TZ=True", True, None, False],
+        ["accepted_at", "TIMESTAMP_TZ=True", True, None, False],
+        ["processed_at", "TIMESTAMP_TZ=True", True, None, False],
+        ["terminal_reason", "VARCHAR(32)", True, None, False],
+    ],
     "anomaly_events": [
         [
             "id",
@@ -703,8 +722,42 @@ EXPECTED_CHECK_NAMES = {
     "anomaly_events": {"ck_anomaly_events_anomaly_type", "ck_anomaly_events_severity", "ck_anomaly_events_relation", "ck_anomaly_events_message"},
     "bed_calibrations": {"ck_bed_calibrations_device_id", "ck_bed_calibrations_window", "ck_bed_calibrations_sample_counts", "ck_bed_calibrations_baselines", "ck_bed_calibrations_polarities", "ck_bed_calibrations_stability_limits", "ck_bed_calibrations_thresholds"},
     "rest_sessions": {"ck_rest_sessions_subject_id", "ck_rest_sessions_last_confirmed", "ck_rest_sessions_open_closed"},
+    "clip_trigger_outbox": {
+        "ck_clip_trigger_outbox_event_type",
+        "ck_clip_trigger_outbox_event_id",
+        "ck_clip_trigger_outbox_deadline",
+        "ck_clip_trigger_outbox_attempts",
+        "ck_clip_trigger_outbox_remote_boot_id",
+        "ck_clip_trigger_outbox_remote_command_id",
+        "ck_clip_trigger_outbox_accepted_identity",
+        "ck_clip_trigger_outbox_accepted_window",
+        "ck_clip_trigger_outbox_accepted_put",
+        "ck_clip_trigger_outbox_last_error",
+        "ck_clip_trigger_outbox_put_command",
+        "ck_clip_trigger_outbox_put_window",
+        "ck_clip_trigger_outbox_terminal_reason",
+        "ck_clip_trigger_outbox_accepted_terminal",
+        "ck_clip_trigger_outbox_terminal_processed",
+        "ck_clip_trigger_outbox_processed_state",
+    },
 }
 EXPECTED_CHECK_DEFINITIONS = {
+    ("clip_trigger_outbox", "ck_clip_trigger_outbox_accepted_identity", "CHECK ((remote_boot_id IS NULL) = (accepted_at IS NULL) AND (accepted_at IS NULL OR remote_command_id IS NOT NULL))"),
+    ("clip_trigger_outbox", "ck_clip_trigger_outbox_accepted_put", "CHECK (accepted_at IS NULL OR put_started_at IS NOT NULL)"),
+    ("clip_trigger_outbox", "ck_clip_trigger_outbox_accepted_window", "CHECK (accepted_at IS NULL OR accepted_at >= (created_at - '00:00:00.2'::interval) AND accepted_at <= deadline_at)"),
+    ("clip_trigger_outbox", "ck_clip_trigger_outbox_accepted_terminal", "CHECK (accepted_at IS NULL OR terminal_reason IS NULL OR last_error::text = 'clip_gone'::text)"),
+    ("clip_trigger_outbox", "ck_clip_trigger_outbox_attempts", "CHECK (attempts >= 0)"),
+    ("clip_trigger_outbox", "ck_clip_trigger_outbox_deadline", "CHECK (deadline_at = (created_at + '00:00:03'::interval))"),
+    ("clip_trigger_outbox", "ck_clip_trigger_outbox_event_id", "CHECK (event_id > 0)"),
+    ("clip_trigger_outbox", "ck_clip_trigger_outbox_event_type", "CHECK (event_type::text = ANY (ARRAY['eating'::character varying, 'resting'::character varying, 'bed_sensor_mismatch'::character varying]::text[]))"),
+    ("clip_trigger_outbox", "ck_clip_trigger_outbox_last_error", "CHECK (last_error IS NULL OR last_error::text ~ '^[a-z0-9_]{1,64}$'::text)"),
+    ("clip_trigger_outbox", "ck_clip_trigger_outbox_processed_state", "CHECK (processed_at IS NULL OR accepted_at IS NOT NULL OR terminal_reason IS NOT NULL)"),
+    ("clip_trigger_outbox", "ck_clip_trigger_outbox_put_command", "CHECK (put_started_at IS NULL OR remote_command_id IS NOT NULL)"),
+    ("clip_trigger_outbox", "ck_clip_trigger_outbox_put_window", "CHECK (put_started_at IS NULL OR put_started_at >= created_at AND put_started_at < deadline_at)"),
+    ("clip_trigger_outbox", "ck_clip_trigger_outbox_remote_boot_id", "CHECK (remote_boot_id IS NULL OR remote_boot_id::text ~ '^[0-9a-f]{32}$'::text)"),
+    ("clip_trigger_outbox", "ck_clip_trigger_outbox_remote_command_id", "CHECK (remote_command_id IS NULL OR remote_command_id::text ~ '^[0-9a-f]{32}$'::text)"),
+    ("clip_trigger_outbox", "ck_clip_trigger_outbox_terminal_processed", "CHECK (terminal_reason IS NULL OR processed_at IS NOT NULL)"),
+    ("clip_trigger_outbox", "ck_clip_trigger_outbox_terminal_reason", "CHECK (terminal_reason IS NULL OR terminal_reason::text = 'clip_missed'::text)"),
     ("anomaly_events", "ck_anomaly_events_anomaly_type", "CHECK (anomaly_type::text = ANY (ARRAY['no_meal_12h'::character varying, 'bed_sensor_mismatch'::character varying]::text[]))"),
     ("anomaly_events", "ck_anomaly_events_message", "CHECK (length(message) > 0)"),
     ("anomaly_events", "ck_anomaly_events_relation", "CHECK ((anomaly_type::text = 'no_meal_12h'::text AND (subject_id::text = ANY (ARRAY['dog_001'::character varying, 'cat_001'::character varying]::text[])) AND mismatch_kind IS NULL AND source_behavior_event_id IS NOT NULL OR anomaly_type::text = 'bed_sensor_mismatch'::text AND mismatch_kind::text = 'sensor_check'::text AND (subject_id::text = ANY (ARRAY['dog_001'::character varying, 'cat_001'::character varying]::text[])) AND source_behavior_event_id IS NULL OR anomaly_type::text = 'bed_sensor_mismatch'::text AND mismatch_kind::text = 'unconfirmed_pressure'::text AND subject_id IS NULL AND source_behavior_event_id IS NULL) IS TRUE)"),
@@ -749,11 +802,13 @@ EXPECTED_UNIQUES = {
     "anomaly_events": {("source_key",)},
     "bed_calibrations": {("device_id", "calibrated_at")},
     "rest_sessions": {("behavior_event_id",)},
+    "clip_trigger_outbox": {("event_type", "event_id")},
 }
 EXPECTED_PRIMARY_KEYS = {
     "devices": ("device_id",), "cameras": ("camera_id",), "zones": ("zone_name",),
     "sensor_readings": ("id",), "camera_events": ("id",), "behavior_events": ("id",),
     "anomaly_events": ("id",), "bed_calibrations": ("id",), "rest_sessions": ("id",),
+    "clip_trigger_outbox": ("id",),
 }
 EXPECTED_FOREIGN_KEYS = {
     ("sensor_readings", ("device_id",), "devices", ("device_id",), "RESTRICT"),
@@ -779,6 +834,8 @@ EXPECTED_INDEX_DEFINITIONS = {
     "CREATE UNIQUE INDEX uq_rest_sessions_one_open ON rest_sessions USING btree ((1)) WHERE (ended_at IS NULL)",
     "CREATE INDEX ix_rest_sessions_subject_time ON rest_sessions USING btree (subject_id, started_at DESC, id DESC)",
     "CREATE INDEX ix_rest_sessions_end_time ON rest_sessions USING btree (ended_at DESC, id DESC)",
+    "CREATE INDEX ix_clip_trigger_outbox_due ON clip_trigger_outbox USING btree (next_attempt_at, id) WHERE (processed_at IS NULL)",
+    "CREATE UNIQUE INDEX uq_clip_trigger_outbox_remote_command_id ON clip_trigger_outbox USING btree (remote_command_id) WHERE (remote_command_id IS NOT NULL)",
 }
 
 
@@ -814,6 +871,17 @@ def test_destructive_migration_guard_accepts_only_dedicated_database(url: str) -
 def test_initial_revision_is_self_contained() -> None:
     source = (Path(__file__).parents[1] / "migrations" / "versions" / "0001_initial.py").read_text(encoding="utf-8")
     assert "app.models" not in source
+
+
+def test_clip_outbox_revision_is_self_contained_and_reversible() -> None:
+    source = (Path(__file__).parents[1] / "migrations" / "versions" / "0002_clip_trigger_outbox.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'down_revision = "0001_initial"' in source
+    assert "app.models" not in source
+    assert source.count("CREATE TABLE clip_trigger_outbox") == 1
+    assert source.count('op.execute("CREATE INDEX ix_clip_trigger_outbox_due') == 1
+    assert source.count('op.execute("DROP TABLE clip_trigger_outbox")') == 1
 
 
 def test_upgrade_downgrade_upgrade_restores_exact_schema(database_url: str) -> None:
@@ -894,7 +962,7 @@ def test_upgrade_downgrade_upgrade_restores_exact_schema(database_url: str) -> N
 def reset_data(engine) -> None:
     with engine.begin() as connection:
         connection.exec_driver_sql(
-            "TRUNCATE anomaly_events,rest_sessions,bed_calibrations,behavior_events,camera_events,sensor_readings,cameras,devices RESTART IDENTITY CASCADE"
+            "TRUNCATE clip_trigger_outbox,anomaly_events,rest_sessions,bed_calibrations,behavior_events,camera_events,sensor_readings,cameras,devices RESTART IDENTITY CASCADE"
         )
 
 

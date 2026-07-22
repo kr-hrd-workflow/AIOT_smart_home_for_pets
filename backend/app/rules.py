@@ -8,7 +8,8 @@ from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from statistics import median
 from threading import Lock
-from typing import Literal
+from time import monotonic
+from typing import Callable, Literal
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
@@ -24,6 +25,7 @@ from .bed import (
     evaluate_calibration,
 )
 from .config import AppConfig
+from .clip_outbox import enqueue_clip_trigger, utc_now
 from .contracts import (
     AnomalyEventOut,
     BedCalibrationChannel,
@@ -47,6 +49,9 @@ from .models import (
     SensorReading,
     Zone,
 )
+
+
+_CLIP_CLOCK_DISCONTINUITY_SECONDS = 0.025
 
 
 @dataclass(frozen=True, slots=True)
@@ -621,10 +626,22 @@ class BedCalibrationRejected(RuntimeError):
 
 
 class RuleEngine:
-    def __init__(self, *, config: AppConfig, camera_service: object, publisher: object | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        config: AppConfig,
+        camera_service: object,
+        publisher: object | None = None,
+        outbox_now: Callable[[], datetime] = utc_now,
+        outbox_monotonic: Callable[[], float] = monotonic,
+    ) -> None:
         self.config = config
         self.camera_service = camera_service
         self.publisher = publisher
+        self._outbox_now = outbox_now
+        self._outbox_monotonic = outbox_monotonic
+        self._clip_clock_sample: tuple[datetime, float] | None = None
+        self._clip_intents_suppressed_until = 0.0
         self.dashboard_publisher: object | None = None
         self.eating = EatingState()
         self.bed = BedState()
@@ -930,9 +947,12 @@ class RuleEngine:
     ) -> tuple[list[AnomalyEvent], list[tuple[str, SubjectId]]]:
         pending_publish: list[AnomalyEvent] = []
         pending_no_meal: list[tuple[str, SubjectId]] = []
+        clip_events: list[BehaviorEvent | AnomalyEvent] = []
         for action in self.eating.evaluate(now_utc, now_monotonic):
             if isinstance(action, OpenEating):
-                if self._open_eating(session, action):
+                row = self._open_eating(session, action)
+                if row is not None:
+                    clip_events.append(row)
                     self.eating.mark_open(action)
                     pending_no_meal.append(("cancel", action.subject_id))
             else:
@@ -954,8 +974,11 @@ class RuleEngine:
             if isinstance(action, CloseRest):
                 if self._close_rest(session, action):
                     self.rest.mark_closed()
-            elif self._open_rest(session, action):
-                self.rest.mark_open(action)
+            else:
+                row = self._open_rest(session, action)
+                if row is not None:
+                    clip_events.append(row)
+                    self.rest.mark_open(action)
         if self.rest.owner is not None and bed.fusion_state == "confirmed_rest" and self.rest.owner in bed.bed_subject_ids:
             open_session = session.execute(select(RestSession).where(RestSession.ended_at.is_(None))).scalar_one_or_none()
             if open_session is not None:
@@ -970,9 +993,32 @@ class RuleEngine:
         if attempt is not None:
             row = self._persist_mismatch(session, attempt)
             if row is not None:
+                clip_events.append(row)
                 pending_publish.append(row)
-        session.commit()
+        self._commit_with_clip_intents(session, clip_events)
         return pending_publish, pending_no_meal
+
+    def _commit_with_clip_intents(
+        self,
+        session: Session,
+        events: list[BehaviorEvent | AnomalyEvent],
+    ) -> None:
+        created_at = self._outbox_now()
+        sampled_monotonic = self._outbox_monotonic()
+        previous = self._clip_clock_sample
+        self._clip_clock_sample = (created_at, sampled_monotonic)
+        if previous is not None:
+            wall_elapsed = (created_at - previous[0]).total_seconds()
+            monotonic_elapsed = sampled_monotonic - previous[1]
+            if (
+                monotonic_elapsed < 0
+                or abs(wall_elapsed - monotonic_elapsed) > _CLIP_CLOCK_DISCONTINUITY_SECONDS
+            ):
+                self._clip_intents_suppressed_until = sampled_monotonic + 60.0
+        if events and sampled_monotonic >= self._clip_intents_suppressed_until:
+            for event in events:
+                enqueue_clip_trigger(session, event, created_at=created_at)
+        session.commit()
 
     def _state_snapshot(self) -> tuple[object, ...]:
         return deepcopy(
@@ -996,25 +1042,24 @@ class RuleEngine:
             self._state_deadline_keys,
         ) = snapshot
 
-    def _open_eating(self, session: Session, action: OpenEating) -> bool:
+    def _open_eating(self, session: Session, action: OpenEating) -> BehaviorEvent | None:
         if session.execute(
             select(BehaviorEvent.id).where(BehaviorEvent.behavior_type == "eating", BehaviorEvent.ended_at.is_(None))
         ).scalar_one_or_none() is not None:
-            return False
+            return None
         if session.execute(select(BehaviorEvent.id).where(BehaviorEvent.source_key == action.source_key)).scalar_one_or_none():
-            return False
-        session.add(
-            BehaviorEvent(
-                subject_id=action.subject_id,
-                behavior_type="eating",
-                source_camera_event_id=action.source_camera_event_id,
-                source_sensor_reading_id=action.source_sensor_reading_id,
-                source_key=action.source_key,
-                started_at=action.started_at,
-            )
+            return None
+        row = BehaviorEvent(
+            subject_id=action.subject_id,
+            behavior_type="eating",
+            source_camera_event_id=action.source_camera_event_id,
+            source_sensor_reading_id=action.source_sensor_reading_id,
+            source_key=action.source_key,
+            started_at=action.started_at,
         )
+        session.add(row)
         session.flush()
-        return True
+        return row
 
     def _close_eating(self, session: Session, action: CloseEating) -> bool:
         row = session.execute(
@@ -1028,11 +1073,11 @@ class RuleEngine:
         row.updated_at = ended_at
         return True
 
-    def _open_rest(self, session: Session, action: OpenRest) -> bool:
+    def _open_rest(self, session: Session, action: OpenRest) -> BehaviorEvent | None:
         if session.execute(select(RestSession.id).where(RestSession.ended_at.is_(None))).scalar_one_or_none() is not None:
-            return False
+            return None
         if session.execute(select(BehaviorEvent.id).where(BehaviorEvent.source_key == action.source_key)).scalar_one_or_none():
-            return False
+            return None
         behavior = BehaviorEvent(
             subject_id=action.subject_id,
             behavior_type="resting",
@@ -1052,7 +1097,7 @@ class RuleEngine:
             )
         )
         session.flush()
-        return True
+        return behavior
 
     def _close_rest(self, session: Session, action: CloseRest) -> bool:
         row = session.execute(select(RestSession).where(RestSession.ended_at.is_(None))).scalar_one_or_none()

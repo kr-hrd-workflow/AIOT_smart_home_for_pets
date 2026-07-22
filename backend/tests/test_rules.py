@@ -12,7 +12,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.config import AppConfig
 from app.events import CalibrateBedCommand, CameraFrameCommitted, SensorReadingCommitted
-from app.models import AnomalyEvent, BedCalibration, BehaviorEvent, Camera, CameraEvent, Device, RestSession, SensorReading
+from app.models import AnomalyEvent, BedCalibration, BehaviorEvent, Camera, CameraEvent, ClipTriggerOutbox, Device, RestSession, SensorReading
 
 
 NOW = datetime(2026, 7, 20, 4, 0, tzinfo=UTC)
@@ -197,7 +197,7 @@ def test_rule_engine_calibration_persists_one_atomic_snapshot(database_url: str)
     with database.begin() as connection:
         connection.execute(
             text(
-                "TRUNCATE TABLE anomaly_events, rest_sessions, behavior_events, bed_calibrations, "
+                "TRUNCATE TABLE clip_trigger_outbox, anomaly_events, rest_sessions, behavior_events, bed_calibrations, "
                 "camera_events, sensor_readings, cameras, devices CASCADE"
             )
         )
@@ -265,7 +265,7 @@ def test_rule_engine_persists_one_eating_row_and_closes_at_last_inside_frame(dat
     with database.begin() as connection:
         connection.execute(
             text(
-                "TRUNCATE TABLE anomaly_events, rest_sessions, behavior_events, bed_calibrations, "
+                "TRUNCATE TABLE clip_trigger_outbox, anomaly_events, rest_sessions, behavior_events, bed_calibrations, "
                 "camera_events, sensor_readings, cameras, devices CASCADE"
             )
         )
@@ -287,7 +287,13 @@ def test_rule_engine_persists_one_eating_row_and_closes_at_last_inside_frame(dat
             pass
 
     scheduler = Scheduler()
-    engine = rules.RuleEngine(config=AppConfig(database_url=database_url), camera_service=CameraAvailability())
+    committed_at = NOW + timedelta(minutes=1)
+    engine = rules.RuleEngine(
+        config=AppConfig(database_url=database_url),
+        camera_service=CameraAvailability(),
+        outbox_now=lambda: committed_at,
+        outbox_monotonic=lambda: 100.0,
+    )
     with sessions() as session:
         engine.startup(session, scheduler, NOW - timedelta(seconds=5))
 
@@ -369,9 +375,13 @@ def test_rule_engine_persists_one_eating_row_and_closes_at_last_inside_frame(dat
 
     with sessions() as session:
         rows = session.execute(select(BehaviorEvent).where(BehaviorEvent.behavior_type == "eating")).scalars().all()
+        intents = session.execute(select(ClipTriggerOutbox)).scalars().all()
     database.dispose()
 
     assert len(rows) == 1
+    assert [(row.event_type, row.event_id, row.occurred_at, row.created_at, row.deadline_at) for row in intents] == [
+        ("eating", rows[0].id, NOW, committed_at, committed_at + timedelta(seconds=3))
+    ]
     assert (rows[0].subject_id, rows[0].started_at, rows[0].ended_at, rows[0].duration_seconds) == (
         "dog_001",
         NOW,
@@ -388,7 +398,7 @@ def test_rule_engine_opens_and_atomically_closes_confirmed_rest(database_url: st
     with database.begin() as connection:
         connection.execute(
             text(
-                "TRUNCATE TABLE anomaly_events, rest_sessions, behavior_events, bed_calibrations, "
+                "TRUNCATE TABLE clip_trigger_outbox, anomaly_events, rest_sessions, behavior_events, bed_calibrations, "
                 "camera_events, sensor_readings, cameras, devices CASCADE"
             )
         )
@@ -514,10 +524,14 @@ def test_rule_engine_opens_and_atomically_closes_confirmed_rest(database_url: st
             .join(RestSession, RestSession.behavior_event_id == BehaviorEvent.id)
             .where(BehaviorEvent.behavior_type == "resting")
         ).one()
+        intents = session.execute(select(ClipTriggerOutbox)).scalars().all()
     database.dispose()
 
     assert (behavior.ended_at, behavior.duration_seconds) == (rest.ended_at, rest.duration_seconds)
     assert (rest.ended_at, rest.close_reason) == (NOW + timedelta(seconds=5), "camera_exit")
+    assert [(row.event_type, row.event_id, row.occurred_at) for row in intents] == [
+        ("resting", behavior.id, behavior.started_at)
+    ]
 
 
 def test_rule_engine_emits_one_no_meal_warning_at_exact_twelve_hours(database_url: str) -> None:
@@ -527,7 +541,7 @@ def test_rule_engine_emits_one_no_meal_warning_at_exact_twelve_hours(database_ur
     with database.begin() as connection:
         connection.execute(
             text(
-                "TRUNCATE TABLE anomaly_events, rest_sessions, behavior_events, bed_calibrations, "
+                "TRUNCATE TABLE clip_trigger_outbox, anomaly_events, rest_sessions, behavior_events, bed_calibrations, "
                 "camera_events, sensor_readings, cameras, devices CASCADE"
             )
         )
@@ -611,9 +625,11 @@ def test_rule_engine_emits_one_no_meal_warning_at_exact_twelve_hours(database_ur
         engine.deadline(session, "no_meal", "dog_001", later_eligible_at, Scheduler())
     with sessions() as session:
         warnings = session.execute(select(AnomalyEvent).order_by(AnomalyEvent.occurred_at)).scalars().all()
+        intents = session.execute(select(ClipTriggerOutbox)).scalars().all()
     database.dispose()
 
     assert len(warnings) == len(published) == 2
+    assert intents == []
     assert [
         (warning.subject_id, warning.occurred_at, warning.source_behavior_event_id)
         for warning in warnings
@@ -629,7 +645,7 @@ def test_rule_engine_persists_one_warning_for_a_continuous_pressure_mismatch(dat
     database = create_engine(database_url)
     sessions = sessionmaker(bind=database, expire_on_commit=False)
     with database.begin() as connection:
-        connection.execute(text("TRUNCATE TABLE anomaly_events CASCADE"))
+        connection.execute(text("TRUNCATE TABLE clip_trigger_outbox, anomaly_events CASCADE"))
 
     published: list[object] = []
 
@@ -692,9 +708,13 @@ def test_rule_engine_persists_one_warning_for_a_continuous_pressure_mismatch(dat
         warnings = session.execute(
             select(AnomalyEvent).where(AnomalyEvent.anomaly_type == "bed_sensor_mismatch")
         ).scalars().all()
+        intents = session.execute(select(ClipTriggerOutbox).order_by(ClipTriggerOutbox.id)).scalars().all()
     database.dispose()
 
     assert len(warnings) == len(published) == 2
+    assert [(row.event_type, row.event_id, row.occurred_at) for row in intents] == [
+        ("bed_sensor_mismatch", warning.id, warning.occurred_at) for warning in warnings
+    ]
     assert [
         (warning.subject_id, warning.mismatch_kind, warning.occurred_at)
         for warning in warnings
@@ -713,7 +733,7 @@ def test_eating_memory_rolls_back_with_failed_commit_and_retry_succeeds(
     with database.begin() as connection:
         connection.execute(
             text(
-                "TRUNCATE TABLE anomaly_events, rest_sessions, behavior_events, bed_calibrations, "
+                "TRUNCATE TABLE clip_trigger_outbox, anomaly_events, rest_sessions, behavior_events, bed_calibrations, "
                 "camera_events, sensor_readings, cameras, devices CASCADE"
             )
         )
@@ -777,12 +797,15 @@ def test_eating_memory_rolls_back_with_failed_commit_and_retry_succeeds(
     assert "dog_001" in engine.eating.dwells
     with sessions() as session:
         assert session.execute(select(BehaviorEvent)).scalars().all() == []
+        assert session.execute(select(ClipTriggerOutbox)).scalars().all() == []
         engine._evaluate(session, confirmation, 130.0, Scheduler())
     with sessions() as session:
         rows = session.execute(select(BehaviorEvent).where(BehaviorEvent.behavior_type == "eating")).scalars().all()
+        intents = session.execute(select(ClipTriggerOutbox)).scalars().all()
     database.dispose()
 
     assert len(rows) == 1
+    assert [(row.event_type, row.event_id) for row in intents] == [("eating", rows[0].id)]
     assert engine.eating.open_subject_id == "dog_001"
 
 
@@ -796,7 +819,7 @@ def test_rest_owner_rolls_back_with_failed_commit_and_retry_succeeds(
     with database.begin() as connection:
         connection.execute(
             text(
-                "TRUNCATE TABLE anomaly_events, rest_sessions, behavior_events, bed_calibrations, "
+                "TRUNCATE TABLE clip_trigger_outbox, anomaly_events, rest_sessions, behavior_events, bed_calibrations, "
                 "camera_events, sensor_readings, cameras, devices CASCADE"
             )
         )
@@ -864,12 +887,15 @@ def test_rest_owner_rolls_back_with_failed_commit_and_retry_succeeds(
     assert engine.rest.candidate is not None
     with sessions() as session:
         assert session.execute(select(RestSession)).scalars().all() == []
+        assert session.execute(select(ClipTriggerOutbox)).scalars().all() == []
         engine._evaluate(session, NOW, 100.0, Scheduler())
     with sessions() as session:
         rows = session.execute(select(RestSession)).scalars().all()
+        intents = session.execute(select(ClipTriggerOutbox)).scalars().all()
     database.dispose()
 
     assert len(rows) == 1
+    assert [(row.event_type, row.event_id) for row in intents] == [("resting", rows[0].behavior_event_id)]
     assert engine.rest.owner == "dog_001"
 
 
@@ -881,7 +907,7 @@ def test_mismatch_handled_flag_rolls_back_with_failed_commit_and_retry_succeeds(
     database = create_engine(database_url)
     sessions = sessionmaker(bind=database, expire_on_commit=False)
     with database.begin() as connection:
-        connection.execute(text("TRUNCATE TABLE anomaly_events CASCADE"))
+        connection.execute(text("TRUNCATE TABLE clip_trigger_outbox, anomaly_events CASCADE"))
 
     class CameraAvailability:
         def available_for(self, _start: datetime, _end: datetime) -> bool:
@@ -914,12 +940,15 @@ def test_mismatch_handled_flag_rolls_back_with_failed_commit_and_retry_succeeds(
     assert not engine.mismatch.handled
     with sessions() as session:
         assert session.execute(select(AnomalyEvent)).scalars().all() == []
+        assert session.execute(select(ClipTriggerOutbox)).scalars().all() == []
         engine._evaluate(session, NOW, 100.0, Scheduler())
     with sessions() as session:
         rows = session.execute(select(AnomalyEvent)).scalars().all()
+        intents = session.execute(select(ClipTriggerOutbox)).scalars().all()
     database.dispose()
 
     assert len(rows) == 1
+    assert [(row.event_type, row.event_id) for row in intents] == [("bed_sensor_mismatch", rows[0].id)]
     assert engine.mismatch.handled
 
 
@@ -1022,7 +1051,7 @@ def test_startup_closes_orphan_eating_and_rest_at_exact_persisted_evidence(datab
     with database.begin() as connection:
         connection.execute(
             text(
-                "TRUNCATE TABLE anomaly_events, rest_sessions, behavior_events, bed_calibrations, "
+                "TRUNCATE TABLE clip_trigger_outbox, anomaly_events, rest_sessions, behavior_events, bed_calibrations, "
                 "camera_events, sensor_readings, cameras, devices CASCADE"
             )
         )
@@ -1142,7 +1171,7 @@ def test_rule_engine_controlled_shutdown_persists_open_behavior_boundaries(datab
     with database.begin() as connection:
         connection.execute(
             text(
-                "TRUNCATE TABLE anomaly_events, rest_sessions, behavior_events, bed_calibrations, "
+                "TRUNCATE TABLE clip_trigger_outbox, anomaly_events, rest_sessions, behavior_events, bed_calibrations, "
                 "camera_events, sensor_readings, cameras, devices CASCADE"
             )
         )

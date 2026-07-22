@@ -4,7 +4,9 @@ from datetime import UTC, datetime, timedelta, timezone
 import pytest
 
 from app.clip_contracts import (
+    ClipDeliveryIdentity,
     ClipEventMetadata,
+    ClipIntent,
     ClipMetadata,
     ClipTrigger,
     UploadReceipt,
@@ -70,7 +72,9 @@ def test_clip_metadata_serializes_the_exact_local_sidecar_shape() -> None:
         NOW - timedelta(seconds=10),
         NOW + timedelta(seconds=20),
         events,
+        ("1" * 32, "2" * 32),
     )
+    assert metadata.remote_command_ids == ("1" * 32, "2" * 32)
     assert metadata.canonical_json() == (
         b'{"camera_id":"pc-webcam-01","ended_at":"2026-07-20T04:00:20.000000Z",'
         b'"events":[{"event_id":7,"event_type":"bed_sensor_mismatch",'
@@ -111,3 +115,80 @@ def test_upload_receipt_requires_exact_bff_times_and_forward_expiry() -> None:
         UploadReceipt("clip_01", "2026-07-20T04:00:21+00:00", receipt.expiresAt)
     with pytest.raises(ValueError, match="expiresAt"):
         UploadReceipt("clip_01", receipt.expiresAt, receipt.createdAt)
+
+
+def test_clip_intent_and_delivery_identity_are_strict_immutable_db_values() -> None:
+    command_id = "1" * 32
+    intent = ClipIntent(
+        outbox_id=9,
+        event_type="eating",
+        event_id=41,
+        occurred_at=NOW - timedelta(seconds=2),
+        created_at=NOW,
+        deadline_at=NOW + timedelta(seconds=3),
+        attempts=0,
+        remote_boot_id=None,
+        remote_command_id=None,
+        accepted_at=None,
+    )
+    assert intent.command_body() == {
+        "committed_at": NOW,
+        "event_id": 41,
+        "event_type": "eating",
+        "occurred_at": NOW - timedelta(seconds=2),
+    }
+    with pytest.raises(FrozenInstanceError):
+        intent.attempts = 1  # type: ignore[misc]
+
+    identity = ClipDeliveryIdentity(
+        events=(ClipEventMetadata("eating", 41, "2026-07-20T03:59:58.000000Z"),),
+        remote_command_ids=(command_id,),
+        accepted_at=(NOW + timedelta(seconds=1),),
+    )
+    assert identity.canonical_events == "eating:41"
+    assert ClipIntent(
+        outbox_id=10,
+        event_type="eating",
+        event_id=42,
+        occurred_at=NOW,
+        created_at=NOW,
+        deadline_at=NOW + timedelta(seconds=3),
+        attempts=0,
+        remote_boot_id="2" * 32,
+        remote_command_id="3" * 32,
+        accepted_at=NOW + timedelta(seconds=2, milliseconds=900),
+    ).accepted_at == NOW + timedelta(seconds=2, milliseconds=900)
+
+    invalid = (
+        {"outbox_id": 0},
+        {"attempts": -1},
+        {"deadline_at": NOW},
+        {"deadline_at": NOW + timedelta(seconds=4)},
+        {"remote_command_id": "bad"},
+        {"remote_boot_id": "2" * 32, "remote_command_id": "1" * 32},
+        {
+            "remote_boot_id": "2" * 32,
+            "remote_command_id": "1" * 32,
+            "accepted_at": NOW + timedelta(seconds=3, milliseconds=1),
+        },
+    )
+    base = intent.__dict__ if hasattr(intent, "__dict__") else {
+        "outbox_id": intent.outbox_id,
+        "event_type": intent.event_type,
+        "event_id": intent.event_id,
+        "occurred_at": intent.occurred_at,
+        "created_at": intent.created_at,
+        "deadline_at": intent.deadline_at,
+        "attempts": intent.attempts,
+        "remote_boot_id": intent.remote_boot_id,
+        "remote_command_id": intent.remote_command_id,
+        "accepted_at": intent.accepted_at,
+    }
+    for change in invalid:
+        with pytest.raises(ValueError):
+            ClipIntent(**(base | change))
+
+    with pytest.raises(ValueError):
+        ClipDeliveryIdentity(identity.events, ("ABC" + "1" * 29,), identity.accepted_at)
+    with pytest.raises(ValueError):
+        ClipDeliveryIdentity(identity.events, (command_id, command_id), identity.accepted_at)
