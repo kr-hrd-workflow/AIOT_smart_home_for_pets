@@ -9,10 +9,17 @@ const PUBLIC_PAGES = new Set([
   "/forgot-password",
   "/reset-password",
 ]);
+const ROOT_AUTH_HEADER = "x-petcare-authenticated";
+
+function nextWithAuth(request: NextRequest, authenticated: boolean) {
+  const headers = new Headers(request.headers);
+  headers.set(ROOT_AUTH_HEADER, authenticated ? "1" : "0");
+  return NextResponse.next({ request: { headers } });
+}
 
 export async function proxy(request: NextRequest) {
   if (request.nextUrl.pathname === "/demo") {
-    return NextResponse.next({ request });
+    return nextWithAuth(request, false);
   }
   const authEnv = env as unknown as AuthEnv;
   const session = createSupabaseSession(request, authEnv);
@@ -23,12 +30,15 @@ export async function proxy(request: NextRequest) {
   } catch {
     authenticated = false;
   }
+  if (request.nextUrl.pathname === "/") {
+    return session.applySessionCookies(nextWithAuth(request, authenticated));
+  }
   if (!PUBLIC_PAGES.has(request.nextUrl.pathname) && !authenticated) {
     return session.applySessionCookies(
       NextResponse.redirect(new URL("/login", request.url)),
     );
   }
-  return session.applySessionCookies(NextResponse.next({ request }));
+  return session.applySessionCookies(nextWithAuth(request, authenticated));
 }
 
 export const config = {

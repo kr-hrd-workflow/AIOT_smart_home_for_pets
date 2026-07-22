@@ -92,18 +92,52 @@ it.each(["/login", "/signup", "/forgot-password", "/reset-password"])(
 );
 
 it("keeps /demo public without constructing a Supabase client", async () => {
-  const response = await proxy(new NextRequest("https://app.test/demo"));
+  const response = await proxy(
+    new NextRequest("https://app.test/demo", {
+      headers: { "x-petcare-authenticated": "1" },
+    }),
+  );
   expect(response.status).toBe(200);
   expect(response.headers.get("location")).toBeNull();
+  expect(
+    response.headers.get("x-middleware-request-x-petcare-authenticated"),
+  ).toBe("0");
   expect(mocks.createServerClient).not.toHaveBeenCalled();
   expect(mocks.getClaims).not.toHaveBeenCalled();
   expect(mocks.requireAuth).not.toHaveBeenCalled();
 });
 
-it("redirects an anonymous dashboard request to login", async () => {
+it("keeps the anonymous root public and overwrites a forged auth marker", async () => {
   mocks.getClaims.mockResolvedValue({ data: null, error: new Error("anonymous") });
   mocks.requireAuth.mockRejectedValue(new AuthError("Authentication required"));
-  const response = await proxy(new NextRequest("https://app.test/"));
+  const response = await proxy(
+    new NextRequest("https://app.test/", {
+      headers: { "x-petcare-authenticated": "1" },
+    }),
+  );
+  expect(response.status).toBe(200);
+  expect(response.headers.get("location")).toBeNull();
+  expect(
+    response.headers.get("x-middleware-request-x-petcare-authenticated"),
+  ).toBe("0");
+});
+
+it("marks the root authenticated only after verification", async () => {
+  const response = await proxy(
+    new NextRequest("https://app.test/", {
+      headers: { "x-petcare-authenticated": "0" },
+    }),
+  );
+  expect(response.status).toBe(200);
+  expect(
+    response.headers.get("x-middleware-request-x-petcare-authenticated"),
+  ).toBe("1");
+});
+
+it("redirects an anonymous protected request to login", async () => {
+  mocks.getClaims.mockResolvedValue({ data: null, error: new Error("anonymous") });
+  mocks.requireAuth.mockRejectedValue(new AuthError("Authentication required"));
+  const response = await proxy(new NextRequest("https://app.test/settings"));
   expect(response.status).toBe(307);
   expect(response.headers.get("location")).toBe("https://app.test/login");
 });

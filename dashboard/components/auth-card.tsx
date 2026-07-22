@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { AuthSceneShell } from "./landing/auth-scene-shell";
 
 export function AuthCard({
   title,
@@ -10,9 +11,9 @@ export function AuthCard({
   children: ReactNode;
 }) {
   return (
-    <main className="auth-page">
+    <AuthSceneShell>
       <section className="auth-card" aria-labelledby="auth-title">
-        <a className="brand" href="/demo">
+        <a className="brand" href="/">
           <span>PC</span>
           <strong>PetCare</strong>
         </a>
@@ -20,6 +21,6 @@ export function AuthCard({
         <p>{description}</p>
         {children}
       </section>
-    </main>
+    </AuthSceneShell>
   );
 }
