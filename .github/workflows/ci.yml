@@ -1,0 +1,336 @@
+name: PetCare CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  firmware-host:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+      - name: Bootstrap sealed toolchain
+        run: bash tools/bootstrap_ci.sh
+      - name: Build and test host firmware
+        shell: pwsh
+        run: |
+          $runtime = Get-Content -Raw -Encoding UTF8 .runtime/platform-linux.json | ConvertFrom-Json
+          & $runtime.paths.bash_path tools/build_pico_host.sh `
+            --runtime .runtime/platform-linux.json `
+            --build-dir .runtime/ci-host
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+  firmware-pico:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+      - name: Bootstrap sealed toolchain
+        run: bash tools/bootstrap_ci.sh
+      - name: Build exact RP2350 firmware
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $runtimePath = [IO.Path]::GetFullPath('.runtime/platform-linux.json')
+          $runtime = Get-Content -Raw -Encoding UTF8 $runtimePath | ConvertFrom-Json
+          $authority = Get-Content -Raw -Encoding UTF8 tools/platform-manifest.json | ConvertFrom-Json
+          $picoSdkUrl = $authority.managed_exact.pico_sdk.url
+          $picoSdkCommit = $authority.managed_exact.pico_sdk.commit
+          $picoBoard = $authority.managed_exact.pico_sdk.board
+          $picoPlatform = $authority.managed_exact.pico_sdk.platform
+          $resolvedPlatform = $authority.managed_exact.pico_sdk.resolved_platform
+          $sdk = [IO.Path]::GetFullPath('.runtime/pico-sdk')
+          $build = [IO.Path]::GetFullPath('.runtime/ci-pico')
+
+          & $runtime.paths.git_path init $sdk
+          & $runtime.paths.git_path -C $sdk remote add origin $picoSdkUrl
+          & $runtime.paths.git_path -C $sdk fetch --depth 1 origin $picoSdkCommit
+          & $runtime.paths.git_path -C $sdk checkout --detach $picoSdkCommit
+          & $runtime.paths.git_path -C $sdk submodule update --init --recursive --depth 1
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          if ((& $runtime.paths.git_path -C $sdk remote get-url origin) -ne $picoSdkUrl -or
+              (& $runtime.paths.git_path -C $sdk rev-parse HEAD) -ne $picoSdkCommit) {
+            throw 'Pico SDK identity mismatch'
+          }
+
+          Copy-Item firmware/pico_pet_node/pico/include/petcare_secrets.example.hpp `
+            firmware/pico_pet_node/pico/include/petcare_secrets.hpp
+          $arguments = @(
+            '-S', [IO.Path]::GetFullPath('firmware/pico_pet_node/pico'),
+            '-B', $build,
+            '-G', 'Ninja',
+            "-DPICO_SDK_PATH=$sdk",
+            "-DPICO_BOARD=$picoBoard",
+            "-DPICO_PLATFORM=$picoPlatform",
+            "-DPICO_TOOLCHAIN_PATH=$($runtime.paths.arm_toolchain_root)",
+            "-DCMAKE_MAKE_PROGRAM=$($runtime.paths.ninja_path)",
+            "-DCMAKE_C_COMPILER=$($runtime.paths.arm_gcc_path)",
+            "-DCMAKE_CXX_COMPILER=$($runtime.paths.arm_gxx_path)",
+            "-DCMAKE_ASM_COMPILER=$($runtime.paths.arm_asm_path)",
+            "-DCMAKE_AR=$($runtime.paths.arm_ar_path)",
+            "-DCMAKE_RANLIB=$($runtime.paths.arm_ranlib_path)",
+            "-DCMAKE_LINKER=$($runtime.paths.arm_ld_path)",
+            "-DCMAKE_OBJCOPY=$($runtime.paths.arm_objcopy_path)",
+            "-DCMAKE_SIZE=$($runtime.paths.arm_size_path)",
+            "-DGIT_EXECUTABLE=$($runtime.paths.git_path)",
+            "-DPython3_EXECUTABLE=$($runtime.paths.python_path)",
+            '-DCMAKE_BUILD_TYPE=Release'
+          )
+          & $runtime.paths.cmake_path @arguments
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & $runtime.paths.cmake_path --build $build --target entrance-01 petzone-01
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+          $cache = Get-Content -Encoding UTF8 (Join-Path $build 'CMakeCache.txt')
+          function CacheValue([string]$name) {
+            $line = $cache | Where-Object { $_ -match "^$([regex]::Escape($name)):[^=]+=" } | Select-Object -First 1
+            if (-not $line) { throw "Missing CMake cache value: $name" }
+            return $line.Substring($line.IndexOf('=') + 1)
+          }
+          if ((CacheValue 'PICO_BOARD') -ne $picoBoard -or (CacheValue 'PICO_PLATFORM') -ne $resolvedPlatform) {
+            throw 'Pico board/platform identity mismatch'
+          }
+          $expectedTools = @{
+            CMAKE_C_COMPILER = $runtime.paths.arm_gcc_path
+            CMAKE_CXX_COMPILER = $runtime.paths.arm_gxx_path
+            CMAKE_ASM_COMPILER = $runtime.paths.arm_asm_path
+            CMAKE_AR = $runtime.paths.arm_ar_path
+            CMAKE_RANLIB = $runtime.paths.arm_ranlib_path
+            CMAKE_LINKER = $runtime.paths.arm_ld_path
+            CMAKE_OBJCOPY = $runtime.paths.arm_objcopy_path
+            CMAKE_SIZE = $runtime.paths.arm_size_path
+          }
+          foreach ($entry in $expectedTools.GetEnumerator()) {
+            if ([IO.Path]::GetFullPath((CacheValue $entry.Key)) -ne [IO.Path]::GetFullPath($entry.Value)) {
+              throw "Pico tool path mismatch: $($entry.Key)"
+            }
+          }
+          foreach ($target in @('entrance-01', 'petzone-01')) {
+            foreach ($suffix in @('.uf2', '.elf', '.elf.map')) {
+              $artifact = Join-Path $build "$target$suffix"
+              if (-not (Test-Path -LiteralPath $artifact) -or (Get-Item -LiteralPath $artifact).Length -eq 0) {
+                throw "Missing Pico artifact: $target$suffix"
+              }
+            }
+          }
+
+  backend-unit:
+    runs-on: ubuntu-24.04
+    env:
+      PLANNING_SHA: 5944c4e366b764e8ffd228177eeda4858ffd3263
+      CANDIDATE_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          fetch-depth: 0
+      - name: Bootstrap sealed toolchain
+        run: bash tools/bootstrap_ci.sh
+      - name: Prove candidate ancestry
+        shell: pwsh
+        run: |
+          $runtime = Get-Content -Raw -Encoding UTF8 .runtime/platform-linux.json | ConvertFrom-Json
+          if ($env:PLANNING_SHA -notmatch '^[0-9a-f]{40}$' -or $env:CANDIDATE_SHA -notmatch '^[0-9a-f]{40}$') {
+            throw 'Invalid planning or candidate SHA'
+          }
+          if ((& $runtime.paths.git_path rev-parse HEAD).Trim() -ne $env:CANDIDATE_SHA) {
+            throw 'Checked-out HEAD is not CANDIDATE_SHA'
+          }
+          & $runtime.paths.git_path merge-base --is-ancestor $env:PLANNING_SHA $env:CANDIDATE_SHA
+          if ($LASTEXITCODE) { throw 'PLANNING_SHA is not an ancestor of CANDIDATE_SHA' }
+      - name: Run manifest and backend unit checks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $runtime = Get-Content -Raw -Encoding UTF8 .runtime/platform-linux.json | ConvertFrom-Json
+          $env:UV_PYTHON = $runtime.paths.python_path
+          $env:UV_PYTHON_DOWNLOADS = 'never'
+          $env:PETCARE_TEST_BASH = $runtime.paths.bash_path
+          $env:PETCARE_TEST_GIT = $runtime.paths.git_path
+          $env:PYTHON_PATH = $runtime.paths.python_path
+          & $runtime.paths.uv_path sync --project backend --frozen
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & $runtime.paths.uv_path run --project backend --frozen pytest `
+            tools/tests/test_ci_workflow.py `
+            tools/tests/test_bootstrap_ci.py `
+            backend/tests/test_agent_lifecycle.py `
+            backend/tests/test_anomalies.py `
+            backend/tests/test_clip_contracts.py `
+            backend/tests/test_clip_delivery.py `
+            backend/tests/test_clip_upload_queue.py `
+            backend/tests/test_jetson_client.py `
+            backend/tests/test_jetson_contracts.py `
+            backend/tests/test_jetson_wire_contract.py `
+            backend/tests/test_rule_ingress.py `
+            backend/tests/test_vision.py `
+            backend/tests/test_websocket.py `
+            -q
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+  integration-live:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+      - name: Bootstrap sealed toolchain
+        run: bash tools/bootstrap_ci.sh
+      - name: Run live PostgreSQL and MQTT integration
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $runtime = Get-Content -Raw -Encoding UTF8 .runtime/platform-linux.json | ConvertFrom-Json
+          $authority = Get-Content -Raw -Encoding UTF8 tools/platform-manifest.json | ConvertFrom-Json
+          $expectedImages = @($authority.managed_exact.containers.PSObject.Properties.Value | Sort-Object)
+          $composeText = Get-Content -Raw -Encoding UTF8 compose.yml
+          $actualImages = @([regex]::Matches($composeText, '(?m)^\s*image:\s*(\S+)\s*$') | ForEach-Object { $_.Groups[1].Value } | Sort-Object)
+          if (Compare-Object $expectedImages $actualImages) { throw 'Compose image identity mismatch' }
+
+          $dbSecret = 'db-' + [guid]::NewGuid().ToString('N')
+          $mqttSecret = 'mqtt-' + [guid]::NewGuid().ToString('N')
+          $sitesSentinel = 'sites-' + [guid]::NewGuid().ToString('N')
+          $encodedDb = [Uri]::EscapeDataString($dbSecret)
+          $databaseUrl = "postgresql+psycopg://petcare:$encodedDb@127.0.0.1:55432/petcare_test"
+          $servicesPath = [IO.Path]::GetFullPath('.runtime/ci-services.json')
+          New-Item -ItemType Directory -Force (Split-Path $servicesPath) | Out-Null
+          [IO.File]::WriteAllText($servicesPath, (@{
+            mqtt_profiles = @{ local_live = @{ bind_host = '127.0.0.1'; client_host = '127.0.0.1'; port = 18883 } }
+          } | ConvertTo-Json -Depth 4), [Text.UTF8Encoding]::new($false))
+
+          $env:UV_PYTHON = $runtime.paths.python_path
+          $env:UV_PYTHON_DOWNLOADS = 'never'
+          $env:PETCARE_POSTGRES_PASSWORD = $dbSecret
+          $env:PETCARE_MQTT_USERNAME = 'petcare'
+          $env:PETCARE_MQTT_PASSWORD = $mqttSecret
+          $env:TEST_DATABASE_URL = $databaseUrl
+          $env:DATABASE_URL = $databaseUrl
+          $env:PETCARE_LIVE_FIXTURE = '1'
+          $env:PETCARE_SERVICES_MANIFEST = $servicesPath
+          $env:PETCARE_SENTINEL_DB = $dbSecret
+          $env:PETCARE_SENTINEL_MQTT = $mqttSecret
+          $env:PETCARE_SENTINEL_SITES = $sitesSentinel
+          $env:PETCARE_TEST_GIT = $runtime.paths.git_path
+
+          & $runtime.paths.uv_path sync --project backend --frozen
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $backendPython = [IO.Path]::GetFullPath('backend/.venv/bin/python')
+          if (-not (Test-Path -LiteralPath $backendPython)) { throw 'Managed backend interpreter is missing' }
+          try {
+            & $runtime.paths.compose_plugin_path -f compose.yml up -d
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            foreach ($port in @(55432, 18883)) {
+              $ready = $false
+              for ($attempt = 0; $attempt -lt 60 -and -not $ready; $attempt++) {
+                try {
+                  $client = [Net.Sockets.TcpClient]::new()
+                  $client.Connect('127.0.0.1', $port)
+                  $client.Dispose()
+                  $ready = $true
+                } catch {
+                  Start-Sleep -Seconds 1
+                }
+              }
+              if (-not $ready) { throw "Live service did not bind loopback port $port" }
+            }
+
+            & $backendPython -c 'import psycopg,sys; c=psycopg.connect(sys.argv[1], autocommit=True); found=c.execute("SELECT 1 FROM pg_database WHERE datname=''petcare_test''").fetchone(); c.execute("CREATE DATABASE petcare_test") if found is None else None; c.close()' `
+              "postgresql://petcare:$encodedDb@127.0.0.1:55432/postgres"
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            & $backendPython -c 'from tools.e2e_check import _anonymous_mqtt_rejected; raise SystemExit(0 if _anonymous_mqtt_rejected("127.0.0.1", 18883) else 1)'
+            if ($LASTEXITCODE) { throw 'Anonymous MQTT access was accepted' }
+            Push-Location backend
+            try {
+              & $backendPython -m alembic -c alembic.ini upgrade head
+              if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            } finally {
+              Pop-Location
+            }
+
+            & $runtime.paths.uv_path run --project backend --frozen pytest `
+              tools/tests/test_pico_mqtt_smoke.py::test_malformed_or_stale_messages_fail `
+              backend/tests/test_mqtt_ingest.py::test_strict_parsing_rejects_coercion_extras_order_and_topic_mismatch `
+              -q
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            & $runtime.paths.uv_path run --project backend --frozen pytest `
+              backend/tests/integration/test_live_stack.py::test_real_postgres_mqtt_production_handlers_drive_the_full_sequence `
+              backend/tests/test_rule_worker.py `
+              -q
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            & $backendPython tools/privacy_check.py --repo . `
+              --sentinel-environment PETCARE_SENTINEL_DB `
+              --sentinel-environment PETCARE_SENTINEL_MQTT `
+              --sentinel-environment PETCARE_SENTINEL_SITES
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          } finally {
+            & $runtime.paths.compose_plugin_path -f compose.yml down -v
+          }
+
+  dashboard:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+      - name: Bootstrap sealed toolchain
+        run: bash tools/bootstrap_ci.sh
+      - name: Verify dashboard and lock-matched Chromium
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $runtimePath = [IO.Path]::GetFullPath('.runtime/platform-linux.json')
+          $runtime = Get-Content -Raw -Encoding UTF8 $runtimePath | ConvertFrom-Json
+          Copy-Item $runtimePath .runtime/toolchain.json
+          $node = $runtime.paths.node_path
+          $npm = $runtime.paths.npm_cli_path
+          $env:PATH = "$(Split-Path $node):/usr/bin:/bin"
+          $env:PLAYWRIGHT_BROWSERS_PATH = [IO.Path]::GetFullPath('.runtime/ms-playwright')
+
+          & $node $npm ci --prefix dashboard
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & $node dashboard/node_modules/playwright/cli.js install chromium
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+          $browserData = Get-Content -Raw -Encoding UTF8 dashboard/node_modules/playwright-core/browsers.json | ConvertFrom-Json
+          $browserRevision = ($browserData.browsers | Where-Object name -eq 'chromium' | Select-Object -First 1).revision
+          $packageVersion = (Get-Content -Raw -Encoding UTF8 dashboard/node_modules/@playwright/test/package.json | ConvertFrom-Json).version
+          Push-Location dashboard
+          try {
+            $executable = (& $node -e "const {realpathSync}=require('node:fs');const {chromium}=require('@playwright/test');console.log(realpathSync.native(chromium.executablePath()))").Trim()
+          } finally {
+            Pop-Location
+          }
+          if (-not [IO.Path]::IsPathRooted($executable) -or -not (Test-Path -LiteralPath $executable)) {
+            throw 'Chromium executable identity is missing'
+          }
+          $record = [ordered]@{
+            manifest_sha256 = (Get-FileHash tools/platform-manifest.json -Algorithm SHA256).Hash
+            package_version = $packageVersion
+            browser_revision = [string]$browserRevision
+            executable_path = $executable
+            executable_sha256 = (Get-FileHash $executable -Algorithm SHA256).Hash
+          }
+          [IO.File]::WriteAllText(
+            [IO.Path]::GetFullPath('.runtime/playwright.json'),
+            ($record | ConvertTo-Json),
+            [Text.UTF8Encoding]::new($false)
+          )
+
+          foreach ($script in @('test', 'lint', 'test:e2e:demo:dev', 'test:e2e:demo:production', 'test:e2e:connected')) {
+            & $node $npm --prefix dashboard run $script
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
+
+  ci:
+    runs-on: ubuntu-24.04
+    needs: [firmware-host, firmware-pico, backend-unit, integration-live, dashboard]
+    if: ${{ always() }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+      - name: Bootstrap authority fixture
+        run: bash tools/bootstrap_ci.sh --fixture-root .runtime/ci-aggregate --output .runtime/platform-linux.json
+      - name: Require every gate
+        shell: pwsh
+        env:
+          NEEDS_JSON: ${{ toJson(needs) }}
+        run: |
+          $needs = $env:NEEDS_JSON | ConvertFrom-Json
+          $failed = @($needs.PSObject.Properties | Where-Object { $_.Value.result -ne 'success' })
+          if ($failed) { throw "Required CI jobs failed: $($failed.Name -join ', ')" }
