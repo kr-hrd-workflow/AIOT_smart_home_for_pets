@@ -369,7 +369,10 @@ switch ($Action) {
   Protect-Path $pgPass
   $pgOptions = "-p 55432 -h $postgresHost"
   $pgArgumentLine = "-D `"$pgData`" -l `"$pgLog`" -o `"$pgOptions`" start"
-  $pg = Start-Process -FilePath $runtime.paths.pg_ctl_path -WindowStyle Hidden -PassThru -ArgumentList $pgArgumentLine
+  $pg = Start-Process -FilePath $runtime.paths.pg_ctl_path -WindowStyle Hidden -PassThru `
+    -ArgumentList $pgArgumentLine `
+    -RedirectStandardOutput (Join-Path $serviceRoot 'pg_ctl.stdout.log') `
+    -RedirectStandardError (Join-Path $serviceRoot 'pg_ctl.stderr.log')
   $pg.WaitForExit()
   if ($pg.ExitCode) { throw 'PostgreSQL start failed' }
   Wait-Port $postgresHost 55432

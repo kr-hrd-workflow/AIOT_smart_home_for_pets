@@ -59,6 +59,7 @@ foreach ($required in @(
   'postgres:17.10@sha256:0af65001d05296a2ead57ac4a6412433d8913d1bb5d0c88435a7d1e1ee5cb04b',
   'eclipse-mosquitto:2.0.22@sha256:212f89e1eaeb2c322d6441b64396e3346026674db8fa9c27beac293405c32b3c',
   '127.0.0.1:55432:5432','18883','PGPASSFILE','WindowStyle Hidden','Start-Process -FilePath "$env:SystemRoot\System32\icacls.exe"',
+  'pg_ctl.stdout.log','pg_ctl.stderr.log',
   "importlib.metadata","version('paho-mqtt')",'-DOPENSSL_ROOT_DIR','mosquitto_passwd --parallel',
   'subst.exe','ascii-drive.txt','PSIsContainer','PackageNotFoundError','pgArgumentLine','ReadConsole',"ArgumentList @('-U'",
   'StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)',
