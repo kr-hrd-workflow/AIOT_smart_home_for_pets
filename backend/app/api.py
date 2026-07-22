@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from concurrent.futures import CancelledError
+from concurrent.futures import CancelledError, TimeoutError as FutureTimeoutError
 from datetime import UTC, datetime
 from typing import Annotated, Callable, Iterable
 
@@ -38,6 +38,7 @@ from .vision import CameraUnavailable
 DEFAULT_ALLOWED_ORIGINS = ("http://127.0.0.1:3000", "http://localhost:3000")
 ALLOWED_METHODS = "GET,POST,PUT,OPTIONS"
 ALLOWED_HEADERS = "Content-Type"
+CALIBRATION_WAIT_SECONDS = 15.0
 SENSOR_ORDER = (
     "temperature",
     "humidity",
@@ -494,11 +495,14 @@ def install_api(application: FastAPI, *, allowed_origins: Iterable[str] = DEFAUL
         except RuleQueueUnavailable:
             return _api_error(503, "queue_unavailable", "Rule queue is unavailable")
         try:
-            return await run_in_threadpool(future.result)
+            return await run_in_threadpool(lambda: future.result(timeout=CALIBRATION_WAIT_SECONDS))
         except BedCalibrationRejected as error:
             return JSONResponse(status_code=409, content=error.error.model_dump(mode="json"))
         except (SQLAlchemyError, DatabaseUnavailableError):
             return _api_error(503, "database_unavailable", "Database is unavailable")
+        except FutureTimeoutError:
+            future.cancel()
+            return _api_error(503, "worker_unavailable", "Rule worker is unavailable")
         except (CancelledError, RuntimeError):
             return _api_error(503, "worker_unavailable", "Rule worker is unavailable")
 
@@ -532,6 +536,13 @@ def install_api(application: FastAPI, *, allowed_origins: Iterable[str] = DEFAUL
                 session.rollback()
                 return _api_error(409, "zone_conflict", "Enabled zones must not overlap")
             session.commit()
+            request.app.state.camera_service.replace_zones(
+                {
+                    name: (zone.x1, zone.y1, zone.x2, zone.y2)
+                    for name, zone in by_name.items()
+                    if zone.enabled
+                }
+            )
             return ZoneOut(
                 zone_name=row.zone_name,
                 x1=row.x1,

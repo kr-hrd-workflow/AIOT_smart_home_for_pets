@@ -52,6 +52,30 @@ from .models import (
 
 
 _CLIP_CLOCK_DISCONTINUITY_SECONDS = 0.025
+_PROCESSED_IDENTITY_LIMIT = 4096
+
+
+class _RecentIdentities:
+    def __init__(self, limit: int) -> None:
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        self._limit = limit
+        self._seen: set[object] = set()
+        self._order: deque[object] = deque()
+
+    def __contains__(self, identity: object) -> bool:
+        return identity in self._seen
+
+    def __len__(self) -> int:
+        return len(self._seen)
+
+    def add(self, identity: object) -> None:
+        if identity in self._seen:
+            return
+        self._seen.add(identity)
+        self._order.append(identity)
+        if len(self._order) > self._limit:
+            self._seen.remove(self._order.popleft())
 
 
 @dataclass(frozen=True, slots=True)
@@ -649,9 +673,9 @@ class RuleEngine:
         self.mismatch = MismatchState()
         self._camera_event_ids: dict[SubjectId, int] = {}
         self._state_deadline_keys: set[str] = set()
-        self._processed_sensor_ids: set[int] = set()
-        self._processed_frames: set[tuple[str, datetime]] = set()
-        self._processed_status: set[tuple[str, str, datetime]] = set()
+        self._processed_sensor_ids = _RecentIdentities(_PROCESSED_IDENTITY_LIMIT)
+        self._processed_frames = _RecentIdentities(_PROCESSED_IDENTITY_LIMIT)
+        self._processed_status = _RecentIdentities(_PROCESSED_IDENTITY_LIMIT)
         self._dashboard_snapshot_lock = Lock()
         self._bed_status_snapshot: BedStatus | None = None
 
@@ -742,14 +766,21 @@ class RuleEngine:
             entry_threshold=snapshot.entry_threshold,
             exit_threshold=snapshot.exit_threshold,
         )
+        rollback_snapshot = self._state_snapshot()
         session.add(row)
         try:
-            session.commit()
+            session.flush()
         except BaseException:
             session.rollback()
             raise
         self.bed.load_calibration(snapshot, restart=False)
-        self._evaluate(session, received_at_utc, received_at_monotonic, scheduler)
+        self._evaluate(
+            session,
+            received_at_utc,
+            received_at_monotonic,
+            scheduler,
+            rollback_snapshot=rollback_snapshot,
+        )
         return BedCalibrationSuccess(
             device_id="petzone-01",
             calibrated_at=received_at_utc,

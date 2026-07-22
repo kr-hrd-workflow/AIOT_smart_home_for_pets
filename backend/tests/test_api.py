@@ -76,6 +76,10 @@ class Camera:
         self.chunks = list(
             [b"--frame\r\nContent-Type: image/jpeg\r\n\r\nabc\r\n"] if chunks is None else chunks
         )
+        self.zone_updates: list[dict[str, tuple[int, int, int, int]]] = []
+
+    def replace_zones(self, zones: dict[str, tuple[int, int, int, int]]) -> None:
+        self.zone_updates.append(zones)
 
     def mjpeg_chunk(self) -> bytes:
         if not self.chunks:
@@ -474,7 +478,8 @@ def test_zone_geometry_is_strict(sessions: sessionmaker, body: dict[str, object]
 
 
 def test_zone_conflict_rolls_back_but_edge_touch_is_allowed(sessions: sessionmaker) -> None:
-    with TestClient(make_app(sessions)) as client:
+    camera = Camera()
+    with TestClient(make_app(sessions, camera=camera)) as client:
         conflict = client.put(
             "/api/zones/pet_bed",
             json={"x1": 259, "y1": 260, "x2": 630, "y2": 470, "enabled": True},
@@ -489,6 +494,12 @@ def test_zone_conflict_rolls_back_but_edge_touch_is_allowed(sessions: sessionmak
         )
         assert edge.status_code == 200
         assert edge.json()["x1"] == 260
+        assert camera.zone_updates == [
+            {
+                "food_bowl": (40, 260, 260, 470),
+                "pet_bed": (260, 180, 630, 470),
+            }
+        ]
 
         missing = client.put(
             "/api/zones/unknown",
@@ -514,6 +525,38 @@ def test_calibration_failure_mapping_and_strict_body(sessions: sessionmaker) -> 
         assert client.post(
             "/api/bed/calibration", json={"device_id": "petzone-01", "extra": True}
         ).json() == {"code": "validation_error", "message": "Request validation failed"}
+
+
+def test_calibration_timeout_cancels_the_queued_command(sessions: sessionmaker) -> None:
+    class TimedOutFuture:
+        timeout: float | None = None
+        cancelled = False
+
+        def result(self, timeout: float | None = None) -> object:
+            self.timeout = timeout
+            raise TimeoutError
+
+        def cancel(self) -> bool:
+            self.cancelled = True
+            return True
+
+    class WaitingWorker(Worker):
+        def __init__(self) -> None:
+            super().__init__()
+            self.future = TimedOutFuture()
+
+        def submit(self, command: object) -> TimedOutFuture:
+            self.submitted.append(command)
+            return self.future
+
+    worker = WaitingWorker()
+    with TestClient(make_app(sessions, worker=worker)) as client:
+        response = client.post("/api/bed/calibration", json={"device_id": "petzone-01"})
+
+    assert response.status_code == 503
+    assert response.json() == {"code": "worker_unavailable", "message": "Rule worker is unavailable"}
+    assert worker.future.timeout == 15.0
+    assert worker.future.cancelled is True
 
 
 def test_mjpeg_unavailable_is_503_before_stream_headers(sessions: sessionmaker) -> None:

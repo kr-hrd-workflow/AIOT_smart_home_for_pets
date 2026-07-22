@@ -186,7 +186,10 @@ def test_rest_loss_close_reasons_use_exact_evidence_boundary(
     assert result == [rules.CloseRest(ended_at, reason)]
 
 
-def test_rule_engine_calibration_persists_one_atomic_snapshot(database_url: str) -> None:
+def test_rule_engine_calibration_persists_one_atomic_snapshot(
+    database_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     rules = importlib.import_module("app.rules")
     alembic = Config(str(Path(__file__).parents[1] / "alembic.ini"))
     alembic.set_main_option("script_location", str(Path(__file__).parents[1] / "migrations"))
@@ -237,6 +240,19 @@ def test_rule_engine_calibration_persists_one_atomic_snapshot(database_url: str)
     with sessions() as session:
         result = engine.command(session, CalibrateBedCommand(device_id="petzone-01"), now, 50.0, Scheduler())
     accepted = engine.bed.calibration
+    monkeypatch.setattr(
+        engine,
+        "_evaluate_and_commit",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("evaluation failed")),
+    )
+    with sessions() as session, pytest.raises(RuntimeError, match="evaluation failed"):
+        engine.command(
+            session,
+            CalibrateBedCommand(device_id="petzone-01"),
+            now + timedelta(microseconds=1),
+            50.000001,
+            Scheduler(),
+        )
     with sessions() as session, pytest.raises(rules.BedCalibrationRejected):
         engine.command(
             session,
@@ -256,6 +272,20 @@ def test_rule_engine_calibration_persists_one_atomic_snapshot(database_url: str)
     assert tuple(row) == (101.0, 201.0, 301.0)
     assert engine.bed.calibration == accepted
     assert len(count) == 1
+
+
+def test_processed_identity_cache_has_a_fixed_upper_bound() -> None:
+    rules = importlib.import_module("app.rules")
+    identities = rules._RecentIdentities(3)
+
+    for identity in range(5):
+        identities.add(identity)
+
+    assert len(identities) == 3
+    assert 0 not in identities
+    assert 1 not in identities
+    assert 2 in identities
+    assert 4 in identities
 
 
 def test_rule_engine_persists_one_eating_row_and_closes_at_last_inside_frame(database_url: str) -> None:

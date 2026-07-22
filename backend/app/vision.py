@@ -243,6 +243,7 @@ class VisionPipeline:
         if observed_at.tzinfo is None or observed_at.utcoffset() is None:
             raise ValueError("observed_at must be timezone-aware")
         observed_at = observed_at.astimezone(UTC)
+        zones = self.zones
 
         started = time.perf_counter()
         try:
@@ -255,7 +256,7 @@ class VisionPipeline:
         detections = tuple(
             CameraDetectionIn(
                 camera_id="pc-webcam-01",
-                zone_name=zone_for_center(item["center_x"], item["center_y"], self.zones),
+                zone_name=zone_for_center(item["center_x"], item["center_y"], zones),
                 observed_at=observed_at,
                 **item,
             )
@@ -273,7 +274,7 @@ class VisionPipeline:
         import cv2
 
         annotated = frame.copy()
-        for name, zone in self.zones.items():
+        for name, zone in zones.items():
             x1, y1, x2, y2 = _zone_tuple(zone)
             cv2.rectangle(annotated, (x1, y1), (x2 - 1, y2 - 1), (100, 100, 100), 1)
             cv2.putText(annotated, name, (x1, max(12, y1 - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (100, 100, 100), 1)

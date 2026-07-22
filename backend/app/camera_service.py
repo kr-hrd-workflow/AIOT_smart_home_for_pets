@@ -62,7 +62,7 @@ class CameraService:
     ) -> None:
         self.pipeline = pipeline
         self._jetson_client = jetson_client
-        self._zones = zones or {}
+        self._zones = dict(zones or (pipeline.zones if pipeline is not None else {}))
         self._now = now or (lambda: datetime.now(UTC))
         self._ingress = ingress
         self._session_factory = session_factory
@@ -101,6 +101,13 @@ class CameraService:
         with self._lock:
             return self._status.model_copy()
 
+    def replace_zones(self, zones: dict[str, tuple[int, int, int, int]]) -> None:
+        replacement = dict(zones)
+        with self._lock:
+            self._zones = replacement
+            if self.pipeline is not None:
+                self.pipeline.zones = replacement
+
     def start(self) -> None:
         if (self.pipeline is None and self._jetson_client is None) or self._worker is not None:
             return
@@ -115,7 +122,9 @@ class CameraService:
         if self._jetson_client is not None:
             self._expire_remote_status()
             try:
-                processed = self._jetson_client.next_frame(self._zones)
+                with self._lock:
+                    zones = self._zones
+                processed = self._jetson_client.next_frame(zones)
             except CameraUnavailable as error:
                 self._fail_frame(ticket, str(error) or "camera_unavailable")
                 return False

@@ -208,6 +208,29 @@ def test_valid_frame_persists_selected_detections_then_closes_before_resolution(
     assert not {"image", "frame", "path"} & set(CameraEvent.__table__.columns.keys())
 
 
+def test_replacing_zones_changes_the_next_local_frame_classification() -> None:
+    detections = (
+        {"detected_type": "dog", "confidence": 0.9, "xyxy": (330.0, 190.0, 430.0, 290.0)},
+    )
+    service, _ingress, sessions, _calls = service_for(
+        Source(FRAME, FRAME),
+        Detector(detections),
+        times=[NOW, NOW + timedelta(seconds=1)],
+    )
+
+    assert service.process_once()
+    service.replace_zones(
+        {
+            "food_bowl": (300, 100, 450, 300),
+            "pet_bed": (460, 180, 630, 470),
+        }
+    )
+    assert service.process_once()
+
+    assert sessions[0].events[0].zone_name == "pet_bed"
+    assert sessions[1].events[0].zone_name == "food_bowl"
+
+
 @pytest.mark.parametrize(
     ("detections", "subjects", "selected"),
     [
@@ -365,11 +388,12 @@ def test_jetson_camera_uses_remote_frame_without_local_yolo_and_keeps_persistenc
         jpeg=b"\xff\xd8\xff\xd9", detections=(detection,), fps=4.8, inference_ms=191.2,
         observed_at=NOW, bed_subject_ids=("dog_001",), selected_bed_subject_id="dog_001",
     )
+    updated_zones = {"food_bowl": (0, 0, 300, 480), "pet_bed": (300, 0, 640, 480)}
 
     class Remote:
         def next_frame(self, zones: object) -> object:
             calls.append("remote")
-            assert zones == ZONES
+            assert zones == updated_zones
             return remote_frame
 
         def close(self) -> None:
@@ -381,6 +405,7 @@ def test_jetson_camera_uses_remote_frame_without_local_yolo_and_keeps_persistenc
     )
     monkeypatch.setattr(camera_module, "YoloDetector", lambda *_: pytest.fail("local YOLO must not load"))
 
+    service.replace_zones(updated_zones)
     assert service.process_once()
     assert calls[:4] == ["begin:camera", "remote", "add:Camera", "add:CameraEvent"]
     assert calls[-3:] == ["commit", "close", "resolve"]
