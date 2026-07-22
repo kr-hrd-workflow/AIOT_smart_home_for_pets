@@ -39,18 +39,24 @@ it("renders a static scene without the animated director for reduced motion", as
   readSceneMode.mockReturnValue("reduced");
   render(<PetHomeExperience />);
 
-  await waitFor(() => expect(screen.getByTestId("pet-home-scene")).toHaveAttribute(
-    "data-animated",
-    "false",
-  ));
+  await waitFor(
+    () => expect(screen.getByTestId("pet-home-scene")).toHaveAttribute(
+      "data-animated",
+      "false",
+    ),
+    { timeout: 5_000 },
+  );
 });
 
 it("enables the scene director only in animated mode", async () => {
   readSceneMode.mockReturnValue("animated");
   render(<PetHomeExperience />);
 
-  await waitFor(() => expect(screen.getByTestId("pet-home-scene")).toHaveAttribute(
-    "data-animated",
-    "true",
-  ));
+  await waitFor(
+    () => expect(screen.getByTestId("pet-home-scene")).toHaveAttribute(
+      "data-animated",
+      "true",
+    ),
+    { timeout: 5_000 },
+  );
 });

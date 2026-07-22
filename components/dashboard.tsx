@@ -1,8 +1,17 @@
+"use client";
+
+import { useEffect, useState, type ReactNode } from "react";
 import { AnomalyList } from "./anomaly-list";
+import { BedPanel } from "./bed-panel";
+import { LiveCamera } from "./live-camera";
+import { RoiEditor } from "./roi-editor";
+import { useDashboard } from "../lib/use-dashboard";
 import type {
   DashboardData,
   DashboardMode,
   SensorReadingOut,
+  ZoneIn,
+  ZoneName,
 } from "../lib/types";
 
 export const API_BASE_URL = "http://127.0.0.1:8000";
@@ -17,6 +26,18 @@ export function selectDashboardMode(
   return hostname === "localhost" || hostname === "127.0.0.1"
     ? "connected"
     : "demo";
+}
+
+export function ClientDashboardEntry({ fallback }: { fallback: ReactNode }) {
+  const [mode, setMode] = useState<DashboardMode>(() => selectDashboardMode("/", undefined));
+
+  useEffect(() => {
+    setMode(selectDashboardMode(window.location.pathname, window.location.hostname));
+  }, []);
+
+  if (mode === "connected") return <ConnectedDashboard />;
+  if (mode === "not_found") return null;
+  return fallback;
 }
 
 const sensorLabels = {
@@ -56,6 +77,10 @@ function sevenDayCopy(data: DashboardData) {
 }
 
 type DashboardCamera = { src: string; alt: string };
+type ConnectedControls = {
+  onCalibrate: () => Promise<void>;
+  onUpdateZone: (zoneName: ZoneName, input: ZoneIn) => Promise<void>;
+};
 
 const demoCamera: DashboardCamera = {
   src: "/demo-camera.webp",
@@ -65,11 +90,15 @@ const demoCamera: DashboardCamera = {
 export function Dashboard({
   data,
   mode = "demo",
-  camera = demoCamera,
+  camera,
+  connectedControls,
+  busy = false,
 }: {
   data: DashboardData;
   mode?: DashboardMode;
   camera?: DashboardCamera;
+  connectedControls?: ConnectedControls;
+  busy?: boolean;
 }) {
   const byType = new Map(data.latest_sensors.map((sensor) => [sensor.sensor_type, sensor]));
   const currentRest = data.behaviors.find(
@@ -77,7 +106,7 @@ export function Dashboard({
   );
 
   return (
-    <div className="app-shell" data-dashboard-mode={mode}>
+    <div className="app-shell" data-dashboard-mode={mode} aria-busy={busy || undefined}>
       <header className="topbar">
         <a className="brand" href="#main-content" aria-label="PetCare 운영 현황으로 이동">
           <span aria-hidden="true">PC</span>
@@ -86,7 +115,7 @@ export function Dashboard({
         <div className="topbar-state" aria-live="polite">
           <span className={`state-marker ${data.health.status}`} />
           {data.health.status === "healthy" ? "로컬 시스템 정상" : "일부 시스템 확인 필요"}
-          <time dateTime={data.generated_at}>{formatTime(data.generated_at)}</time>
+          {busy ? <span>연결 대기</span> : <time dateTime={data.generated_at}>{formatTime(data.generated_at)}</time>}
         </div>
       </header>
 
@@ -119,24 +148,30 @@ export function Dashboard({
 
             <section id="camera" className="camera-section" data-dashboard-section="camera">
               <SectionHeading title="카메라 확인" meta="640 × 480" />
-              <div className="camera-frame">
-                <img src={camera.src} width="640" height="480" alt={camera.alt} />
-                {data.zones.map((zone) => (
-                  <div
-                    className={`zone zone-${zone.zone_name}`}
-                    key={zone.zone_name}
-                    aria-label={`${zone.zone_name} 감시 영역`}
-                  >
-                    <span>{zone.zone_name === "food_bowl" ? "급식" : "침대"}</span>
+              {connectedControls || (mode === "connected" && !camera) ? (
+                <LiveCamera status={data.camera} zones={data.zones} />
+              ) : (
+                <>
+                  <div className="camera-frame">
+                    <img src={(camera ?? demoCamera).src} width="640" height="480" alt={(camera ?? demoCamera).alt} />
+                    {data.zones.map((zone) => (
+                      <div
+                        className={`zone zone-${zone.zone_name}`}
+                        key={zone.zone_name}
+                        aria-label={`${zone.zone_name} 감시 영역`}
+                      >
+                        <span>{zone.zone_name === "food_bowl" ? "급식" : "침대"}</span>
+                      </div>
+                    ))}
+                    {data.camera.state === "offline" && <p className="camera-unavailable">카메라 연결 끊김</p>}
                   </div>
-                ))}
-                {data.camera.state === "offline" && <p className="camera-unavailable">카메라 연결 끊김</p>}
-              </div>
-              <dl className="camera-meta">
-                <div><dt>상태</dt><dd>{data.camera.state === "online" ? "온라인" : "오프라인"}</dd></div>
-                <div><dt>FPS</dt><dd>{data.camera.state === "online" ? data.camera.fps.toFixed(1) : "사용 불가"}</dd></div>
-                <div><dt>추론</dt><dd>{data.camera.state === "online" ? `${data.camera.inference_ms.toFixed(1)} ms` : "사용 불가"}</dd></div>
-              </dl>
+                  <dl className="camera-meta">
+                    <div><dt>상태</dt><dd>{data.camera.state === "online" ? "온라인" : "오프라인"}</dd></div>
+                    <div><dt>FPS</dt><dd>{data.camera.state === "online" ? data.camera.fps.toFixed(1) : "사용 불가"}</dd></div>
+                    <div><dt>추론</dt><dd>{data.camera.state === "online" ? `${data.camera.inference_ms.toFixed(1)} ms` : "사용 불가"}</dd></div>
+                  </dl>
+                </>
+              )}
             </section>
 
             <section id="rest" className="rest-panel panel" data-dashboard-section="confirmed-rest">
@@ -191,20 +226,33 @@ export function Dashboard({
             </section>
 
             <section className="roi-section" data-dashboard-section="roi">
-              <SectionHeading title="감시 영역" meta="읽기 전용 데모" />
-              <div className="zone-table">
-                {data.zones.map((zone) => (
-                  <div key={zone.zone_name}>
-                    <strong>{zone.zone_name === "food_bowl" ? "급식 구역" : "침대 구역"}</strong>
-                    <span className="numeric">({zone.x1}, {zone.y1}) – ({zone.x2}, {zone.y2})</span>
-                    <span>{zone.enabled ? "사용 중" : "사용 안 함"}</span>
+              <SectionHeading title="감시 영역" meta={connectedControls ? "640 × 480 편집" : mode === "connected" ? "연결 대기" : "읽기 전용 데모"} />
+              {connectedControls ? (
+                <>
+                  <RoiEditor zones={data.zones} onSave={connectedControls.onUpdateZone} />
+                  <BedPanel
+                    bed={data.bed}
+                    calibration={data.calibration}
+                    onCalibrate={connectedControls.onCalibrate}
+                  />
+                </>
+              ) : (
+                <>
+                  <div className="zone-table">
+                    {data.zones.map((zone) => (
+                      <div key={zone.zone_name}>
+                        <strong>{zone.zone_name === "food_bowl" ? "급식 구역" : "침대 구역"}</strong>
+                        <span className="numeric">({zone.x1}, {zone.y1}) – ({zone.x2}, {zone.y2})</span>
+                        <span>{zone.enabled ? "사용 중" : "사용 안 함"}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-              <div className="calibration-control" data-calibration-phase={data.calibration.phase}>
-                <button type="button" disabled aria-busy={data.calibration.phase === "submitting"}>침대 영점 재설정</button>
-                <p role="status" aria-live="polite">{data.calibration.message}</p>
-              </div>
+                  <div className="calibration-control" data-calibration-phase={data.calibration.phase}>
+                    <button type="button" disabled aria-busy={data.calibration.phase === "submitting"}>침대 영점 재설정</button>
+                    <p role="status" aria-live="polite">{data.calibration.message}</p>
+                  </div>
+                </>
+              )}
             </section>
 
             <section id="device-health" className="health-section" data-dashboard-section="device-health">
@@ -227,6 +275,85 @@ export function Dashboard({
         </main>
       </div>
     </div>
+  );
+}
+
+const unavailableDashboardData: DashboardData = {
+  generated_at: "1970-01-01T00:00:00Z",
+  health: {
+    status: "degraded",
+    database: "down",
+    mqtt: "down",
+    camera: "offline",
+    queue: "full",
+    worker: "stopped",
+  },
+  devices: [
+    { device_id: "entrance-01", status: "unknown", last_seen_at: null },
+    { device_id: "petzone-01", status: "unknown", last_seen_at: null },
+  ],
+  latest_sensors: [],
+  camera: {
+    state: "offline",
+    fps: 0,
+    inference_ms: 0,
+    last_frame_at: null,
+    reason: "camera_unavailable",
+  },
+  bed: {
+    device_id: "petzone-01",
+    sensor_state: "unavailable",
+    pressure_state: "unavailable",
+    fusion_state: "unavailable",
+    camera_confirmed: false,
+    channels: (["left", "center", "right"] as const).map((channel) => ({
+      channel,
+      raw: null,
+      baseline: null,
+      delta: null,
+      polarity: null,
+      available: false,
+      observed_at: null,
+    })) as DashboardData["bed"]["channels"],
+    current_rest_seconds: 0,
+    today_rest_seconds: 0,
+    nighttime_exit_count: 0,
+    seven_day: {
+      status: "insufficient_data",
+      today_seconds: 0,
+      baseline_seconds: null,
+      difference_seconds: null,
+      percent_change: null,
+      complete_days: 0,
+    },
+    calibrated_at: null,
+  },
+  behaviors: [],
+  anomalies: [],
+  zones: [
+    { zone_name: "food_bowl", x1: 40, y1: 260, x2: 260, y2: 470, enabled: true, updated_at: "1970-01-01T00:00:00Z" },
+    { zone_name: "pet_bed", x1: 320, y1: 180, x2: 630, y2: 470, enabled: true, updated_at: "1970-01-01T00:00:00Z" },
+  ],
+  calibration: {
+    phase: "disabled",
+    code: null,
+    channels: [],
+    message: "로컬 대시보드 연결을 기다리고 있습니다.",
+  },
+};
+
+export function ConnectedDashboard() {
+  const { data, error, calibrate, updateZone } = useDashboard();
+  return (
+    <>
+      {error && <p className="remote-offline" role="alert">{error}</p>}
+      <Dashboard
+        data={data ?? unavailableDashboardData}
+        mode="connected"
+        busy={!data}
+        connectedControls={data ? { onCalibrate: calibrate, onUpdateZone: updateZone } : undefined}
+      />
+    </>
   );
 }
 
