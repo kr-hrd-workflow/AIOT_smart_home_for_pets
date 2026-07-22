@@ -10,8 +10,11 @@ describe("integrated PetCare Worker", () => {
     readFileSync(resolve(".openai/hosting.json"), "utf8"),
   );
 
-  it("declares only the shared D1/R2 binding names", () => {
-    expect(hosting).toEqual({ d1: "DB", r2: "CLIPS" });
+  it("declares the shared bindings and persisted Sites project", () => {
+    expect(Object.keys(hosting).sort()).toEqual(["d1", "project_id", "r2"]);
+    expect(hosting).toMatchObject({ d1: "DB", r2: "CLIPS" });
+    expect(hosting.project_id).toEqual(expect.any(String));
+    expect(hosting.project_id).not.toHaveLength(0);
   });
 
   it("orders image handling, the PetCare router, then Vinext", () => {
