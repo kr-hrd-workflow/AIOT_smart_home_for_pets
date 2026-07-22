@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "frame": {
+    "width": 640,
+    "height": 480,
+    "channels": 3,
+    "dtype": "uint8",
+    "color_order": "BGR"
+  },
+  "thresholds_seconds": {
+    "calibration_window": 60,
+    "eating_dwell": 30,
+    "pressure_entry": 2,
+    "pressure_exit": 7,
+    "owner_exit": 3,
+    "mismatch": 30
+  },
+  "zones": {
+    "food_bowl": [40, 260, 260, 470],
+    "pet_bed": [320, 180, 630, 470]
+  },
+  "phases": [
+    {
+      "name": "empty_calibration",
+      "duration_seconds": 61,
+      "pressure": [100, 100, 100],
+      "food_weight_g": 100.0,
+      "detections": []
+    },
+    {
+      "name": "food_history",
+      "duration_seconds": 5,
+      "pressure": [100, 100, 100],
+      "food_weight_g": 100.0,
+      "detections": []
+    },
+    {
+      "name": "dog_food_and_unconfirmed_pressure",
+      "duration_seconds": 33,
+      "pressure": [300, 300, 300],
+      "food_weight_g": 95.0,
+      "detections": [
+        {
+          "detected_type": "dog",
+          "confidence": 0.9,
+          "xyxy": [60.0, 300.0, 220.0, 420.0]
+        }
+      ]
+    },
+    {
+      "name": "dog_bed",
+      "duration_seconds": 3,
+      "pressure": [300, 300, 300],
+      "food_weight_g": 95.0,
+      "detections": [
+        {
+          "detected_type": "dog",
+          "confidence": 0.9,
+          "xyxy": [340.0, 220.0, 460.0, 400.0]
+        }
+      ]
+    },
+    {
+      "name": "dog_owner_retained",
+      "duration_seconds": 1,
+      "pressure": [300, 300, 300],
+      "food_weight_g": 95.0,
+      "detections": [
+        {
+          "detected_type": "dog",
+          "confidence": 0.6,
+          "xyxy": [340.0, 220.0, 460.0, 400.0]
+        },
+        {
+          "detected_type": "cat",
+          "confidence": 0.95,
+          "xyxy": [480.0, 240.0, 580.0, 400.0]
+        }
+      ]
+    },
+    {
+      "name": "cat_handoff",
+      "duration_seconds": 4,
+      "pressure": [300, 300, 300],
+      "food_weight_g": 95.0,
+      "detections": [
+        {
+          "detected_type": "cat",
+          "confidence": 0.95,
+          "xyxy": [480.0, 240.0, 580.0, 400.0]
+        }
+      ]
+    },
+    {
+      "name": "cat_sensor_check",
+      "duration_seconds": 38,
+      "pressure": [100, 100, 100],
+      "food_weight_g": 95.0,
+      "detections": [
+        {
+          "detected_type": "cat",
+          "confidence": 0.95,
+          "xyxy": [480.0, 240.0, 580.0, 400.0]
+        }
+      ]
+    },
+    {
+      "name": "settled_empty",
+      "duration_seconds": 1,
+      "pressure": [100, 100, 100],
+      "food_weight_g": 95.0,
+      "detections": []
+    }
+  ]
+}
