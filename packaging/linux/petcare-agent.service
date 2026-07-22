@@ -1,0 +1,23 @@
+[Unit]
+Description=PetCare Home Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=petcare
+Group=petcare
+WorkingDirectory=/opt/petcare-agent
+Environment=PETCARE_CAMERA_SOURCE=jetson
+Environment=PETCARE_JETSON_CONFIG=/var/lib/petcare/jetson.json
+ExecStart=/opt/petcare-agent/.venv/bin/python -m app.agent_runtime run --config /var/lib/petcare/agent.json
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/petcare
+
+[Install]
+WantedBy=multi-user.target

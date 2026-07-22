@@ -4,6 +4,7 @@ import json
 import hashlib
 import inspect
 import os
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -36,6 +37,10 @@ class UploadClient:
         self.failures = failures
         self.calls: list[tuple[bytes, ClipMetadata]] = []
         self.handles: list[object] = []
+        self.close_calls = 0
+
+    def close(self) -> None:
+        self.close_calls += 1
 
     def upload(self, path: Path, metadata: ClipMetadata) -> object:
         raise AssertionError("queue must not reopen a verified MP4 by path")
@@ -255,6 +260,126 @@ def test_worker_survives_transient_queue_exception(
     queue._run()
 
     assert calls == 2
+
+
+def test_stop_closes_owned_client_once_after_worker_stops(tmp_path: Path) -> None:
+    client = UploadClient()
+    queue = ClipUploadQueue.open(tmp_path / "queue", client)
+    queue_id = enqueue(queue, tmp_path / "queued.mp4")
+    queue.start()
+    thread = queue._thread
+    assert thread is not None
+    original_close = client.close
+
+    def close_after_worker() -> None:
+        assert not thread.is_alive()
+        original_close()
+
+    client.close = close_after_worker  # type: ignore[method-assign]
+    queue.stop(timeout_seconds=1)
+    queue.stop(timeout_seconds=1)
+
+    assert client.close_calls == 1
+    with pytest.raises(RuntimeError, match="queue is closed"):
+        queue.start()
+    with pytest.raises(RuntimeError, match="queue is closed"):
+        enqueue(queue, tmp_path / "after-stop.mp4")
+    with pytest.raises(RuntimeError, match="queue is closed"):
+        queue.release(queue_id)
+
+
+def test_stop_timeout_leaves_client_open_until_worker_has_stopped(tmp_path: Path) -> None:
+    class Thread:
+        alive = True
+
+        def join(self, timeout: float) -> None:
+            pass
+
+        def is_alive(self) -> bool:
+            return self.alive
+
+    client = UploadClient()
+    queue = ClipUploadQueue.open(tmp_path / "queue", client)
+    thread = Thread()
+    queue._thread = thread  # type: ignore[assignment]
+
+    with pytest.raises(RuntimeError, match="shutdown timed out"):
+        queue.stop(timeout_seconds=0)
+    assert client.close_calls == 0
+    with pytest.raises(RuntimeError, match="queue is closed"):
+        queue.start()
+    with pytest.raises(RuntimeError, match="queue is closed"):
+        enqueue(queue, tmp_path / "while-closing.mp4")
+
+    thread.alive = False
+    queue.stop(timeout_seconds=0)
+    assert client.close_calls == 1
+
+
+def test_stop_preserves_worker_failure_after_attempting_client_cleanup(tmp_path: Path) -> None:
+    class Thread:
+        def join(self, timeout: float) -> None:
+            raise OSError("join failed")
+
+        def is_alive(self) -> bool:
+            return False
+
+    class Client(UploadClient):
+        def close(self) -> None:
+            super().close()
+            raise RuntimeError("close failed")
+
+    client = Client()
+    queue = ClipUploadQueue.open(tmp_path / "queue", client)
+    queue._thread = Thread()  # type: ignore[assignment]
+
+    with pytest.raises(OSError, match="join failed"):
+        queue.stop(timeout_seconds=0)
+    queue.stop(timeout_seconds=0)
+
+    assert client.close_calls == 1
+
+
+def test_stop_blocks_concurrent_start_and_enqueue_before_join_returns(tmp_path: Path) -> None:
+    class BlockingWorker:
+        def __init__(self) -> None:
+            self.join_started = threading.Event()
+            self.release_join = threading.Event()
+            self.alive = True
+
+        def join(self, timeout: float) -> None:
+            self.join_started.set()
+            assert self.release_join.wait(timeout)
+            self.alive = False
+
+        def is_alive(self) -> bool:
+            return self.alive
+
+    client = UploadClient()
+    queue = ClipUploadQueue.open(tmp_path / "queue", client)
+    worker = BlockingWorker()
+    queue._thread = worker  # type: ignore[assignment]
+    stop_error: list[BaseException] = []
+
+    def stop() -> None:
+        try:
+            queue.stop(timeout_seconds=1)
+        except BaseException as error:
+            stop_error.append(error)
+
+    stopper = threading.Thread(target=stop)
+    stopper.start()
+    assert worker.join_started.wait(1)
+    with pytest.raises(RuntimeError, match="queue is closed"):
+        queue.start()
+    with pytest.raises(RuntimeError, match="queue is closed"):
+        enqueue(queue, tmp_path / "during-stop.mp4")
+    worker.release_join.set()
+    stopper.join(1)
+
+    assert not stopper.is_alive()
+    assert stop_error == []
+    assert client.close_calls == 1
 
 
 def test_retry_schedule_is_exact_and_capped_at_ten_minutes(tmp_path: Path) -> None:
