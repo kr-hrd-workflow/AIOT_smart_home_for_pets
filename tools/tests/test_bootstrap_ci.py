@@ -79,6 +79,12 @@ def test_linux_bootstrap_reads_artifact_and_pico_identities_from_manifest():
     assert not [value for value in duplicated if value in script]
 
 
+def test_linux_bootstrap_accepts_the_managed_python_symlink():
+    script = SCRIPT.read_text(encoding="utf-8")
+    assert "find \"$MANAGED/python\" -path '*/bin/python3' -print -quit" in script
+    assert "find \"$MANAGED/python\" -type f -path '*/bin/python3'" not in script
+
+
 def test_linux_host_build_uses_only_runtime_manifest_paths(tmp_path):
     bash = os.environ["PETCARE_TEST_BASH"]
     output = tmp_path / "platform-linux.json"

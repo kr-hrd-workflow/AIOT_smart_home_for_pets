@@ -228,7 +228,7 @@ extract_tar "$uv_archive" "$MANAGED/uv"; extract_tar "$python_archive" "$MANAGED
 extract_tar "$cmake_archive" "$MANAGED/cmake"; extract_zip "$ninja_archive" "$MANAGED/ninja"; extract_tar "$arm_archive" "$MANAGED/arm"
 
 paths[git_path]="$(command -v git)"; paths[bash_path]="$(command -v bash)"
-paths[uv_path]="$(find "$MANAGED/uv" -type f -name uv -print -quit)"; paths[python_path]="$(find "$MANAGED/python" -type f -path '*/bin/python3' -print -quit)"
+paths[uv_path]="$(find "$MANAGED/uv" -type f -name uv -print -quit)"; paths[python_path]="$(find "$MANAGED/python" -path '*/bin/python3' -print -quit)"
 paths[node_path]="$(find "$MANAGED/node" -type f -path '*/bin/node' -print -quit)"; paths[npm_cli_path]="$(find "$MANAGED/node" -type f -path '*/npm/bin/npm-cli.js' -print -quit)"
 paths[cmake_path]="$(find "$MANAGED/cmake" -type f -path '*/bin/cmake' -print -quit)"; paths[ctest_path]="$(find "$MANAGED/cmake" -type f -path '*/bin/ctest' -print -quit)"
 paths[ninja_path]="$(find "$MANAGED/ninja" -type f -name ninja -print -quit)"
