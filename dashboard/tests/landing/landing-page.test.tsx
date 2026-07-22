@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 
 import { cleanup, render, screen } from "@testing-library/react";
+import { renderToString } from "react-dom/server";
 import { afterEach, expect, it, vi } from "vitest";
 
 const requestHeaders = vi.hoisted(() => vi.fn());
@@ -44,9 +45,9 @@ it("keeps the product story and primary actions available without WebGL", () => 
 
 it("renders the public landing unless the proxy supplied a verified marker", async () => {
   requestHeaders.mockResolvedValue(new Headers({ "x-petcare-authenticated": "0" }));
-  render(await Home());
-  expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("반려동물의 하루");
-  expect(screen.queryByTestId("remote-dashboard")).not.toBeInTheDocument();
+  const html = renderToString(await Home());
+  expect(html).toContain("반려동물의 하루를 필요한 순간만 기록합니다");
+  expect(html).not.toContain("remote-dashboard");
 });
 
 it("keeps the operational dashboard for a verified session", async () => {

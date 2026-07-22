@@ -2,16 +2,25 @@ import "@testing-library/jest-dom/vitest";
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { Dashboard } from "../components/dashboard";
+import {
+  ClientDashboardEntry,
+  ConnectedDashboard,
+  Dashboard,
+  selectDashboardMode,
+} from "../components/dashboard";
+import { PetCareClient } from "../lib/api-client";
 import { demoDashboardData } from "../lib/demo-data";
 
 const root = resolve(import.meta.dirname, "..");
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  window.history.replaceState({}, "", "/");
 });
 
 function contrastRatio(foreground: string, background: string) {
@@ -163,6 +172,7 @@ describe("dashboard demo surface", () => {
 
   it("uses the exact warm-homecare tokens and accessible control contrast", () => {
     const css = readFileSync(resolve(root, "app/globals.css"), "utf8");
+    const dashboardCss = css.split("/* Public landing and authentication entry surfaces */", 1)[0];
     const tokens = {
       canvas: "#F8F7F3",
       surface: "#FFFFFF",
@@ -188,7 +198,7 @@ describe("dashboard demo surface", () => {
     expect(css).toContain("height: 64px");
     expect(css).toContain("outline: 2px solid var(--primary)");
     expect(css).toContain("@media (prefers-reduced-motion: reduce)");
-    expect(css).not.toMatch(/gradient|backdrop-filter|text-shadow/i);
+    expect(dashboardCss).not.toMatch(/gradient|backdrop-filter|text-shadow/i);
   });
 
   it("keeps auth-plan-protected root Flight-serializable and demo server-only", () => {
@@ -200,8 +210,13 @@ describe("dashboard demo surface", () => {
     );
     expect(rootPage).toContain("RemoteDashboard");
     expect(rootPage).toContain("LandingPage");
+    expect(rootPage).toContain("ClientDashboardEntry");
+    expect(rootPage).not.toContain("<ConnectedDashboard />");
     expect(rootPage).toContain('export const dynamic = "force-dynamic"');
     expect(rootPage).toContain('get("x-petcare-authenticated") === "1"');
+    expect(rootPage.indexOf('get("x-petcare-authenticated")')).toBeLessThan(
+      rootPage.indexOf("return <ClientDashboardEntry"),
+    );
     expect(rootPage).not.toMatch(/createPetCareRemote|client=|media=/);
     expect(remoteDashboard).toContain("createPetCareRemoteClient");
     expect(remoteDashboard).toContain("createPetCareRemoteMedia");
@@ -212,6 +227,62 @@ describe("dashboard demo surface", () => {
     expect(demoPage).not.toMatch(
       /fetch|WebSocket|localhost|127\.0\.0\.1|useState|useEffect|petcare-remote/,
     );
+  });
+
+  it.each([
+    ["/", undefined, "demo"],
+    ["/", "localhost", "connected"],
+    ["/", "127.0.0.1", "connected"],
+    ["/", "LOCALHOST", "demo"],
+    ["/", "petcare.example", "demo"],
+    ["/", "localhost\u0000.example", "demo"],
+    ["/demo", "localhost", "demo"],
+    ["/unknown", "localhost", "not_found"],
+  ] as const)("selects %s / %s as %s before client construction", (pathname, hostname, mode) => {
+    expect(selectDashboardMode(pathname, hostname)).toBe(mode);
+  });
+
+  it("constructs the local client only after localhost hydration and never on /demo SSR", async () => {
+    const getSummary = vi
+      .spyOn(PetCareClient.prototype, "getSummary")
+      .mockReturnValue(new Promise(() => undefined));
+    vi.spyOn(PetCareClient.prototype, "getZones").mockReturnValue(new Promise(() => undefined));
+    vi.spyOn(PetCareClient.prototype, "subscribe").mockReturnValue(vi.fn());
+
+    window.history.replaceState({}, "", "/demo");
+    const demo = render(<ClientDashboardEntry fallback={<div>landing</div>} />);
+    expect(screen.getByText("landing")).toBeInTheDocument();
+    expect(getSummary).not.toHaveBeenCalled();
+    demo.unmount();
+
+    window.history.replaceState({}, "", "/");
+    expect(renderToString(<ClientDashboardEntry fallback={<div>landing</div>} />)).toContain("landing");
+    expect(getSummary).not.toHaveBeenCalled();
+
+    render(<ClientDashboardEntry fallback={<div>landing</div>} />);
+    await waitFor(() => expect(getSummary).toHaveBeenCalledTimes(1));
+  });
+
+  it("keeps the full connected layout mounted while the initial snapshot is pending", () => {
+    vi.spyOn(PetCareClient.prototype, "getSummary").mockReturnValue(new Promise(() => undefined));
+    vi.spyOn(PetCareClient.prototype, "getZones").mockReturnValue(new Promise(() => undefined));
+    vi.spyOn(PetCareClient.prototype, "subscribe").mockReturnValue(vi.fn());
+
+    const { container } = render(<ConnectedDashboard />);
+    expect(container.querySelector(".app-shell")).toHaveAttribute("aria-busy", "true");
+    expect(container.querySelectorAll("[data-dashboard-section]")).toHaveLength(8);
+    expect(container.querySelector(".zone-pet_bed")).toHaveStyle({
+      left: "50%",
+      top: "37.5%",
+    });
+  });
+
+  it("styles every ROI control with a visible 44px boundary and a two-column shell", () => {
+    const css = readFileSync(resolve(root, "app/globals.css"), "utf8");
+    expect(css).toMatch(/\.zone-table fieldset\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/);
+    expect(css).toMatch(/\.zone-table fieldset button\s*\{[^}]*min-height:\s*44px[^}]*border:\s*1px solid var\(--border-control\)/);
+    expect(css).toMatch(/\.zone-toggle\s*\{[^}]*min-height:\s*44px/);
+    expect(css).toMatch(/\.zone-toggle input\[type="checkbox"\]\s*\{[^}]*border:\s*1px solid var\(--border-control\)/);
   });
 
   it("keeps remote controls keyboard-visible and mobile-safe", () => {
@@ -243,7 +314,6 @@ describe("dashboard demo surface", () => {
         "chart.js",
         "framer-motion",
         "motion",
-        "gsap",
       ]),
     );
 

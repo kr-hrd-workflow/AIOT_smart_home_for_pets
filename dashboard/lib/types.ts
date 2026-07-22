@@ -124,6 +124,52 @@ export interface ZoneOut {
   updated_at: string;
 }
 
+export type ZoneIn = Pick<ZoneOut, "x1" | "y1" | "x2" | "y2" | "enabled">;
+
+export interface BedCalibrationChannel {
+  channel: ChannelName;
+  sample_count: number;
+  baseline: number;
+  polarity: -1 | 1;
+}
+
+export interface BedCalibrationSuccess {
+  device_id: "petzone-01";
+  calibrated_at: string;
+  window_start: string;
+  window_end: string;
+  channels: [BedCalibrationChannel, BedCalibrationChannel, BedCalibrationChannel];
+}
+
+export interface BedCalibrationError {
+  code:
+    | "insufficient_samples"
+    | "occupied"
+    | "unstable"
+    | "camera_unavailable"
+    | "sensor_unavailable";
+  message: string;
+  channels: ChannelName[];
+}
+
+export interface ApiError {
+  code:
+    | "queue_unavailable"
+    | "worker_unavailable"
+    | "database_unavailable"
+    | "validation_error"
+    | "zone_not_found"
+    | "zone_conflict"
+    | "camera_unavailable"
+    | "origin_forbidden";
+  message: string;
+}
+
+export type DashboardMessage =
+  | { type: "dashboard_update"; payload: DashboardSummary }
+  | { type: "bed_status"; payload: BedStatus }
+  | { type: "anomaly_alert"; payload: AnomalyEventOut };
+
 export interface CalibrationUiState {
   phase: "idle" | "submitting" | "success" | "disabled" | "error";
   code:

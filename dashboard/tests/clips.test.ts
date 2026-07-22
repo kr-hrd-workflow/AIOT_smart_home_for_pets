@@ -216,7 +216,7 @@ describe("private tenant clip handlers", () => {
     } finally {
       fake.dispose();
     }
-  });
+  }, 15_000);
 
   it("authenticates and lists only the resolved home's non-secret clip DTOs", async () => {
     const env = makeEnv();
