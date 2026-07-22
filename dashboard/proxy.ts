@@ -23,12 +23,13 @@ export async function proxy(request: NextRequest) {
   }
   const authEnv = env as unknown as AuthEnv;
   const session = createSupabaseSession(request, authEnv);
-  await session.supabase.auth.getClaims();
-  let authenticated = true;
+  let authenticated = false;
   try {
+    await session.supabase.auth.getClaims();
     await requireAuth(request, authEnv);
+    authenticated = true;
   } catch {
-    authenticated = false;
+    // Provider failures and invalid claims both degrade to an anonymous request.
   }
   if (request.nextUrl.pathname === "/") {
     return session.applySessionCookies(nextWithAuth(request, authenticated));

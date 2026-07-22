@@ -199,8 +199,9 @@ describe("dashboard demo surface", () => {
       "utf8",
     );
     expect(rootPage).toContain("RemoteDashboard");
+    expect(rootPage).toContain("LandingPage");
     expect(rootPage).toContain('export const dynamic = "force-dynamic"');
-    expect(rootPage).toMatch(/return <RemoteDashboard \/>/);
+    expect(rootPage).toContain('get("x-petcare-authenticated") === "1"');
     expect(rootPage).not.toMatch(/createPetCareRemote|client=|media=/);
     expect(remoteDashboard).toContain("createPetCareRemoteClient");
     expect(remoteDashboard).toContain("createPetCareRemoteMedia");
