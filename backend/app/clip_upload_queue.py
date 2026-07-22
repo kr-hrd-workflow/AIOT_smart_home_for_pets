@@ -307,6 +307,8 @@ class ClipUploadQueue:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._in_flight: str | None = None
+        self._closing = False
+        self._closed = False
 
     @classmethod
     def open(
@@ -442,6 +444,7 @@ class ClipUploadQueue:
 
         try:
             with self._lock:
+                self._assert_accepting()
                 self._assert_root()
                 source_size, source_digest = _descriptor_digest(source_descriptor)
                 if source_size <= 0:
@@ -560,6 +563,7 @@ class ClipUploadQueue:
         if not isinstance(queue_id, str) or _QUEUE_ID.fullmatch(queue_id) is None:
             raise ValueError("invalid queue id")
         with self._lock:
+            self._assert_accepting()
             self._assert_root()
             item = self._items.get(queue_id)
             if item is None:
@@ -576,6 +580,7 @@ class ClipUploadQueue:
 
     def start(self) -> None:
         with self._lock:
+            self._assert_accepting()
             if self._thread is not None and self._thread.is_alive():
                 return
             self._stop.clear()
@@ -585,12 +590,36 @@ class ClipUploadQueue:
     def stop(self, *, timeout_seconds: float = 45.0) -> None:
         if timeout_seconds < 0:
             raise ValueError("timeout_seconds must be nonnegative")
-        self._stop.set()
-        thread = self._thread
+        with self._lock:
+            if self._closed:
+                return
+            self._closing = True
+            self._stop.set()
+            thread = self._thread
+        first_error: BaseException | None = None
         if thread is not None:
-            thread.join(timeout_seconds)
-            if thread.is_alive():
+            try:
+                thread.join(timeout_seconds)
+            except BaseException as error:
+                first_error = error
+            try:
+                worker_alive = thread.is_alive()
+            except BaseException as error:
+                first_error = first_error or error
+                worker_alive = True
+            if worker_alive:
+                if first_error is not None:
+                    raise first_error
                 raise RuntimeError("clip upload queue shutdown timed out")
+        with self._lock:
+            if not self._closed:
+                self._closed = True
+                try:
+                    self._client.close()
+                except BaseException as error:
+                    first_error = first_error or error
+        if first_error is not None:
+            raise first_error
 
     def _run(self) -> None:
         while not self._stop.is_set():
@@ -683,3 +712,7 @@ class ClipUploadQueue:
     def _assert_root(self) -> None:
         _assert_root(self._root.parent, self._parent_status, "queue parent")
         _assert_root(self._root, self._root_status)
+
+    def _assert_accepting(self) -> None:
+        if self._closing or self._closed:
+            raise RuntimeError("clip upload queue is closed")
