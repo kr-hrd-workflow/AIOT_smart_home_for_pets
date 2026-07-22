@@ -15,6 +15,8 @@
 - Public landing code must not call private APIs, Supabase, webcam, clips, sensors, D1, or R2.
 - Use one dark theme with restrained cyan ambient light and amber sensor accents. Use no pure black, pure white, neon outer glow, fake metrics, fake customers, decorative status dots, scroll cues, em-dashes, or en-dashes in visible copy.
 - Use real HTML for copy, links, and forms. WebGL is enhancement only.
+- The spatial reference is a contemporary Korean 50-pyeong apartment, approximately 165 square meters: one single-level connected scene with a wide living room, window wall, island kitchen/dining area, entry middle door, and built-in storage.
+- Do not render a compact diorama, internal staircase, Western mansion foyer, glass-walled bedroom, visible human bed, or duplicate pet.
 - Honor `prefers-reduced-motion`, data saver, WebGL failure, and 320px-wide viewports.
 - Cap device pixel ratio and lazy-load the Three.js island so semantic HTML is usable first.
 - GSAP may mutate Three objects but must not drive React state on scroll. Every observer, context, and timeline needs cleanup.
@@ -243,7 +245,7 @@ Expected: FAIL because scene mode and director modules do not exist.
 
 - [ ] **Step 4: Build one bounded low-poly pet home**
 
-Use procedural `boxGeometry`, `cylinderGeometry`, and `roundedBoxGeometry` only. Build a room shell, bowl, bed, camera, Pico sensor block, pet silhouette, and event screen. Reuse materials, cap Canvas DPR to `[1, 1.5]`, use one ambient light, one directional light, two restrained point lights, and shadows only on the hero quality tier. Do not download GLTF assets or add particles in the first version.
+Use procedural `boxGeometry`, `cylinderGeometry`, and `roundedBoxGeometry` only. Build a spacious single-level Korean apartment shell with a wide living room, window wall, island kitchen/dining area, entry middle door, built-in storage, bowl, pet bed, camera, Pico sensor block, one pet silhouette, and event screen. Keep feeding, rest, camera, and review zones visually separate without creating an asset-download room system. Reuse materials, cap Canvas DPR to `[1, 1.5]`, use one ambient light, one directional light, two restrained point lights, and shadows only on the hero quality tier. Do not download GLTF assets or add particles in the first version.
 
 - [ ] **Step 5: Bind one motivated GSAP timeline to three chapters**
 
@@ -363,12 +365,12 @@ git commit -m "feat(video): add PetCare launch composition"
 - Create: `dashboard/tests/landing/metadata.test.ts`
 
 **Interfaces:**
-- Produces: one 1200x630 raster card with a single isometric pet home, cyan/amber lighting, and no generated text.
+- Produces: one 1200x630 raster card with a single isometric 50-pyeong Korean apartment, cyan/amber lighting, exactly one pet, and no generated text.
 - Consumes: existing `/og.png` metadata URL.
 
 - [ ] **Step 1: Generate exactly one primary image**
 
-Prompt the image generator for a 1200x630 premium consumer-tech social card: dark charcoal single isometric pet home, visible bowl, pet bed, small webcam, restrained cyan ambient lighting, warm amber sensor accent, generous negative space for metadata overlays, no text, no logo, no UI screenshot, no people, no extra rooms.
+Prompt the image generator for a 1200x630 premium consumer-tech social card: dark charcoal single isometric contemporary Korean 50-pyeong apartment, wide living room, city window wall, island kitchen/dining area, entry middle door and storage, visible bowl, pet bed, small webcam, restrained cyan ambient lighting, warm amber sensor accent, generous negative space, no text, no logo, no people, no internal stairs, no glass bedroom, and exactly one pet.
 
 - [ ] **Step 2: Inspect the generated image**
 
