@@ -293,7 +293,7 @@ async def test_lifespan_disposes_database_and_hub_when_worker_shutdown_fails(
     with pytest.raises(RuntimeError, match="shutdown failed"):
         async with main_module.lifespan(FastAPI()):
             pass
-    assert calls[-3:] == ["worker:shutdown", "hub:shutdown", "database:dispose"]
+    assert calls[-4:] == ["worker:shutdown", "camera:shutdown", "hub:shutdown", "database:dispose"]
 
 
 @pytest.fixture()

@@ -229,8 +229,8 @@ async def test_lifespan_starts_one_shared_clock_worker_before_mqtt_and_drains_la
         "yield",
         "intake:stop",
         "mqtt:stop",
-        "camera:shutdown",
         "worker:shutdown",
+        "camera:shutdown",
         "dispose",
     ]
 

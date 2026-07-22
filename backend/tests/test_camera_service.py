@@ -690,8 +690,9 @@ async def test_lifespan_disposes_database_when_camera_shutdown_fails(monkeypatch
     monkeypatch.setattr(main_module, "RuleEngine", lambda **_kwargs: object())
     monkeypatch.setattr(main_module, "RuleWorker", FakeRuleWorker)
 
-    async with main_module.lifespan(FastAPI()):
-        pass
+    with pytest.raises(RuntimeError, match="close failed"):
+        async with main_module.lifespan(FastAPI()):
+            pass
     assert calls == ["database:configure", "camera:shutdown", "database:dispose"]
 
 
@@ -743,7 +744,7 @@ async def test_lifespan_builds_and_starts_configured_camera_after_rule_worker(mo
         "worker:start",
         "camera:start",
         "yield",
-        "camera:shutdown",
         "worker:shutdown",
+        "camera:shutdown",
         "dispose",
     ]

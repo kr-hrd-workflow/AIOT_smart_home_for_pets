@@ -1,10 +1,19 @@
 from __future__ import annotations
 
+import os
+import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from starlette.concurrency import run_in_threadpool
 
+from .agent_lifecycle import (
+    AgentLifecycleComponents,
+    build_agent_components,
+    start_agent_components,
+    stop_agent_components,
+)
 from .api import build_dashboard_summary, install_api
 from .camera_service import CameraService, build_camera_service
 from .config import load_config
@@ -26,6 +35,7 @@ async def lifespan(application: FastAPI):
     ingestor = MqttIngestor.disabled()
     camera_service: CameraService | None = None
     worker: RuleWorker | None = None
+    agent_components: AgentLifecycleComponents | None = None
     hub = DashboardHub()
     hub_task = hub.start_broadcaster()
     try:
@@ -67,31 +77,68 @@ async def lifespan(application: FastAPI):
             engine.publisher = publish_committed
         if hasattr(engine, "dashboard_publisher"):
             engine.dashboard_publisher = publish_committed
+
+        agent_config_path = os.environ.get("PETCARE_AGENT_CONFIG")
+        agent_tools_path = os.environ.get("PETCARE_AGENT_TOOLS")
+        if (agent_config_path is None) != (agent_tools_path is None):
+            raise ValueError("agent config and tools paths must be provided together")
+        if agent_config_path is not None and agent_tools_path is not None:
+            config_path = Path(agent_config_path)
+            tools_path = Path(agent_tools_path)
+            if not config_path.is_absolute() or not tools_path.is_absolute():
+                raise ValueError("agent config and tools paths must be absolute")
+            agent_components = build_agent_components(config_path, tools_path, session_factory)
+            application.state.agent_components = agent_components
+
         worker.start()
         ingestor.start()
-        if camera_service.pipeline is not None:
+        if (
+            getattr(camera_service, "pipeline", None) is not None
+            or getattr(camera_service, "jetson_client", None) is not None
+        ):
             camera_service.start()
+        if agent_components is not None:
+            await run_in_threadpool(start_agent_components, agent_components)
         yield
     finally:
-        ingress.stop_accepting()
+        first_error = sys.exception()
+        try:
+            ingress.stop_accepting()
+        except BaseException as error:
+            first_error = first_error or error
         try:
             ingestor.stop()
-        except Exception:
-            pass
-        try:
-            if camera_service is not None:
-                camera_service.shutdown()
-        except Exception:
-            pass
+        except BaseException as error:
+            first_error = first_error or error
         try:
             if worker is not None:
                 await run_in_threadpool(worker.shutdown)
-        finally:
+        except BaseException as error:
+            first_error = first_error or error
+        try:
+            if camera_service is not None:
+                camera_service.shutdown()
+        except BaseException as error:
+            first_error = first_error or error
+        try:
+            if agent_components is not None:
+                await run_in_threadpool(stop_agent_components, agent_components)
+        except BaseException as error:
+            first_error = first_error or error
+        try:
             hub.shutdown()
-            try:
-                await hub_task
-            finally:
-                dispose_database()
+        except BaseException as error:
+            first_error = first_error or error
+        try:
+            await hub_task
+        except BaseException as error:
+            first_error = first_error or error
+        try:
+            dispose_database()
+        except BaseException as error:
+            first_error = first_error or error
+        if first_error is not None:
+            raise first_error
 
 
 app = FastAPI(
