@@ -219,6 +219,14 @@ git diff -- dashboard/proxy.ts dashboard/app/login/page.tsx dashboard/tests/auth
 
 Expected: no whitespace errors, no session construction on the missing-env path, no weakening of protected routes when auth is configured.
 
+- [ ] **Step 9: Commit Task 1**
+
+Stage only the four Task 1 files and commit:
+
+```powershell
+git commit -m "fix: keep public entry available without auth config"
+```
+
 ---
 
 ### Task 2: Public hardware connection guide and documentation truth
@@ -349,6 +357,14 @@ rg -n -i "owner-only Sites|private Sites|private deployment|소유자 전용 Sit
 
 Expected: no stale deployment-access claim; owner-only local secret/file permissions may remain because they are unrelated and correct.
 
+- [ ] **Step 8: Commit Task 2**
+
+Stage only the Task 2 landing, documentation, and docs-check files and commit:
+
+```powershell
+git commit -m "docs: explain public Sites hardware connection"
+```
+
 ---
 
 ### Task 3: New current-account Sites project and exact candidate gate
@@ -404,10 +420,10 @@ git status --short
 git diff --stat
 ```
 
-Confirm `.codex/`, `.omo/drafts/petcare-sites-completion.md`, and root `node_modules/` remain untracked and unstaged. Stage the Task 1/Task 2 files plus `dashboard/.openai/hosting.json` and this plan, then commit:
+Confirm `.codex/`, `.omo/drafts/petcare-sites-completion.md`, and root `node_modules/` remain untracked and unstaged. Stage only `dashboard/.openai/hosting.json`, then commit:
 
 ```powershell
-git commit -m "fix: keep public PetCare entry available"
+git commit -m "chore: bind current Sites project"
 ```
 
 - [ ] **Step 7: Push the exact candidate and verify CI**
