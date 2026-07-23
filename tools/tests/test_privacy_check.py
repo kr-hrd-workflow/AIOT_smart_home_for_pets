@@ -41,10 +41,16 @@ def test_captured_media_residue_fails(tmp_path: Path, suffix: str) -> None:
         scan_remote_artifacts(tmp_path, ())
 
 
-def test_only_two_public_media_assets_are_whitelisted(tmp_path: Path) -> None:
+def test_only_approved_public_media_assets_are_whitelisted(tmp_path: Path) -> None:
     public = tmp_path / "dashboard" / "public"
     public.mkdir(parents=True)
     (public / "demo-camera.webp").write_bytes(b"approved demo")
+    (public / "landing-apartment-photoreal-mobile-v2.webp").write_bytes(
+        b"approved mobile landing"
+    )
+    (public / "landing-apartment-photoreal-v3.webp").write_bytes(
+        b"approved desktop landing"
+    )
     (public / "og.png").write_bytes(b"approved social card")
     scan_remote_artifacts(tmp_path, ())
 
