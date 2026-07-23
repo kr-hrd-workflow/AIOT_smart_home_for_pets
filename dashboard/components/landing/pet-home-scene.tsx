@@ -3,8 +3,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useTexture } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
-import { gsap } from "gsap";
-import { ScrollTrigger } from "gsap/ScrollTrigger.js";
 import {
   AdditiveBlending,
   LinearFilter,
@@ -12,8 +10,6 @@ import {
   type Group,
 } from "three";
 import { createSceneDirector } from "./scene-director";
-
-gsap.registerPlugin(ScrollTrigger);
 
 const DESKTOP_PHOTO_URL = "/landing-apartment-photoreal-v3.webp";
 const MOBILE_PHOTO_URL = "/landing-apartment-photoreal-mobile-v2.webp";
@@ -73,9 +69,13 @@ function mapPhotoPoint(
 export function PetHomeScene({
   animated,
   compact,
+  showPhoto,
+  stageRef,
 }: {
   animated: boolean;
   compact: boolean;
+  showPhoto: boolean;
+  stageRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const camera = useThree((state) => state.camera);
   const invalidate = useThree((state) => state.invalidate);
@@ -121,6 +121,7 @@ export function PetHomeScene({
   useEffect(() => {
     if (
       !animated ||
+      !stageRef.current ||
       !bowlSignal.current ||
       !bedSignal.current ||
       !cameraSignal.current
@@ -138,16 +139,18 @@ export function PetHomeScene({
       cameraSignal: cameraSignal.current,
       invalidate,
     });
-  }, [animated, camera, invalidate]);
+  }, [animated, camera, invalidate, stageRef]);
 
   return (
     <>
-      <color attach="background" args={["#08090a"]} />
+      {showPhoto ? <color attach="background" args={["#08090a"]} /> : null}
       <group position={[0, photoShiftY, 0]}>
-        <mesh position={[0, 0, -0.02]} scale={[photoWidth, photoHeight, 1]}>
-          <planeGeometry args={[1, 1]} />
-          <meshBasicMaterial map={photoTexture} toneMapped={false} />
-        </mesh>
+        {showPhoto ? (
+          <mesh position={[0, 0, -0.02]} scale={[photoWidth, photoHeight, 1]}>
+            <planeGeometry args={[1, 1]} />
+            <meshBasicMaterial map={photoTexture} toneMapped={false} />
+          </mesh>
+        ) : null}
         <SignalHalo
           color="#e7b86e"
           groupRef={bowlSignal}

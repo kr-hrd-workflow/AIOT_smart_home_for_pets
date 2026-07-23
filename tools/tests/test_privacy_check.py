@@ -48,8 +48,20 @@ def test_only_approved_public_media_assets_are_whitelisted(tmp_path: Path) -> No
     (public / "landing-apartment-photoreal-mobile-v2.webp").write_bytes(
         b"approved mobile landing"
     )
+    (public / "landing-apartment-photoreal-mobile-v2-blue.webp").write_bytes(
+        b"approved mobile landing blue hour"
+    )
     (public / "landing-apartment-photoreal-v3.webp").write_bytes(
         b"approved desktop landing"
+    )
+    (public / "landing-apartment-photoreal-v3-blue.webp").write_bytes(
+        b"approved desktop landing blue hour"
+    )
+    (public / "landing-apartment-cinematic-loop.mp4").write_bytes(
+        b"approved desktop cinematic loop"
+    )
+    (public / "landing-apartment-cinematic-loop-mobile.mp4").write_bytes(
+        b"approved mobile cinematic loop"
     )
     (public / "og.png").write_bytes(b"approved social card")
     scan_remote_artifacts(tmp_path, ())

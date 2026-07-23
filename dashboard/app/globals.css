@@ -860,15 +860,59 @@ a:focus-visible {
 }
 
 .pet-home-experience,
-.pet-home-experience > div {
+.pet-home-stage,
+.pet-home-poster,
+.pet-home-poster img,
+.pet-home-film,
+.pet-home-signal-canvas {
   width: 100%;
   height: 100%;
 }
 
 .pet-home-experience {
+  position: relative;
   animation: landing-cinematic-drift 18s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
   transform-origin: center;
   will-change: transform;
+}
+
+.pet-home-stage {
+  position: relative;
+  overflow: hidden;
+  transform-origin: center;
+  will-change: transform;
+}
+
+.pet-home-poster,
+.pet-home-film,
+.pet-home-signal-canvas {
+  position: absolute !important;
+  inset: 0;
+}
+
+.pet-home-poster {
+  z-index: 0;
+}
+
+.pet-home-poster img,
+.pet-home-film {
+  display: block;
+  object-fit: cover;
+  object-position: center;
+}
+
+.pet-home-film {
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 800ms ease;
+}
+
+.pet-home-film[data-ready="true"] {
+  opacity: 1;
+}
+
+.pet-home-signal-canvas {
+  z-index: 2;
 }
 
 .landing-overlay {

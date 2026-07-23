@@ -44,6 +44,32 @@ it("uses the photorealistic apartment plate instead of low-poly room geometry", 
   ).toBe(true);
 });
 
+it("layers deterministic Remotion film loops behind the R3F signals", () => {
+  const canvas = readLandingSource("pet-home-canvas.tsx");
+
+  expect(canvas).toContain("/landing-apartment-cinematic-loop.mp4");
+  expect(canvas).toContain("/landing-apartment-cinematic-loop-mobile.mp4");
+  expect(canvas).toContain("autoPlay");
+  expect(canvas).toContain("muted");
+  expect(canvas).toContain("loop");
+  expect(canvas).toContain("playsInline");
+  expect(canvas).toContain("poster=");
+  expect(canvas).toContain("onPlaying=");
+  expect(
+    existsSync(
+      new URL("../../public/landing-apartment-cinematic-loop.mp4", import.meta.url),
+    ),
+  ).toBe(true);
+  expect(
+    existsSync(
+      new URL(
+        "../../public/landing-apartment-cinematic-loop-mobile.mp4",
+        import.meta.url,
+      ),
+    ),
+  ).toBe(true);
+});
+
 it("selects the compact scene profile at the mobile breakpoint", () => {
   expect(readLandingSource("scene-quality.ts")).toContain(
     'matchMedia?.("(max-width: 767px)")',

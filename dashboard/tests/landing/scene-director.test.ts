@@ -19,7 +19,12 @@ vi.mock("gsap", () => ({
   },
 }));
 
-import { createSceneDirector } from "../../components/landing/scene-director";
+vi.mock("gsap/ScrollTrigger.js", () => ({ ScrollTrigger: {} }));
+
+import {
+  createSceneDirector,
+  createStageDirector,
+} from "../../components/landing/scene-director";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -57,6 +62,28 @@ it("creates one scoped timeline and reverts it exactly once", () => {
   onUpdate();
   expect(lookAt).toHaveBeenLastCalledWith(target.x, target.y, target.z);
   expect(invalidate).toHaveBeenCalledOnce();
+
+  cleanup();
+  expect(mocks.revert).toHaveBeenCalledOnce();
+});
+
+it("drives the DOM film stage from its own scroll timeline", () => {
+  const root = document.createElement("main");
+  const stage = document.createElement("div");
+  const cleanup = createStageDirector({ root, stage });
+
+  expect(mocks.timeline).toHaveBeenCalledWith({
+    scrollTrigger: expect.objectContaining({
+      trigger: root,
+      start: "top top",
+      end: "bottom bottom",
+      scrub: 1,
+    }),
+  });
+  expect(mocks.to).toHaveBeenCalledWith(
+    stage,
+    expect.objectContaining({ scale: expect.any(Number), ease: "none" }),
+  );
 
   cleanup();
   expect(mocks.revert).toHaveBeenCalledOnce();

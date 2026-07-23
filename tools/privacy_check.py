@@ -25,7 +25,11 @@ _FIXTURE_CONNECTOR = "fixture-only-" + "connector-token"
 _MEDIA_SUFFIXES = {".mp4", ".mjpeg", ".jpg", ".jpeg", ".png", ".webp"}
 _MEDIA_ALLOWLIST = {
     "dashboard/public/demo-camera.webp",
+    "dashboard/public/landing-apartment-cinematic-loop-mobile.mp4",
+    "dashboard/public/landing-apartment-cinematic-loop.mp4",
+    "dashboard/public/landing-apartment-photoreal-mobile-v2-blue.webp",
     "dashboard/public/landing-apartment-photoreal-mobile-v2.webp",
+    "dashboard/public/landing-apartment-photoreal-v3-blue.webp",
     "dashboard/public/landing-apartment-photoreal-v3.webp",
     "dashboard/public/og.png",
 }
