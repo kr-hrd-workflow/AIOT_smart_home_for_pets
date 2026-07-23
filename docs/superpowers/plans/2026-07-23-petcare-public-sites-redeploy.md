@@ -126,8 +126,13 @@ it("renders an unavailable account state without a broken login form", async () 
 Run with the pinned Node runtime and redirected output:
 
 ```powershell
-$runtime = Get-Content -Raw .runtime/toolchain.json | ConvertFrom-Json
-& $runtime.paths.node_path $runtime.paths.npm_cli_path --prefix dashboard test -- tests/auth/session.test.ts tests/auth/public-routes.test.tsx
+$runtime = Get-Content -Raw -Encoding UTF8 .runtime/toolchain.json | ConvertFrom-Json
+Push-Location dashboard
+try {
+  & $runtime.paths.node_path node_modules/vitest/vitest.mjs run tests/auth/session.test.ts tests/auth/public-routes.test.tsx
+} finally {
+  Pop-Location
+}
 ```
 
 Expected: FAIL because the proxy constructs Supabase with absent values or does not redirect, and the login page still renders the form.
@@ -263,8 +268,13 @@ expect(screen.getByText(/Jetson.*Pico 2 W.*MQTT/s)).toBeInTheDocument();
 Run:
 
 ```powershell
-$runtime = Get-Content -Raw .runtime/toolchain.json | ConvertFrom-Json
-& $runtime.paths.node_path $runtime.paths.npm_cli_path --prefix dashboard test -- tests/landing/landing-page.test.tsx
+$runtime = Get-Content -Raw -Encoding UTF8 .runtime/toolchain.json | ConvertFrom-Json
+Push-Location dashboard
+try {
+  & $runtime.paths.node_path node_modules/vitest/vitest.mjs run tests/landing/landing-page.test.tsx
+} finally {
+  Pop-Location
+}
 ```
 
 Expected: FAIL because the connection chapter does not exist.
@@ -339,7 +349,7 @@ Use this delivery status in `docs/implementation-plan.md` and `tools/docs_check.
 Run with the pinned Python runtime:
 
 ```powershell
-$runtime = Get-Content -Raw .runtime/toolchain.json | ConvertFrom-Json
+$runtime = Get-Content -Raw -Encoding UTF8 .runtime/toolchain.json | ConvertFrom-Json
 & $runtime.paths.python_path -m pytest tools/tests/test_docs_check.py -q
 & $runtime.paths.python_path tools/docs_check.py --root .
 ```
@@ -396,8 +406,13 @@ Do not change or add environment variables during this deployment.
 Run the selected dashboard auth/landing suites and docs checker together, BelowNormal with redirected stdio:
 
 ```powershell
-$runtime = Get-Content -Raw .runtime/toolchain.json | ConvertFrom-Json
-& $runtime.paths.node_path $runtime.paths.npm_cli_path --prefix dashboard test -- tests/auth/session.test.ts tests/auth/public-routes.test.tsx tests/landing/landing-page.test.tsx tests/landing/metadata.test.ts tests/landing/scene-runtime-contract.test.ts
+$runtime = Get-Content -Raw -Encoding UTF8 .runtime/toolchain.json | ConvertFrom-Json
+Push-Location dashboard
+try {
+  & $runtime.paths.node_path node_modules/vitest/vitest.mjs run tests/auth/session.test.ts tests/auth/public-routes.test.tsx tests/landing/landing-page.test.tsx tests/landing/metadata.test.ts tests/landing/scene-runtime-contract.test.ts
+} finally {
+  Pop-Location
+}
 & $runtime.paths.python_path -m pytest tools/tests/test_docs_check.py -q
 & $runtime.paths.python_path tools/docs_check.py --root .
 ```
