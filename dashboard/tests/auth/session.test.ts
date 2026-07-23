@@ -13,11 +13,18 @@ const mocks = vi.hoisted(() => ({
   getDb: vi.fn(() => ({ binding: "test" })),
 }));
 
-vi.mock("cloudflare:workers", () => ({
-  env: {
+const runtimeEnv = vi.hoisted(
+  (): {
+    SUPABASE_URL?: string;
+    SUPABASE_PUBLISHABLE_KEY?: string;
+  } => ({
     SUPABASE_URL: "https://project-ref.supabase.co",
     SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test",
-  },
+  }),
+);
+
+vi.mock("cloudflare:workers", () => ({
+  env: runtimeEnv,
 }));
 vi.mock("@supabase/ssr", () => ({ createServerClient: mocks.createServerClient }));
 vi.mock("../../lib/auth/require-auth", () => ({
@@ -58,6 +65,8 @@ let setAll: (
 
 beforeEach(() => {
   vi.clearAllMocks();
+  runtimeEnv.SUPABASE_URL = "https://project-ref.supabase.co";
+  runtimeEnv.SUPABASE_PUBLISHABLE_KEY = "sb_publishable_test";
   mocks.createServerClient.mockImplementation(
     (_url: string, _key: string, options: { cookies: { setAll: typeof setAll } }) => {
       setAll = options.cookies.setAll;
@@ -122,6 +131,38 @@ it.each(["http://127.0.0.1/", "http://localhost/"])(
     expect(mocks.requireAuth).not.toHaveBeenCalled();
   },
 );
+
+it("keeps the public entry usable when Supabase runtime configuration is absent", async () => {
+  runtimeEnv.SUPABASE_URL = undefined;
+  runtimeEnv.SUPABASE_PUBLISHABLE_KEY = undefined;
+
+  const root = await proxy(new NextRequest("https://app.test/"));
+  expect(root.status).toBe(200);
+  expect(
+    root.headers.get("x-middleware-request-x-petcare-authenticated"),
+  ).toBe("0");
+
+  const login = await proxy(new NextRequest("https://app.test/login"));
+  expect(login.status).toBe(307);
+  expect(login.headers.get("location")).toBe(
+    "https://app.test/login?error=unavailable",
+  );
+
+  const unavailable = await proxy(
+    new NextRequest("https://app.test/login?error=unavailable"),
+  );
+  expect(unavailable.status).toBe(200);
+
+  const protectedPage = await proxy(
+    new NextRequest("https://app.test/settings"),
+  );
+  expect(protectedPage.status).toBe(307);
+  expect(protectedPage.headers.get("location")).toBe(
+    "https://app.test/login?error=unavailable",
+  );
+  expect(mocks.createServerClient).not.toHaveBeenCalled();
+  expect(mocks.requireAuth).not.toHaveBeenCalled();
+});
 
 it("keeps the anonymous root public and overwrites a forged auth marker", async () => {
   mocks.getClaims.mockResolvedValue({ data: null, error: new Error("anonymous") });

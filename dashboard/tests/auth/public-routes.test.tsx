@@ -169,6 +169,23 @@ it("renders the four public auth forms with accessible native controls", async (
   );
 });
 
+it("renders an unavailable account state without a broken login form", async () => {
+  render(
+    await LoginPage({
+      searchParams: Promise.resolve({ error: "unavailable" }),
+    }),
+  );
+  expect(screen.getByText(/실시간 연결 준비 중입니다/)).toHaveAttribute(
+    "role",
+    "status",
+  );
+  expect(screen.getByRole("link", { name: "데모 보기" })).toHaveAttribute(
+    "href",
+    "/demo",
+  );
+  expect(document.querySelector("form")).toBeNull();
+});
+
 it("calls only the assigned Supabase password method and redirects on success", async () => {
   const loginResponse = await login(request(handlers[0].path, handlers[0].fields));
   expect(mocks.signInWithPassword).toHaveBeenCalledWith({
