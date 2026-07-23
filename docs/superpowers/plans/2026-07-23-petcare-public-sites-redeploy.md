@@ -1,5 +1,9 @@
 # PetCare Public Sites Redeploy Implementation Plan
 
+> **Superseded on 2026-07-24:** The active release decision is to reuse the
+> existing Sites project and deploy it privately. This file is retained only as
+> historical context and must not be executed as the current release plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Keep the polished PetCare landing and bundled demo publicly reachable from a new Sites project in the current account, degrade missing authentication configuration without a 500, document the real Jetson/Pico onboarding path, and deploy the exact verified candidate publicly.

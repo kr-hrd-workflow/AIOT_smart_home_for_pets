@@ -467,6 +467,26 @@ class CameraRecoveryTests(unittest.TestCase):
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_runtime_configuration_accepts_tailscale_bind(self):
+        value = {
+            "bind_ip": "100.64.0.10",
+            "port": 9443,
+            "webcam": "/dev/video0",
+            "certificate_path": "/var/lib/petcare-vision/device.crt",
+            "private_key_path": "/var/lib/petcare-vision/device.key",
+            "psk_path": "/var/lib/petcare-vision/psk.bin",
+            "engine_path": "/opt/petcare-vision/model.engine",
+            "engine_metadata_path": "/opt/petcare-vision/model.engine.json",
+            "state_dir": "/var/lib/petcare-vision",
+            "temperature_path": "/sys/devices/virtual/thermal/thermal_zone0/temp",
+            "max_temperature_c": 80.0,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "config.json")
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(value, handle)
+            self.assertEqual(_configuration(path)["bind_ip"], "100.64.0.10")
+
     def test_runtime_configuration_rejects_non_rfc1918_bind(self):
         value = {
             "bind_ip": "0.0.0.0",

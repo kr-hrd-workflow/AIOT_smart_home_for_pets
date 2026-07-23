@@ -11,6 +11,7 @@ import win32service
 import win32serviceutil
 
 from .agent_runtime import AgentSupervisor
+from .config import _secure_read
 
 
 REGISTRY_PATH = r"SOFTWARE\PetCare\HomeAgent"
@@ -63,6 +64,14 @@ def safe_service_status(paths: ServicePaths, *, running: bool) -> dict[str, bool
     return {"configured": True, "jetson": True, "running": bool(running)}
 
 
+def _optional_jetson_config_path(path: Path) -> Path | None:
+    try:
+        _secure_read(path, owner_only=True)
+    except (OSError, ValueError):
+        return None
+    return path
+
+
 class PetCareHomeAgentService(win32serviceutil.ServiceFramework):
     _svc_name_ = "PetCareHomeAgent"
     _svc_display_name_ = "PetCare Home Agent"
@@ -79,7 +88,8 @@ class PetCareHomeAgentService(win32serviceutil.ServiceFramework):
     def SvcDoRun(self) -> None:
         try:
             paths = read_service_paths()
-            AgentSupervisor(paths.config_path, paths.tools_path, paths.jetson_config_path).run(self._stop_event)
+            jetson_config_path = _optional_jetson_config_path(paths.jetson_config_path)
+            AgentSupervisor(paths.config_path, paths.tools_path, jetson_config_path).run(self._stop_event)
         except BaseException:
             servicemanager.LogErrorMsg("PetCare Home Agent supervisor failed")
 

@@ -87,6 +87,69 @@ def test_build_composes_concrete_dependencies_without_starting_background_work(
     assert not any(call[0] in {"start", "status", "calibrate", "process"} for call in calls)
 
 
+def test_build_without_jetson_keeps_the_upload_queue_and_skips_clip_workers(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[str] = []
+    config_path = tmp_path / "agent.json"
+    private_key = base64.urlsafe_b64encode(bytes(range(32))).decode("ascii").rstrip("=")
+    runtime = SimpleNamespace(
+        origin="https://petcare.example",
+        agent_id="agent-1",
+        camera_id="camera-1",
+        private_key=SimpleNamespace(get_secret_value=lambda: private_key),
+    )
+
+    class Queue:
+        def start(self) -> None:
+            calls.append("queue:start")
+
+        def stop(self, *, timeout_seconds: float) -> None:
+            calls.append(f"queue:stop:{timeout_seconds}")
+
+    queue = Queue()
+    monkeypatch.setattr(lifecycle, "load_runtime_config", lambda _path: runtime)
+    monkeypatch.setattr(
+        lifecycle,
+        "load_config",
+        lambda: SimpleNamespace(camera_source="disabled", jetson_config=None),
+    )
+    monkeypatch.setattr(lifecycle, "SignedClipUploadClient", lambda **_kwargs: object())
+
+    class UploadQueue:
+        @classmethod
+        def open(cls, *_args: object, **_kwargs: object) -> Queue:
+            return queue
+
+    monkeypatch.setattr(lifecycle, "ClipUploadQueue", UploadQueue)
+    monkeypatch.setattr(
+        lifecycle,
+        "_ffprobe_path",
+        lambda _path: (_ for _ in ()).throw(AssertionError("ffprobe is camera-only")),
+    )
+    monkeypatch.setattr(
+        lifecycle,
+        "JetsonVisionClient",
+        lambda _config: (_ for _ in ()).throw(AssertionError("Jetson must stay optional")),
+    )
+
+    components = build_agent_components(
+        config_path,
+        tmp_path / "agent-tools.json",
+        object(),
+        now=lambda: NOW,
+    )
+
+    assert components.jetson_client is None
+    assert components.clip_admission is None
+    assert components.clip_delivery is None
+    assert components.upload_queue is queue
+    start_agent_components(components)
+    stop_agent_components(components)
+    assert calls == ["queue:start", "queue:stop:45.0"]
+
+
 def test_public_shape_and_start_order_contains_jetson_handshake_failure() -> None:
     calls: list[str] = []
 

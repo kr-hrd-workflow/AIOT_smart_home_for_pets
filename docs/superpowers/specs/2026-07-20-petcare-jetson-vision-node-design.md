@@ -90,11 +90,11 @@ The Home Agent remains the compatibility boundary for current code:
 - the live route remains `/api/video_feed`. The Home Agent converts the latest authenticated Jetson preview JPEG into the existing MJPEG chunk; the browser never receives a Jetson URL.
 - camera failure leaves the current sensor ingestion, MQTT worker, database, and API running. Camera-dependent rule state follows existing `camera_loss` and unavailable semantics.
 
-## LAN Protocol
+## Private Transport Protocol
 
 ### Transport And Identity
 
-The Jetson listens on exactly one configured RFC1918 Ethernet address at TCP 9443. It must reject loopback, wildcard, multicast, link-local, and public bind addresses. The host firewall permits that port only from the configured Home Agent IPv4 address. No router port forward, UPnP rule, public DNS record, Cloudflare tunnel, Wi-Fi listener, or `0.0.0.0` listener is created for the Jetson.
+The Jetson listens on TCP 9443 through exactly one approved private transport: an RFC1918 Ethernet address shared with an RFC1918 Home Agent, or a Tailscale `100.64.0.0/10` address shared with a Tailscale Home Agent. LAN/Tailscale mixing is rejected, and the Tailscale path must use exactly `tailscale0`. Loopback, wildcard, multicast, link-local, ordinary public, Wi-Fi, router-forwarded, and Cloudflare-exposed listeners remain forbidden. The host firewall permits the port only from the configured Home Agent IPv4 address.
 
 HTTPS is mandatory. The Jetson uses a locally generated self-signed device certificate with an IP subjectAltName. The Home Agent installs that exact certificate as its sole Jetson trust anchor and verifies the configured IP hostname; `verify=False` is forbidden. This certificate pin identifies the Jetson. A separate random 32-byte pre-shared key authenticates the Home Agent and is stored in owner-only runtime files on both machines.
 

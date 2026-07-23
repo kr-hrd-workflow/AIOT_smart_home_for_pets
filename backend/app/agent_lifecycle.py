@@ -32,9 +32,9 @@ __all__ = (
 
 @dataclass(frozen=True, slots=True, weakref_slot=True)
 class AgentLifecycleComponents:
-    jetson_client: JetsonVisionClient
-    clip_admission: ClipAdmissionWorker
-    clip_delivery: ClipDeliveryWorker
+    jetson_client: JetsonVisionClient | None
+    clip_admission: ClipAdmissionWorker | None
+    clip_delivery: ClipDeliveryWorker | None
     upload_queue: ClipUploadQueue
     started_at: datetime
 
@@ -92,10 +92,6 @@ def build_agent_components(
     config_path = Path(config_path)
     runtime = load_runtime_config(config_path)
     app_config = load_config()
-    if app_config.camera_source != "jetson" or app_config.jetson_config is None:
-        raise ValueError("Jetson camera source is required")
-    ffprobe_path = _ffprobe_path(Path(tools_path))
-
     upload_client = SignedClipUploadClient(
         origin=runtime.origin,
         agent_id=runtime.agent_id,
@@ -103,22 +99,28 @@ def build_agent_components(
         private_key=_private_key(runtime.private_key.get_secret_value()),
         now=now,
     )
-    jetson_client = JetsonVisionClient(app_config.jetson_config)
-    repository = SqlAlchemyClipOutboxRepository(session_factory)
     upload_queue = ClipUploadQueue.open(
         config_path.parent / "clip-upload-queue",
         upload_client,
         now=now,
     )
-    clip_admission = ClipAdmissionWorker(repository, jetson_client, now=now)
-    clip_delivery = ClipDeliveryWorker(
-        repository,
-        jetson_client,
-        upload_queue,
-        work_dir=config_path.parent / "clip-delivery",
-        ffprobe_path=ffprobe_path,
-        now=now,
-    )
+    jetson_client: JetsonVisionClient | None = None
+    clip_admission: ClipAdmissionWorker | None = None
+    clip_delivery: ClipDeliveryWorker | None = None
+    if app_config.camera_source == "jetson":
+        if app_config.jetson_config is None:
+            raise ValueError("Jetson camera source requires runtime configuration")
+        jetson_client = JetsonVisionClient(app_config.jetson_config)
+        repository = SqlAlchemyClipOutboxRepository(session_factory)
+        clip_admission = ClipAdmissionWorker(repository, jetson_client, now=now)
+        clip_delivery = ClipDeliveryWorker(
+            repository,
+            jetson_client,
+            upload_queue,
+            work_dir=config_path.parent / "clip-delivery",
+            ffprobe_path=_ffprobe_path(Path(tools_path)),
+            now=now,
+        )
     components = AgentLifecycleComponents(
         jetson_client,
         clip_admission,
@@ -137,12 +139,15 @@ def start_agent_components(components: AgentLifecycleComponents) -> None:
             return
 
     components.upload_queue.start()
-    try:
-        components.jetson_client.calibrate_clock()
-    except Exception:
-        state.last_error = "jetson_unavailable"
-    components.clip_admission.start()
-    components.clip_delivery.start()
+    if components.jetson_client is not None:
+        assert components.clip_admission is not None
+        assert components.clip_delivery is not None
+        try:
+            components.jetson_client.calibrate_clock()
+        except Exception:
+            state.last_error = "jetson_unavailable"
+        components.clip_admission.start()
+        components.clip_delivery.start()
     with _states_lock:
         state.started = True
 
@@ -179,11 +184,17 @@ def stop_agent_components(
 
     deadline = time.monotonic() + timeout_seconds
     first_error: BaseException | None = None
-    operations = (
-        (5.0, lambda timeout: components.clip_admission.stop(timeout_seconds=timeout)),
-        (45.0, lambda timeout: components.clip_delivery.stop(timeout_seconds=timeout)),
-        (2.0, lambda timeout: _bounded_close(components.jetson_client, timeout)),
-        (45.0, lambda timeout: components.upload_queue.stop(timeout_seconds=timeout)),
+    operations: list[tuple[float, Callable[[float], None]]] = []
+    if components.jetson_client is not None:
+        assert components.clip_admission is not None
+        assert components.clip_delivery is not None
+        operations.extend((
+            (5.0, lambda timeout: components.clip_admission.stop(timeout_seconds=timeout)),
+            (45.0, lambda timeout: components.clip_delivery.stop(timeout_seconds=timeout)),
+            (2.0, lambda timeout: _bounded_close(components.jetson_client, timeout)),
+        ))
+    operations.append(
+        (45.0, lambda timeout: components.upload_queue.stop(timeout_seconds=timeout))
     )
     for cap, operation in operations:
         remaining = max(0.0, deadline - time.monotonic())

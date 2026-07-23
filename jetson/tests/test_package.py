@@ -155,6 +155,61 @@ class PackageTests(unittest.TestCase):
             self.assertEqual(set(bundle), {"url", "certificate_pem", "psk_base64url"})
             self.assertEqual(bundle["url"], "https://192.168.50.20:9443")
             self.assertNotIn("PRIVATE KEY", json.dumps(bundle))
+
+            tailscale_fixture = work / "tailscale-root"
+            tailscale_result = subprocess.run(
+                self.native_command(
+                    "env",
+                    "PATH=%s:/usr/bin:/bin" % fake_linux,
+                    "CALLED_DIR=%s" % called_linux,
+                    "bash",
+                    "%s/install.sh" % source_linux,
+                    "--fixture-root",
+                    self.native_path(tailscale_fixture),
+                    "--bind-ip",
+                    "100.64.0.10",
+                    "--home-ip",
+                    "100.64.0.11",
+                    "--interface",
+                    "tailscale0",
+                ),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True,
+            )
+            self.assertEqual(tailscale_result.returncode, 0, tailscale_result.stderr)
+            tailscale_config = json.loads(
+                (tailscale_fixture / "var/lib/petcare-vision/config.json").read_text(encoding="utf-8")
+            )
+            tailscale_bundle = json.loads(
+                (tailscale_fixture / "root/petcare-jetson-pairing.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(tailscale_config["bind_ip"], "100.64.0.10")
+            self.assertEqual(tailscale_bundle["url"], "https://100.64.0.10:9443")
+
+            mixed_fixture = work / "mixed-root"
+            mixed_result = subprocess.run(
+                self.native_command(
+                    "env",
+                    "PATH=%s:/usr/bin:/bin" % fake_linux,
+                    "CALLED_DIR=%s" % called_linux,
+                    "bash",
+                    "%s/install.sh" % source_linux,
+                    "--fixture-root",
+                    self.native_path(mixed_fixture),
+                    "--bind-ip",
+                    "100.64.0.10",
+                    "--home-ip",
+                    "192.168.50.10",
+                    "--interface",
+                    "tailscale0",
+                ),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True,
+            )
+            self.assertNotEqual(mixed_result.returncode, 0)
+            self.assertFalse(mixed_fixture.exists())
             script = INSTALLER.read_text(encoding="utf-8")
             self.assertIn('chmod 600 "$root/var/lib/petcare-vision/config.json"', script)
             self.assertIn('os.chmod(root + "/root/petcare-jetson-pairing.json", 0o600)', script)
@@ -165,9 +220,9 @@ class PackageTests(unittest.TestCase):
             "aarch64 required",
             "L4T R32.7.6 required",
             "TensorRT 8.2.1 required",
-            "private RFC1918 IPv4 required",
-            "Home and Jetson IPs must differ",
+            "matching RFC1918 LAN or Tailscale IPv4 pair required",
             "Ethernet interface required",
+            "Tailscale interface required",
             "Wi-Fi interface is forbidden",
             "webcam required",
             "temperature probe required",

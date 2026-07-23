@@ -71,6 +71,10 @@ class OriginPolicyMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
+        path = str(scope.get("path", ""))
+        if path == "/setup" or path.startswith("/setup/"):
+            await self.app(scope, receive, send)
+            return
         headers = Headers(scope=scope)
         origin = headers.get("origin")
         method = str(scope["method"])

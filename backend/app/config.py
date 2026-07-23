@@ -21,6 +21,22 @@ def _rfc1918(address: IPv4Address) -> bool:
     )
 
 
+def _tailscale_cgnat(address: IPv4Address) -> bool:
+    octets = address.packed
+    return octets[0] == 100 and 64 <= octets[1] <= 127
+
+
+def _private_transport_pair(jetson_ip: IPv4Address, home_ip: IPv4Address) -> bool:
+    return jetson_ip != home_ip and (
+        (_rfc1918(jetson_ip) and _rfc1918(home_ip))
+        or (_tailscale_cgnat(jetson_ip) and _tailscale_cgnat(home_ip))
+    )
+
+
+def _private_transport_address(address: IPv4Address) -> bool:
+    return _rfc1918(address) or _tailscale_cgnat(address)
+
+
 class JetsonConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True, hide_input_in_errors=True)
 
@@ -47,7 +63,7 @@ class JetsonConfig(BaseModel):
             or parsed.path not in ("", "/")
             or parsed.query
             or parsed.fragment
-            or not _rfc1918(address)
+            or not _private_transport_address(address)
             or address.is_loopback
             or address.is_link_local
             or address.is_multicast
@@ -64,9 +80,17 @@ class JetsonConfig(BaseModel):
             address = IPv4Address(value)
         except ValueError as error:
             raise ValueError("Home IP must be a private literal IPv4 address") from error
-        if str(address) != value or not _rfc1918(address):
+        if str(address) != value or not _private_transport_address(address):
             raise ValueError("Home IP must be a private literal IPv4 address")
         return value
+
+    @model_validator(mode="after")
+    def validate_transport_pair(self) -> Self:
+        jetson_ip = IPv4Address(urlsplit(self.url).hostname or "")
+        home_ip = IPv4Address(self.home_ip)
+        if not _private_transport_pair(jetson_ip, home_ip):
+            raise ValueError("Home and Jetson must use the same private transport")
+        return self
 
     @field_validator("ca_cert_path", "psk_path")
     @classmethod

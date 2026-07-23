@@ -11,24 +11,24 @@ const readLandingSource = (name: string) => {
   }
 };
 
-it("loads the heavy R3F canvas lazily and renders it only on demand", () => {
+it("loads the scroll world lazily without pulling R3F into the public route", () => {
   const experience = readLandingSource("pet-home-experience.tsx");
   const canvas = readLandingSource("pet-home-canvas.tsx");
 
   expect(experience).toContain('lazy(() => import("./pet-home-canvas")');
   expect(experience).not.toContain("@react-three/fiber");
-  expect(canvas).toContain('frameloop="demand"');
-  expect(canvas).not.toContain('frameloop="always"');
+  expect(canvas).toContain("mountScrollWorld");
+  expect(canvas).not.toContain("@react-three/fiber");
+  expect(canvas).not.toContain("<Canvas");
+  expect(readLandingSource("pet-home-scene.tsx")).toBe("");
 });
 
 it("uses the photorealistic apartment plate instead of low-poly room geometry", () => {
-  const scene = readLandingSource("pet-home-scene.tsx");
+  const config = readLandingSource("scroll-world-config.ts");
   const fallback = readLandingSource("landing-fallback.tsx");
 
-  expect(scene).toContain("/landing-apartment-photoreal-v3.webp");
-  expect(scene).toContain("/landing-apartment-photoreal-mobile-v2.webp");
-  expect(scene).toContain("useTexture");
-  expect(scene).not.toContain("<boxGeometry");
+  expect(config).not.toContain("low-poly");
+  expect(config).not.toContain("boxGeometry");
   expect(fallback).toContain("/landing-apartment-photoreal-v3.webp");
   expect(fallback).toContain("/landing-apartment-photoreal-mobile-v2.webp");
   expect(
@@ -44,30 +44,36 @@ it("uses the photorealistic apartment plate instead of low-poly room geometry", 
   ).toBe(true);
 });
 
-it("layers deterministic Remotion film loops behind the R3F signals", () => {
+it("scrubs one continuous photoreal journey instead of stitching scene fragments", () => {
   const canvas = readLandingSource("pet-home-canvas.tsx");
+  const config = readLandingSource("scroll-world-config.ts");
+  const globals = readFileSync(
+    new URL("../../app/globals.css", import.meta.url),
+    "utf8",
+  );
+  const clip = new URL(
+    "../../public/landing/scroll-world/desktop/scene-01-arrival.mp4",
+    import.meta.url,
+  );
+  const poster = new URL(
+    "../../public/landing/scroll-world/source/scene-01-arrival.png",
+    import.meta.url,
+  );
 
-  expect(canvas).toContain("/landing-apartment-cinematic-loop.mp4");
-  expect(canvas).toContain("/landing-apartment-cinematic-loop-mobile.mp4");
-  expect(canvas).toContain("autoPlay");
-  expect(canvas).toContain("muted");
-  expect(canvas).toContain("loop");
-  expect(canvas).toContain("playsInline");
-  expect(canvas).toContain("poster=");
-  expect(canvas).toContain("onPlaying=");
-  expect(
-    existsSync(
-      new URL("../../public/landing-apartment-cinematic-loop.mp4", import.meta.url),
-    ),
-  ).toBe(true);
-  expect(
-    existsSync(
-      new URL(
-        "../../public/landing-apartment-cinematic-loop-mobile.mp4",
-        import.meta.url,
-      ),
-    ),
-  ).toBe(true);
+  expect(canvas).toContain("SCROLL_WORLD_CONFIG");
+  expect(config.match(/id: "journey"/g)).toHaveLength(1);
+  expect(config).toContain("connectors: []");
+  expect(config).toContain(
+    "/landing/scroll-world/desktop/scene-01-arrival.mp4",
+  );
+  expect(config).toContain(
+    "/landing/scroll-world/source/scene-01-arrival.png",
+  );
+  expect(existsSync(clip)).toBe(true);
+  expect(existsSync(poster)).toBe(true);
+  expect(canvas).not.toContain("autoPlay");
+  expect(canvas).not.toContain("loop");
+  expect(globals).not.toContain("animation: landing-cinematic-drift");
 });
 
 it("selects the compact scene profile at the mobile breakpoint", () => {
@@ -84,15 +90,31 @@ it("keeps Korean landing copy on word boundaries", () => {
   );
 });
 
-it("adds cinematic entry and scroll motion with a reduced-motion stop", () => {
+it("keeps entry and chapter motion without an idle scene drift", () => {
   const styles = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
 
-  expect(styles).toContain("@keyframes landing-cinematic-drift");
-  expect(styles).toMatch(
-    /\.pet-home-experience\s*\{[^}]*animation:\s*landing-cinematic-drift/s,
-  );
+  expect(styles).not.toContain("@keyframes landing-cinematic-drift");
   expect(styles).toContain("animation-timeline: view()");
   expect(styles).toMatch(
     /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.pet-home-experience[\s\S]*animation:\s*none !important;/,
   );
+});
+
+it("keeps mobile chapter copy cinematic instead of covering the footage with a card", () => {
+  const styles = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
+  const reducedMotionStart = styles.indexOf(
+    "@media (prefers-reduced-motion: reduce)",
+  );
+  const mobileStyles = styles.slice(
+    styles.lastIndexOf("@media (max-width: 600px)", reducedMotionStart),
+    reducedMotionStart,
+  );
+
+  expect(mobileStyles).toMatch(
+    /\.landing-chapter,\s*\.landing-chapter:nth-child\(even\)\s*\{[^}]*align-items:\s*flex-end;/s,
+  );
+  expect(mobileStyles).toMatch(
+    /\.landing-chapter-copy,[\s\S]*?\.landing-chapter:last-child \.landing-chapter-copy\s*\{[^}]*background:\s*transparent;/s,
+  );
+  expect(mobileStyles).not.toContain("background: var(--landing-surface);");
 });

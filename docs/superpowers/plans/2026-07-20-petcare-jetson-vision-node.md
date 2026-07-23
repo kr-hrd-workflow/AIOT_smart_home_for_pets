@@ -18,8 +18,8 @@
 - Clip timing remains exactly 100 pre-roll buckets plus 200 post-roll buckets at 10 Hz; a +15-second eligible overlap is exactly 450 frames/45 seconds; total duration never exceeds 120 seconds.
 - The Jetson writes no continuous video and no pre-roll file. It holds at most 100 annotated JPEGs in RAM and at most two ready MP4s / 256 MiB / one hour on private temporary storage.
 - The Home Agent continues to own Pico MQTT, fusion/rules, PostgreSQL, tenant/device ownership, enrollment, cloud identity, signed `PETCARE-CLIP-V1` upload, R2, tunnel, and all Sites-facing routes.
-- The browser and Sites Worker never receive a Jetson URL, certificate, PSK, boot ID, LAN IP, or clip path.
-- Jetson HTTPS binds to one configured RFC1918 Ethernet IPv4 address on port 9443. Wildcard, loopback, link-local, multicast, public, Wi-Fi, router-forwarded, and Cloudflare-exposed Jetson listeners are forbidden.
+- The browser and Sites Worker never receive a Jetson URL, certificate, PSK, boot ID, private transport IP, or clip path.
+- Jetson HTTPS binds on port 9443 to either a matching RFC1918 Ethernet pair or a matching Tailscale `100.64.0.0/10` pair using exactly `tailscale0`. LAN/Tailscale mixing, wildcard, loopback, link-local, multicast, ordinary public, Wi-Fi, router-forwarded, and Cloudflare-exposed listeners are forbidden.
 - TLS verification, HMAC input validation, replay protection, media validation, ACLs, and camera-offline sensor isolation may not be simplified.
 - Home network calls are bounded: connect 1 second, ordinary read 2 seconds, observation long-poll 2 seconds, MP4 download 45 seconds, and at most one request of each class in flight.
 - A new event must be accepted by the Jetson within a real three seconds of the Home outbox `created_at` or it becomes terminal `clip_missed`; the Home admission worker is isolated from slow media/cloud work, every first PUT has a fresh signed calibration plus wall/monotonic discontinuity guards and a 200 ms total error budget, and the exact media window is anchored to the first PUT's Jetson monotonic receipt rather than either machine's adjustable wall clock. `occurred_at` remains only a domain label.
@@ -490,7 +490,7 @@ Status reads `tegrastats`/sysfs through an injected probe, stamps `server_time` 
 
 - [ ] **Step 5: Implement the approval-gated installer**
 
-`jetson/install.sh --fixture-root "$PWD/.runtime/jetson-package-fixture"` is non-mutating outside the fixture. `--install --bind-ip 192.168.50.20 --home-ip 192.168.50.10 --interface eth0 --webcam /dev/video0` performs real mutation only after approval. It installs only tracked Jetson files, stock system packages already supplied by JetPack, the engine/metadata, certificate, config, and service. It never installs Docker, pip packages, Home backend, cloudflared, MQTT, PostgreSQL, Supabase, or an internet-facing service.
+`jetson/install.sh --fixture-root "$PWD/.runtime/jetson-package-fixture"` is non-mutating outside the fixture. After approval, LAN uses `--install --bind-ip 192.168.50.20 --home-ip 192.168.50.10 --interface eth0 --webcam /dev/video0`; the Tailscale example uses `--install --bind-ip 100.64.0.10 --home-ip 100.64.0.11 --interface tailscale0 --webcam /dev/video0`. Replace those example addresses with the approved operator devices at install time. It installs only tracked Jetson files, stock system packages already supplied by JetPack, the engine/metadata, certificate, config, and service. It never installs Docker, pip packages, Home backend, cloudflared, MQTT, PostgreSQL, Supabase, or an internet-facing service.
 
 The one-time pairing bundle contains exactly Jetson URL, certificate PEM, and PSK, mode `0600`; no private TLS key or model is exported. After successful Home import, the operator deletes this bundle.
 

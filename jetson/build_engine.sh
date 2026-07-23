@@ -77,8 +77,8 @@ rm -f "$engine_tmp"
 chmod 600 "$engine_tmp"
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-golden="$script_dir/../dashboard/public/og.png"
-[ "$(sha256sum "$golden" | awk '{print toupper($1)}')" = E87C167B3539CE863C2652C7D0055EA38C8E531948714B3119369CFD694601C8 ] || {
+golden="$script_dir/tests/fixtures/engine-smoke.ppm"
+[ "$(sha256sum "$golden" | awk '{print toupper($1)}')" = 8A44A7098B5DFA41682639E417E1AC247EC5C60446CAF6255A90576C0D80597A ] || {
     echo "golden image mismatch" >&2
     exit 1
 }

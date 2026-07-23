@@ -102,12 +102,46 @@ def test_service_delegates_once_with_exact_three_runtime_paths(
     service = object.__new__(PetCareHomeAgentService)
     service._stop_event = Event()
     monkeypatch.setattr("app.windows_service.read_service_paths", lambda: paths)
+    monkeypatch.setattr("app.windows_service._optional_jetson_config_path", lambda path: path)
     monkeypatch.setattr("app.windows_service.AgentSupervisor", Supervisor)
 
     service.SvcDoRun()
 
     assert constructed == [(agent, tools, jetson)]
     assert run_events == [service._stop_event]
+
+
+def test_service_treats_a_missing_reserved_jetson_path_as_optional(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = ServicePaths(
+        (tmp_path / "agent.json").resolve(),
+        (tmp_path / "agent-tools.json").resolve(),
+        (tmp_path / "jetson.json").resolve(),
+    )
+    constructed: list[tuple[Path, Path, Path | None]] = []
+
+    class Supervisor:
+        def __init__(
+            self,
+            config: Path,
+            runtime_tools: Path,
+            jetson_config: Path | None,
+        ) -> None:
+            constructed.append((config, runtime_tools, jetson_config))
+
+        def run(self, _stop_event: Event) -> int:
+            return 0
+
+    service = object.__new__(PetCareHomeAgentService)
+    service._stop_event = Event()
+    monkeypatch.setattr("app.windows_service.read_service_paths", lambda: paths)
+    monkeypatch.setattr("app.windows_service.AgentSupervisor", Supervisor)
+
+    service.SvcDoRun()
+
+    assert constructed == [(paths.config_path, paths.tools_path, None)]
 
 
 def test_service_status_never_exposes_paths_or_secrets(tmp_path: Path) -> None:

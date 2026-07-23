@@ -22,6 +22,15 @@ export async function proxy(request: NextRequest) {
     return nextWithAuth(request, false);
   }
   if (
+    process.env.NODE_ENV !== "production" &&
+    request.headers.get("x-petcare-e2e-auth") === "connected" &&
+    request.nextUrl.pathname === "/dashboard" &&
+    (request.nextUrl.hostname === "127.0.0.1" ||
+      request.nextUrl.hostname === "localhost")
+  ) {
+    return nextWithAuth(request, true);
+  }
+  if (
     request.nextUrl.pathname === "/" &&
     (request.nextUrl.hostname === "127.0.0.1" ||
       request.nextUrl.hostname === "localhost")

@@ -30,7 +30,7 @@ it("keeps the product story and primary actions available without WebGL", () => 
   ).toBeInTheDocument();
   expect(screen.getAllByRole("link", { name: "로그인" })[0]).toHaveAttribute(
     "href",
-    "/login",
+    "/dashboard",
   );
   expect(screen.getAllByRole("link", { name: "데모 보기" })[0]).toHaveAttribute(
     "href",
@@ -55,9 +55,9 @@ it("renders the public landing unless the proxy supplied a verified marker", asy
   expect(html).not.toContain("remote-dashboard");
 });
 
-it("keeps the operational dashboard for a verified session", async () => {
+it("keeps the public landing first for a verified session", async () => {
   requestHeaders.mockResolvedValue(new Headers({ "x-petcare-authenticated": "1" }));
-  render(await Home());
-  expect(screen.getByTestId("remote-dashboard")).toBeInTheDocument();
-  expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument();
+  const html = renderToString(await Home());
+  expect(html).toContain('id="petcare-story"');
+  expect(html).not.toContain("remote-dashboard");
 });

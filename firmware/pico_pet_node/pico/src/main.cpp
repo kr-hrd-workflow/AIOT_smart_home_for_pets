@@ -1,6 +1,6 @@
 #include "mqtt_publisher.hpp"
 #include "petcare_config.hpp"
-#include "petcare_secrets.hpp"
+#include "provisioning_store.hpp"
 #include "sensors.hpp"
 
 #include "lwip/apps/sntp.h"
@@ -9,6 +9,7 @@
 #include "pico/time.h"
 
 #include <array>
+#include <algorithm>
 #include <cstdint>
 #include <sys/time.h>
 
@@ -49,6 +50,19 @@ bool make_status(
     );
 }
 
+void wait_with_usb(
+    petcare::ProvisioningConfig& runtime,
+    std::uint32_t duration_ms) {
+    while (duration_ms != 0) {
+        petcare::poll_usb_provisioning(
+            petcare::config::device_id,
+            runtime);
+        const auto slice = std::min<std::uint32_t>(duration_ms, 10);
+        sleep_ms(slice);
+        duration_ms -= slice;
+    }
+}
+
 }
 
 extern "C" void petcare_sntp_set_system_time_us(std::uint32_t seconds, std::uint32_t microseconds) {
@@ -60,6 +74,15 @@ extern "C" void petcare_sntp_set_system_time_us(std::uint32_t seconds, std::uint
 
 int main() {
     stdio_init_all();
+
+    petcare::ProvisioningConfig runtime{};
+    while (!petcare::load_provisioning(runtime)) {
+        petcare::poll_usb_provisioning(
+            petcare::config::device_id,
+            runtime);
+        sleep_ms(10);
+    }
+
     if (cyw43_arch_init()) {
         return 1;
     }
@@ -76,12 +99,14 @@ int main() {
 
     for (;;) {
         if (cyw43_arch_wifi_connect_timeout_ms(
-                petcare::secrets::wifi_ssid,
-                petcare::secrets::wifi_password,
+                runtime.ssid.data(),
+                runtime.wifi_password.data(),
                 CYW43_AUTH_WPA2_AES_PSK,
                 petcare::config::wifi_timeout_ms
             ) != 0) {
-            sleep_ms(wifi_backoff.next_delay_seconds() * 1'000);
+            wait_with_usb(
+                runtime,
+                wifi_backoff.next_delay_seconds() * 1'000U);
             continue;
         }
         wifi_backoff.reset();
@@ -94,10 +119,12 @@ int main() {
                 clock.synchronize(wall_clock_ms(), now_ms);
                 next_sync_attempt_ms = now_ms + petcare::UtcClock::retry_ms;
             }
-            sleep_ms(50);
+            wait_with_usb(runtime, 50);
         }
         if (!clock.valid()) {
-            sleep_ms(wifi_backoff.next_delay_seconds() * 1'000);
+            wait_with_usb(
+                runtime,
+                wifi_backoff.next_delay_seconds() * 1'000U);
             continue;
         }
 
@@ -109,26 +136,30 @@ int main() {
         if (!clock.timestamp(connect_started_ms, lwt_observed_at, lwt_utc_ms) ||
             !petcare::make_offline_lwt(petcare::config::device_id, {lwt_observed_at.data(), 24}, lwt) ||
             !publisher.connect(
-                petcare::secrets::mqtt_host,
-                petcare::secrets::mqtt_port,
+                runtime.mqtt_host.data(),
+                runtime.mqtt_port,
                 petcare::config::client_id,
-                petcare::secrets::mqtt_username,
-                petcare::secrets::mqtt_password,
+                runtime.mqtt_username.data(),
+                runtime.mqtt_password.data(),
                 lwt
             )) {
             publisher.abort();
-            sleep_ms(mqtt_backoff.next_delay_seconds() * 1'000);
+            wait_with_usb(
+                runtime,
+                mqtt_backoff.next_delay_seconds() * 1'000U);
             continue;
         }
 
         while (!publisher.connected() &&
                monotonic_ms() - connect_started_ms < petcare::config::mqtt_timeout_ms &&
                cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) == CYW43_LINK_UP) {
-            sleep_ms(10);
+            wait_with_usb(runtime, 10);
         }
         if (!publisher.connected()) {
             publisher.abort();
-            sleep_ms(mqtt_backoff.next_delay_seconds() * 1'000);
+            wait_with_usb(
+                runtime,
+                mqtt_backoff.next_delay_seconds() * 1'000U);
             continue;
         }
         mqtt_backoff.reset();
@@ -140,7 +171,9 @@ int main() {
         if (!make_status(clock, petcare::DeviceState::online, now_ms, status, status_utc_ms) ||
             !publisher.publish_status(status)) {
             publisher.abort();
-            sleep_ms(mqtt_backoff.next_delay_seconds() * 1'000);
+            wait_with_usb(
+                runtime,
+                mqtt_backoff.next_delay_seconds() * 1'000U);
             continue;
         }
         clock.mark_published(status_utc_ms);
@@ -190,9 +223,11 @@ int main() {
                     clock.mark_published(utc_ms);
                 }
             }
-            sleep_ms(10);
+            wait_with_usb(runtime, 10);
         }
         publisher.abort();
-        sleep_ms(mqtt_backoff.next_delay_seconds() * 1'000);
+        wait_with_usb(
+            runtime,
+            mqtt_backoff.next_delay_seconds() * 1'000U);
     }
 }

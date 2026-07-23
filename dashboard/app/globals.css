@@ -861,58 +861,48 @@ a:focus-visible {
 
 .pet-home-experience,
 .pet-home-stage,
-.pet-home-poster,
-.pet-home-poster img,
-.pet-home-film,
-.pet-home-signal-canvas {
+.scroll-world-layer,
+.scroll-world-scene,
+.scroll-world-poster,
+.scroll-world-video {
   width: 100%;
   height: 100%;
 }
 
 .pet-home-experience {
   position: relative;
-  animation: landing-cinematic-drift 18s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
-  transform-origin: center;
-  will-change: transform;
 }
 
 .pet-home-stage {
   position: relative;
   overflow: hidden;
-  transform-origin: center;
-  will-change: transform;
 }
 
-.pet-home-poster,
-.pet-home-film,
-.pet-home-signal-canvas {
-  position: absolute !important;
+.scroll-world-layer,
+.scroll-world-scene,
+.scroll-world-poster,
+.scroll-world-video {
+  position: absolute;
   inset: 0;
 }
 
-.pet-home-poster {
-  z-index: 0;
+.scroll-world-scene {
+  opacity: var(--scroll-world-opacity, 0);
 }
 
-.pet-home-poster img,
-.pet-home-film {
+.scroll-world-poster,
+.scroll-world-video {
   display: block;
   object-fit: cover;
   object-position: center;
 }
 
-.pet-home-film {
+.scroll-world-video {
   z-index: 1;
-  opacity: 0;
-  transition: opacity 800ms ease;
 }
 
-.pet-home-film[data-ready="true"] {
-  opacity: 1;
-}
-
-.pet-home-signal-canvas {
-  z-index: 2;
+.scroll-world-scene.has-video-frame .scroll-world-poster {
+  visibility: hidden;
 }
 
 .landing-overlay {
@@ -1217,16 +1207,6 @@ a:focus-visible {
   outline-offset: 3px;
 }
 
-@keyframes landing-cinematic-drift {
-  from {
-    transform: scale(1.018) translate3d(-0.2%, 0.12%, 0);
-  }
-
-  to {
-    transform: scale(1.045) translate3d(0.35%, -0.28%, 0);
-  }
-}
-
 @keyframes landing-light-breathe {
   from { opacity: 0.78; }
   to { opacity: 1; }
@@ -1314,18 +1294,38 @@ a:focus-visible {
 
   .landing-chapter,
   .landing-chapter:nth-child(even) {
-    background: linear-gradient(180deg, transparent 16%, rgba(9, 11, 13, 0.95) 72%);
+    align-items: flex-end;
+    background: linear-gradient(
+      180deg,
+      transparent 34%,
+      rgba(9, 11, 13, 0.2) 56%,
+      rgba(9, 11, 13, 0.92) 100%
+    );
   }
 
   .landing-chapter-copy,
   .landing-chapter:nth-child(even) .landing-chapter-copy,
   .landing-chapter:last-child .landing-chapter-copy {
     width: 100%;
-    padding: 28px 24px;
-    border-top: 0;
-    border-right: 0;
-    border-left: 1px solid var(--landing-line);
-    background: var(--landing-surface);
+    margin: 0 0 clamp(30px, 7dvh, 58px);
+    padding: 24px 4px;
+    border: 0;
+    background: transparent;
+    text-shadow: 0 2px 22px rgba(0, 0, 0, 0.92);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .landing-chapter h2 {
+    max-width: 11ch;
+    font-size: clamp(32px, 10.5vw, 44px);
+  }
+
+  .landing-chapter-copy > p:last-child {
+    max-width: 31ch;
+    margin-top: 18px;
+    color: rgba(248, 247, 242, 0.84);
+    line-height: 1.65;
   }
 
   .landing-hero h1 {
@@ -1456,6 +1456,7 @@ a:focus-visible {
 }
 
 .remote-page > p,
+.connection-card,
 .enrollment-card,
 .clip-section,
 .account-deletion {
@@ -1484,6 +1485,7 @@ a:focus-visible {
   display: none;
 }
 
+.connection-card,
 .enrollment-card,
 .clip-section,
 .account-deletion {
@@ -1493,6 +1495,94 @@ a:focus-visible {
   background: var(--surface);
 }
 
+.connection-heading,
+.connection-step-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.connection-heading h1,
+.connection-step-heading h2 {
+  margin: 0;
+}
+
+.connection-complete {
+  color: var(--primary);
+}
+
+.connection-checklist {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin: 20px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: connection-step;
+}
+
+.connection-checklist li {
+  padding: 16px;
+  border: 1px solid var(--border-decorative);
+  border-radius: 8px;
+  counter-increment: connection-step;
+}
+
+.connection-checklist li::before {
+  display: block;
+  margin-bottom: 12px;
+  color: var(--muted);
+  content: counter(connection-step, decimal-leading-zero);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.connection-checklist li[data-state="complete"] {
+  border-color: var(--primary);
+}
+
+.connection-step-heading {
+  align-items: baseline;
+}
+
+.connection-step-heading h2 {
+  font-size: 18px;
+}
+
+.connection-step-heading span,
+.connection-step-heading strong {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.connection-checklist li[data-state="complete"] .connection-step-heading span,
+.connection-checklist li[data-state="complete"] .connection-step-heading strong {
+  color: var(--primary);
+}
+
+.connection-checklist p {
+  color: var(--muted);
+}
+
+.connection-checklist a,
+.connection-checklist button {
+  min-height: 44px;
+  border-radius: 6px;
+  font: inherit;
+  font-weight: 700;
+}
+
+.connection-checklist a {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 14px;
+  color: var(--surface);
+  background: var(--primary);
+  text-decoration: none;
+}
+
+.connection-checklist button,
 .enrollment-card button,
 .clip-section button,
 .account-deletion button,
@@ -1503,6 +1593,7 @@ a:focus-visible {
   font: inherit;
 }
 
+.connection-checklist button,
 .enrollment-card button,
 .clip-section button,
 .account-deletion button {
@@ -1510,6 +1601,7 @@ a:focus-visible {
   font-weight: 700;
 }
 
+.connection-checklist button,
 .enrollment-card button {
   color: var(--surface);
   background: var(--primary);
@@ -1557,6 +1649,7 @@ a:focus-visible {
 }
 
 .enrollment-card button:disabled,
+.connection-checklist button:disabled,
 .destructive-delete:disabled {
   opacity: 0.6;
   cursor: not-allowed;
@@ -1595,6 +1688,7 @@ video:focus-visible {
 
 @media (max-width: 600px) {
   .remote-page > p,
+  .connection-card,
   .enrollment-card,
   .clip-section,
   .account-deletion {
@@ -1602,7 +1696,8 @@ video:focus-visible {
   }
 
   .clip-list,
-  .clip-list li {
+  .clip-list li,
+  .connection-checklist {
     grid-template-columns: minmax(0, 1fr);
   }
 }

@@ -24,11 +24,16 @@ from .mqtt_ingest import MqttIngestor, load_mqtt_endpoint
 from .rule_ingress import RuleIngress, SystemRuleClock
 from .rule_worker import RuleWorker
 from .rules import RuleEngine
+from .setup import install_setup
 
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     config = load_config()
+    application.state.config = config
+    application.state.mqtt_endpoint = None
+    application.state.agent_config_path = None
+    application.state.jetson_config_path = None
     configure_database(config.database_url)
     clock = SystemRuleClock()
     ingress = RuleIngress(clock)
@@ -41,10 +46,12 @@ async def lifespan(application: FastAPI):
     try:
         if config.mqtt_enabled:
             assert config.mqtt_profile is not None and config.mqtt_username is not None and config.mqtt_password is not None
+            mqtt_endpoint = load_mqtt_endpoint(config.mqtt_services_manifest, config.mqtt_profile)
+            application.state.mqtt_endpoint = mqtt_endpoint
             ingestor = MqttIngestor(
                 ingress=ingress,
                 session_factory=session_factory,
-                endpoint=load_mqtt_endpoint(config.mqtt_services_manifest, config.mqtt_profile),
+                endpoint=mqtt_endpoint,
                 username=config.mqtt_username.get_secret_value(),
                 password=config.mqtt_password.get_secret_value(),
             )
@@ -87,6 +94,18 @@ async def lifespan(application: FastAPI):
             tools_path = Path(agent_tools_path)
             if not config_path.is_absolute() or not tools_path.is_absolute():
                 raise ValueError("agent config and tools paths must be absolute")
+            config_path = config_path.resolve()
+            tools_path = tools_path.resolve()
+            reserved_jetson_path = os.environ.get("PETCARE_JETSON_CONFIG")
+            jetson_config_path = (
+                Path(reserved_jetson_path).resolve()
+                if reserved_jetson_path is not None
+                else config_path.with_name("jetson.json")
+            )
+            if not jetson_config_path.is_absolute():
+                raise ValueError("Jetson config path must be absolute")
+            application.state.agent_config_path = config_path
+            application.state.jetson_config_path = jetson_config_path
             agent_components = build_agent_components(config_path, tools_path, session_factory)
             application.state.agent_components = agent_components
 
@@ -149,3 +168,4 @@ app = FastAPI(
     openapi_url=None,
 )
 install_api(app)
+install_setup(app)

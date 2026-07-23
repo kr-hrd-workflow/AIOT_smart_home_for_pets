@@ -212,23 +212,24 @@ describe("dashboard demo surface", () => {
     expect(dashboardCss).not.toMatch(/gradient|backdrop-filter|text-shadow/i);
   });
 
-  it("keeps auth-plan-protected root Flight-serializable and demo server-only", () => {
+  it("keeps the public root first, the remote dashboard protected, and demo server-only", () => {
     const rootPage = readFileSync(resolve(root, "app/page.tsx"), "utf8");
+    const remotePage = readFileSync(resolve(root, "app/dashboard/page.tsx"), "utf8");
     const demoPage = readFileSync(resolve(root, "app/demo/page.tsx"), "utf8");
     const remoteDashboard = readFileSync(
       resolve(root, "components/remote-dashboard.tsx"),
       "utf8",
     );
-    expect(rootPage).toContain("RemoteDashboard");
     expect(rootPage).toContain("LandingPage");
-    expect(rootPage).toContain("ClientDashboardEntry");
+    expect(rootPage).not.toContain("ClientDashboardEntry");
+    expect(rootPage).toMatch(/return <LandingPage \/>/);
+    expect(rootPage).not.toContain("RemoteDashboard");
+    expect(rootPage).not.toContain("next/headers");
     expect(rootPage).not.toContain("<ConnectedDashboard />");
     expect(rootPage).toContain('export const dynamic = "force-dynamic"');
-    expect(rootPage).toContain('get("x-petcare-authenticated") === "1"');
-    expect(rootPage.indexOf('get("x-petcare-authenticated")')).toBeLessThan(
-      rootPage.indexOf("return <ClientDashboardEntry"),
-    );
     expect(rootPage).not.toMatch(/createPetCareRemote|client=|media=/);
+    expect(remotePage).toContain("RemoteDashboard");
+    expect(remotePage).toMatch(/return <RemoteDashboard \/>/);
     expect(remoteDashboard).toContain("createPetCareRemoteClient");
     expect(remoteDashboard).toContain("createPetCareRemoteMedia");
     expect(rootPage).not.toMatch(

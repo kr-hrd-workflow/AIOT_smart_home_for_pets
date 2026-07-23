@@ -200,6 +200,30 @@ def test_pair_jetson_imports_private_files_checks_status_and_preserves_source_bu
     assert _secure_read(tmp_path / "jetson.psk", owner_only=True) == PSK
 
 
+def test_pair_jetson_accepts_same_tailscale_network_pair(tmp_path: Path) -> None:
+    config_path = tmp_path / "agent.json"
+    bundle_path = tmp_path / "pairing.json"
+    jetson_path = tmp_path / "jetson.json"
+    agent_config(config_path)
+    pairing_bundle(
+        bundle_path,
+        url="https://100.64.0.10:9443",
+        certificate=certificate_pem("100.64.0.10"),
+    )
+
+    imported = pair_jetson(
+        config_path,
+        bundle_path,
+        jetson_path,
+        home_ip_for=lambda _host: "100.64.0.11",
+        status_check=lambda _config: None,
+    )
+
+    assert imported.url == "https://100.64.0.10:9443"
+    assert imported.home_ip == "100.64.0.11"
+    assert imported == load_jetson_config(jetson_path)
+
+
 def certificate_pem_from_file(config: JetsonConfig) -> bytes:
     return config.ca_pem
 
@@ -395,6 +419,36 @@ def test_supervisor_uses_exact_commands_scrubbed_environments_and_jetson_authori
     assert _secure_read(token_path, owner_only=True) == b"connector-secret"
     rendered = repr(calls)
     assert "connector-secret" not in rendered and "UNRELATED_SECRET" not in rendered
+
+
+def test_supervisor_runs_without_jetson_and_disables_only_the_camera(tmp_path: Path) -> None:
+    config_path = tmp_path / "agent.json"
+    tools_path = tmp_path / "agent-tools.json"
+    agent_config(config_path)
+    tools = agent_tools(tools_path)
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    processes = [FakeProcess(0), FakeProcess(None)]
+
+    def popen(command: list[str], **kwargs: object) -> FakeProcess:
+        calls.append((command, kwargs))
+        return processes[len(calls) - 1]
+
+    result = AgentSupervisor(
+        config_path,
+        tools_path,
+        None,
+        popen=popen,
+        parent_environment={"SYSTEMROOT": r"C:\Windows", "PATH": r"C:\safe"},
+        poll_interval=0.001,
+    ).run()
+
+    assert result == 1
+    assert calls[0][0][0] == str(tools["python_path"])
+    backend_environment = calls[0][1]["env"]
+    assert backend_environment["PETCARE_CAMERA_SOURCE"] == "disabled"
+    assert "PETCARE_JETSON_CONFIG" not in backend_environment
+    assert backend_environment["PETCARE_MQTT_PROFILE"] == "local_live"
+    assert processes[1].terminated
 
 
 @pytest.mark.parametrize(("fixture", "tamper"), [(True, None), (False, "ffprobe_path")])

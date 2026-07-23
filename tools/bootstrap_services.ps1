@@ -4,6 +4,7 @@ param(
   [string]$OutputPath = '',
   [string]$FixtureRoot = '',
   [string]$HardwareAddress = '',
+  [switch]$AllowPublicHardwareNetwork,
   [switch]$CheckOnly
 )
 
@@ -27,14 +28,30 @@ function Test-Rfc1918([string]$Address) {
   return $bytes[0] -eq 10 -or ($bytes[0] -eq 172 -and $bytes[1] -ge 16 -and $bytes[1] -le 31) -or ($bytes[0] -eq 192 -and $bytes[1] -eq 168)
 }
 
+function Test-PublicUnicastIpv4([string]$Address) {
+  $parsed = $null
+  if (-not [Net.IPAddress]::TryParse($Address, [ref]$parsed) -or $parsed.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork -or $parsed.ToString() -cne $Address) { return $false }
+  $bytes = $parsed.GetAddressBytes()
+  if ($bytes[0] -eq 0 -or $bytes[0] -eq 127 -or ($bytes[0] -eq 169 -and $bytes[1] -eq 254) -or $bytes[0] -ge 224) { return $false }
+  if (($bytes[0] -eq 192 -and $bytes[1] -eq 0 -and $bytes[2] -eq 2) -or
+      ($bytes[0] -eq 198 -and $bytes[1] -eq 51 -and $bytes[2] -eq 100) -or
+      ($bytes[0] -eq 203 -and $bytes[1] -eq 0 -and $bytes[2] -eq 113)) { return $false }
+  return -not (Test-Rfc1918 $Address)
+}
+
+function Test-HardwareAddress([string]$Address, [bool]$AllowPublic) {
+  return (Test-Rfc1918 $Address) -or ($AllowPublic -and (Test-PublicUnicastIpv4 $Address))
+}
+
 function Write-ServicesManifest([hashtable]$Paths, [bool]$Fixture) {
   $profiles = [ordered]@{
     local_live = [ordered]@{bind_host='127.0.0.1';port=18883;client_host='127.0.0.1'}
   }
   if ($HardwareAddress) {
-    if (-not (Test-Rfc1918 $HardwareAddress)) { throw 'hardware address must be one explicit RFC1918 IPv4 address' }
+    if (-not (Test-HardwareAddress $HardwareAddress $AllowPublicHardwareNetwork.IsPresent)) { throw 'hardware address must be RFC1918 IPv4 unless explicit public-network opt-in is enabled' }
     if (-not $Fixture -and -not (Get-NetIPAddress -AddressFamily IPv4 -IPAddress $HardwareAddress -ErrorAction SilentlyContinue)) { throw 'hardware address is not assigned to a local interface' }
-    $profiles.hardware = [ordered]@{bind_host=$HardwareAddress;port=18883;client_host=$HardwareAddress}
+    $publicNetwork = -not (Test-Rfc1918 $HardwareAddress)
+    $profiles.hardware = [ordered]@{bind_host=$HardwareAddress;port=18883;client_host=$HardwareAddress;allow_public_network=$publicNetwork}
   }
   $versions = [ordered]@{postgresql=$postgresVersion;mosquitto=$mosquittoVersion;cjson='1.7.19';openssl='3.5.7';paho_mqtt=$pahoVersion}
   foreach ($property in $capabilityVersions.GetEnumerator()) { $versions[$property.Key] = $property.Value }

@@ -20,6 +20,8 @@ import type {
 } from "../lib/petcare-remote";
 import type { DashboardData, DashboardSummary } from "../lib/types";
 
+const LOCAL_SETUP_URL = "http://127.0.0.1:8000/setup";
+
 function operationalData(summary: DashboardSummary): DashboardData {
   return {
     ...summary,
@@ -175,62 +177,120 @@ export function RemoteDashboardView({
     );
   }
 
-  if (status.home.state === "needs_enrollment") {
-    return (
-      <main className="remote-page">
-        <section className="enrollment-card">
-          <h1>홈 에이전트 연결</h1>
-          <p>이 집에는 하나의 활성 에이전트와 카메라만 연결할 수 있습니다.</p>
-          <button
-            type="button"
-            disabled={enrolling}
-            aria-busy={enrolling}
-            onClick={() => void issueEnrollment()}
-          >
-            10분 코드 만들기
-          </button>
-          {enrollmentError && <p role="alert">{enrollmentError}</p>}
-          {enrollment && (
-            <p aria-live="polite">
-              <strong>{enrollment.code}</strong>{" "}
-              <time dateTime={enrollment.expiresAt}>{enrollment.expiresAt}</time>
-            </p>
-          )}
-        </section>
-        <AccountDeletion client={accountClient} />
-      </main>
-    );
-  }
-
-  if (!status.dashboard || !status.camera || !status.agent) {
-    return (
-      <main className="remote-page">
-        <p role="alert">에이전트 상태를 확인할 수 없습니다.</p>
-        <AccountDeletion client={accountClient} />
-      </main>
-    );
-  }
+  const agentReady = status.home.state === "ready";
+  const entranceOnline =
+    status.dashboard?.devices.some(
+      ({ device_id, status: deviceStatus }) =>
+        device_id === "entrance-01" && deviceStatus === "online",
+    ) ?? false;
+  const petzoneOnline =
+    status.dashboard?.devices.some(
+      ({ device_id, status: deviceStatus }) =>
+        device_id === "petzone-01" && deviceStatus === "online",
+    ) ?? false;
+  const cameraOnline = status.camera?.state === "online";
 
   return (
     <div className="remote-page">
       {statusError && <p role="alert">{statusError}</p>}
-      <p className="remote-online" role="status">
-        에이전트 온라인 · 카메라 온라인 · 마지막 확인:{" "}
-        <time dateTime={status.agent.last_seen_at}>
-          {status.agent.last_seen_at}
-        </time>
-      </p>
-      <div className="remote-operational">
-        <Dashboard
-          data={operationalData(status.dashboard)}
-          mode="connected"
-          camera={{
-            src: media.videoFeedUrl(status.camera.id),
-            alt: "실시간 반려동물 카메라",
-          }}
-        />
-      </div>
-      <EventClips client={client} media={media} />
+      <section className="connection-card" aria-labelledby="connection-title">
+        <header className="connection-heading">
+          <div>
+            <p className="eyebrow">기기 설정</p>
+            <h1 id="connection-title">우리 집 연결</h1>
+          </div>
+          {agentReady && entranceOnline && petzoneOnline && (
+            <strong className="connection-complete" role="status">
+              필수 연결 완료
+            </strong>
+          )}
+        </header>
+        <ol
+          className="connection-checklist"
+          aria-labelledby="connection-title"
+        >
+          <li data-state={agentReady ? "complete" : "active"}>
+            <div className="connection-step-heading">
+              <h2>홈 에이전트</h2>
+              <span>{agentReady ? "연결됨" : "연결 필요"}</span>
+            </div>
+            {agentReady ? (
+              <>
+                <p>홈 에이전트가 등록되었습니다. Pico 두 대를 Wi-Fi에 연결하세요.</p>
+                <a href={LOCAL_SETUP_URL}>Pico Wi-Fi 설정 열기</a>
+              </>
+            ) : (
+              <>
+                <p>먼저 이 집에서 사용할 홈 에이전트를 등록하세요.</p>
+                <button
+                  type="button"
+                  disabled={enrolling}
+                  aria-busy={enrolling}
+                  onClick={() => void issueEnrollment()}
+                >
+                  10분 코드 만들기
+                </button>
+                {enrollmentError && <p role="alert">{enrollmentError}</p>}
+                {enrollment && (
+                  <p aria-live="polite">
+                    <strong>{enrollment.code}</strong>{" "}
+                    <time dateTime={enrollment.expiresAt}>
+                      {enrollment.expiresAt}
+                    </time>
+                  </p>
+                )}
+              </>
+            )}
+          </li>
+          <li data-state={entranceOnline ? "complete" : "pending"}>
+            <div className="connection-step-heading">
+              <h2>현관 Pico</h2>
+              <span>{entranceOnline ? "연결됨" : "연결 필요"}</span>
+            </div>
+            <p>entrance-01</p>
+          </li>
+          <li data-state={petzoneOnline ? "complete" : "pending"}>
+            <div className="connection-step-heading">
+              <h2>생활공간 Pico</h2>
+              <span>{petzoneOnline ? "연결됨" : "연결 필요"}</span>
+            </div>
+            <p>petzone-01</p>
+          </li>
+          <li data-state={cameraOnline ? "complete" : "optional"}>
+            <div className="connection-step-heading">
+              <h2>Jetson 카메라</h2>
+              <span>선택</span>
+              <strong>{cameraOnline ? "연결됨" : "연결 안 됨"}</strong>
+            </div>
+            <p>Jetson 카메라는 선택 사항입니다.</p>
+          </li>
+        </ol>
+      </section>
+      {status.dashboard && status.agent && (
+        <>
+          <p className="remote-online" role="status">
+            에이전트 온라인 · {cameraOnline ? "카메라 온라인" : "카메라 선택 안 함"} · 마지막 확인:{" "}
+            <time dateTime={status.agent.last_seen_at}>
+              {status.agent.last_seen_at}
+            </time>
+          </p>
+          <div className="remote-operational">
+            <Dashboard
+              data={operationalData(status.dashboard)}
+              mode="connected"
+              camera={
+                status.camera
+                  ? {
+                      src: media.videoFeedUrl(status.camera.id),
+                      alt: "실시간 반려동물 카메라",
+                    }
+                  : undefined
+              }
+            />
+          </div>
+          <EventClips client={client} media={media} />
+        </>
+      )}
       <AccountDeletion client={accountClient} />
     </div>
   );

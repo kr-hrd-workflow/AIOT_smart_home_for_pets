@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
       NextResponse.json({ error: "rate_limited" }, { status: 429 }),
     );
   }
-  let destination = error ? "/login?error=credentials" : "/";
+  let destination = error ? "/login?error=credentials" : "/dashboard";
   if (!error) {
     try {
       const user = await requireAuth(request, authEnv);

@@ -299,14 +299,22 @@ def load_config(device_id: str, environ: Mapping[str, str] = os.environ) -> Smok
         host = endpoint["client_host"]
         bind_host = endpoint["bind_host"]
         port = endpoint["port"]
-    except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError) as exc:
+        allow_public_network = endpoint.get("allow_public_network", False)
+    except (OSError, UnicodeError, json.JSONDecodeError, AttributeError, KeyError, TypeError) as exc:
         raise ValueError("hardware MQTT profile is missing or malformed") from exc
     try:
         address = ipaddress.ip_address(host)
     except ValueError as exc:
-        raise ValueError("hardware MQTT client_host must be RFC1918 IPv4") from exc
-    if address.version != 4 or not any(address in network for network in RFC1918) or host != bind_host or port != 18883:
-        raise ValueError("hardware MQTT endpoint must use one RFC1918 address on port 18883")
+        raise ValueError("hardware MQTT client_host must be an explicit IPv4 address") from exc
+    if not isinstance(allow_public_network, bool):
+        raise ValueError("hardware MQTT public-network authority must be boolean")
+    if address.version != 4 or str(address) != host or host != bind_host or port != 18883:
+        raise ValueError("hardware MQTT endpoint must use one explicit IPv4 address on port 18883")
+    private_network = any(address in network for network in RFC1918)
+    if not private_network and allow_public_network is not True:
+        raise ValueError("hardware MQTT endpoint requires explicit public-network opt-in")
+    if not private_network and not address.is_global:
+        raise ValueError("public hardware MQTT endpoint must be globally routable unicast IPv4")
 
     username = environ.get("PETCARE_MQTT_USERNAME", "")
     password = environ.get("PETCARE_MQTT_PASSWORD", "")

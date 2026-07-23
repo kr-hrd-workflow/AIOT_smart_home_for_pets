@@ -165,6 +165,62 @@ def test_load_config_rejects_non_hardware_profile_without_echoing_secret(tmp_pat
     assert "must-not-appear" not in str(error.value)
 
 
+def test_load_config_accepts_explicit_public_hardware_endpoint(tmp_path: Path) -> None:
+    manifest = tmp_path / "services.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "mqtt_profiles": {
+                    "hardware": {
+                        "bind_host": "1.1.1.1",
+                        "client_host": "1.1.1.1",
+                        "port": 18883,
+                        "allow_public_network": True,
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    env = {
+        "PETCARE_MQTT_SERVICES_MANIFEST": str(manifest),
+        "PETCARE_MQTT_PROFILE": "hardware",
+        "PETCARE_MQTT_USERNAME": "pico-user",
+        "PETCARE_MQTT_PASSWORD": "top-secret",
+    }
+
+    config = load_config("entrance-01", env)
+
+    assert (config.endpoint.host, config.endpoint.port) == ("1.1.1.1", 18883)
+
+
+def test_load_config_rejects_public_hardware_endpoint_without_opt_in(tmp_path: Path) -> None:
+    manifest = tmp_path / "services.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "mqtt_profiles": {
+                    "hardware": {
+                        "bind_host": "1.1.1.1",
+                        "client_host": "1.1.1.1",
+                        "port": 18883,
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    env = {
+        "PETCARE_MQTT_SERVICES_MANIFEST": str(manifest),
+        "PETCARE_MQTT_PROFILE": "hardware",
+        "PETCARE_MQTT_USERNAME": "pico-user",
+        "PETCARE_MQTT_PASSWORD": "top-secret",
+    }
+
+    with pytest.raises(ValueError, match="explicit public-network opt-in"):
+        load_config("entrance-01", env)
+
+
 def test_entrance_smoke_subscribes_exact_topics_and_reports_heartbeat() -> None:
     verifier = SmokeVerifier("entrance-01", now=lambda: NOW, monotonic=monotonic_values(100, 110))
     client = FakeClient(complete_messages("entrance-01", ENTRANCE))

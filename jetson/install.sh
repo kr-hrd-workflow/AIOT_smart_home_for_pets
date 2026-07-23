@@ -47,21 +47,29 @@ if [ -n "$fixture_root" ]; then
 fi
 [ -n "$mode" ] || die "use --fixture-root or --install"
 
-validate_private_ipv4() {
-    python3 - "$1" <<'PY'
+classify_private_transport() {
+    python3 - "$1" "$2" <<'PY'
 import ipaddress
 import sys
 
 try:
-    address = ipaddress.ip_address(sys.argv[1])
+    jetson = ipaddress.ip_address(sys.argv[1])
+    home = ipaddress.ip_address(sys.argv[2])
 except ValueError:
     raise SystemExit(1)
-allowed = (
+lan = (
     ipaddress.ip_network("10.0.0.0/8"),
     ipaddress.ip_network("172.16.0.0/12"),
     ipaddress.ip_network("192.168.0.0/16"),
 )
-if address.version != 4 or not any(address in network for network in allowed):
+tailscale = ipaddress.ip_network("100.64.0.0/10")
+if jetson.version != 4 or home.version != 4 or jetson == home:
+    raise SystemExit(1)
+if any(jetson in network for network in lan) and any(home in network for network in lan):
+    print("lan")
+elif jetson in tailscale and home in tailscale:
+    print("tailscale")
+else:
     raise SystemExit(1)
 PY
 }
@@ -147,9 +155,9 @@ verify_firewall() {
 if [ "$mode" = fixture ]; then
     [ "$fixture_root" != / ] || die "unsafe fixture root"
     [ ! -e "$fixture_root" ] || die "fixture root already exists"
-    validate_private_ipv4 "$bind_ip" || die "private RFC1918 IPv4 required"
-    validate_private_ipv4 "$home_ip" || die "private RFC1918 IPv4 required"
-    [ "$bind_ip" != "$home_ip" ] || die "Home and Jetson IPs must differ"
+    transport=$(classify_private_transport "$bind_ip" "$home_ip") || die "matching RFC1918 LAN or Tailscale IPv4 pair required"
+    [ "$transport" != tailscale ] || [ "$interface" = tailscale0 ] || die "Tailscale interface required"
+    [ "$transport" != lan ] || [ "$interface" != tailscale0 ] || die "Ethernet interface required"
     mkdir -p \
         "$fixture_root/etc/systemd/system" \
         "$fixture_root/opt/petcare-vision" \
@@ -176,16 +184,23 @@ fi
 
 [ "$(id -u)" -eq 0 ] || die "root required"
 [ -n "$bind_ip" ] && [ -n "$home_ip" ] && [ -n "$interface" ] && [ -n "$webcam" ] || die "install arguments required"
-validate_private_ipv4 "$bind_ip" || die "private RFC1918 IPv4 required"
-validate_private_ipv4 "$home_ip" || die "private RFC1918 IPv4 required"
-[ "$bind_ip" != "$home_ip" ] || die "Home and Jetson IPs must differ"
+transport=$(classify_private_transport "$bind_ip" "$home_ip") || die "matching RFC1918 LAN or Tailscale IPv4 pair required"
 [ "$(uname -m)" = aarch64 ] || die "aarch64 required"
 grep -q '^# R32 (release), REVISION: 7\.6,' /etc/nv_tegra_release || die "L4T R32.7.6 required"
 trt_version=$(dpkg-query -W -f='${Version}' tensorrt 2>/dev/null || true)
 case "$trt_version" in 8.2.1*) ;; *) die "TensorRT 8.2.1 required" ;; esac
-case "$interface" in *[!A-Za-z0-9_.:-]*|'') die "Ethernet interface required" ;; esac
-[ -d "/sys/class/net/$interface" ] && [ "$(cat "/sys/class/net/$interface/type")" = 1 ] || die "Ethernet interface required"
-[ ! -d "/sys/class/net/$interface/wireless" ] || die "Wi-Fi interface is forbidden"
+case "$transport" in
+    lan)
+        case "$interface" in *[!A-Za-z0-9_.:-]*|'') die "Ethernet interface required" ;; esac
+        [ "$interface" != tailscale0 ] || die "Ethernet interface required"
+        [ -d "/sys/class/net/$interface" ] && [ "$(cat "/sys/class/net/$interface/type")" = 1 ] || die "Ethernet interface required"
+        [ ! -d "/sys/class/net/$interface/wireless" ] || die "Wi-Fi interface is forbidden"
+        ;;
+    tailscale)
+        [ "$interface" = tailscale0 ] || die "Tailscale interface required"
+        [ -d /sys/class/net/tailscale0 ] && [ "$(cat /sys/class/net/tailscale0/type)" = 65534 ] || die "Tailscale interface required"
+        ;;
+esac
 ip -4 -o addr show dev "$interface" | grep -Eq "[[:space:]]inet[[:space:]]$bind_ip/" || die "bind IP is not assigned to interface"
 [ -c "$webcam" ] && [ ! -L "$webcam" ] || die "webcam required"
 temperature_path=/sys/devices/virtual/thermal/thermal_zone0/temp

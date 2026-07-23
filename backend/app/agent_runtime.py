@@ -24,7 +24,7 @@ from cryptography.x509 import BasicConstraints, SubjectAlternativeName
 
 from .agent_client import enroll
 from .agent_config import AgentRuntimeConfig, LocalSettings, _current_windows_sid, protect_runtime_file
-from .config import JetsonConfig, _rfc1918, _secure_read, load_jetson_config
+from .config import JetsonConfig, _private_transport_pair, _secure_read, load_jetson_config
 from .jetson_client import JetsonVisionClient
 
 
@@ -242,9 +242,7 @@ def _validate_pairing_bundle(payload: dict[str, Any], home_ip_for: Callable[[str
         or parsed.query
         or parsed.fragment
         or url.endswith("/")
-        or not _rfc1918(jetson_ip)
-        or not _rfc1918(home_ip)
-        or jetson_ip == home_ip
+        or not _private_transport_pair(jetson_ip, home_ip)
     ):
         raise ValueError("invalid pairing network")
     try:
@@ -354,28 +352,30 @@ def pair_jetson(
 
 def build_backend_environment(
     config_path: Path,
-    jetson_config_path: Path,
+    jetson_config_path: Path | None,
     *,
     tools_path: Path,
     parent_environment: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
     config_path = Path(config_path).resolve()
-    jetson_config_path = Path(jetson_config_path).resolve()
+    jetson_config_path = Path(jetson_config_path).resolve() if jetson_config_path is not None else None
     tools_path = Path(tools_path).resolve()
     config = _load_agent_config(config_path)
-    load_jetson_config(jetson_config_path)
+    if jetson_config_path is not None:
+        load_jetson_config(jetson_config_path)
     parent = os.environ if parent_environment is None else parent_environment
     environment = {name: parent[name] for name in SAFE_PARENT_ENVIRONMENT if name in parent}
     environment.update({
         "DATABASE_URL": config.local_settings.database_url.get_secret_value(),
         "PETCARE_AGENT_CONFIG": str(config_path),
         "PETCARE_AGENT_TOOLS": str(tools_path),
-        "PETCARE_CAMERA_SOURCE": "jetson",
-        "PETCARE_JETSON_CONFIG": str(jetson_config_path),
+        "PETCARE_CAMERA_SOURCE": "jetson" if jetson_config_path is not None else "disabled",
         "PETCARE_MQTT_PASSWORD": config.local_settings.mqtt_password.get_secret_value(),
         "PETCARE_MQTT_PROFILE": config.local_settings.mqtt_profile,
         "PETCARE_MQTT_USERNAME": config.local_settings.mqtt_username,
     })
+    if jetson_config_path is not None:
+        environment["PETCARE_JETSON_CONFIG"] = str(jetson_config_path)
     return environment
 
 
@@ -521,7 +521,7 @@ class AgentSupervisor:
         self,
         config_path: Path,
         tools_path: Path,
-        jetson_config_path: Path,
+        jetson_config_path: Path | None,
         *,
         popen: Callable[..., Any] = subprocess.Popen,
         parent_environment: Mapping[str, str] | None = None,
@@ -530,7 +530,9 @@ class AgentSupervisor:
     ) -> None:
         self.config_path = Path(config_path).resolve()
         self.tools_path = Path(tools_path).resolve()
-        self.jetson_config_path = Path(jetson_config_path).resolve()
+        self.jetson_config_path = (
+            Path(jetson_config_path).resolve() if jetson_config_path is not None else None
+        )
         self._popen = popen
         self._parent_environment = os.environ if parent_environment is None else parent_environment
         if (
@@ -583,7 +585,8 @@ class AgentSupervisor:
         try:
             config = _load_agent_config(self.config_path)
             tools = load_agent_tools(self.tools_path)
-            load_jetson_config(self.jetson_config_path)
+            if self.jetson_config_path is not None:
+                load_jetson_config(self.jetson_config_path)
             token_path = self.config_path.with_name("connector-token")
             _write_connector_token(token_path, config.connector_token.get_secret_value())
             backend_environment = build_backend_environment(
@@ -660,7 +663,7 @@ class AgentSupervisor:
                 raise cleanup_error
 
 
-def run_agent(config_path: Path, tools_path: Path, jetson_config_path: Path) -> int:
+def run_agent(config_path: Path, tools_path: Path, jetson_config_path: Path | None) -> int:
     return AgentSupervisor(config_path, tools_path, jetson_config_path).run()
 
 
@@ -679,7 +682,7 @@ def _parse_timestamp(value: object) -> datetime:
 def safe_status(
     config_path: Path,
     tools_path: Path,
-    jetson_config_path: Path,
+    jetson_config_path: Path | None,
     *,
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
     pid_alive: Callable[[int], bool] = _pid_alive,
@@ -688,7 +691,8 @@ def safe_status(
         config_path = Path(config_path).resolve()
         _load_agent_config(config_path)
         load_agent_tools(Path(tools_path).resolve())
-        load_jetson_config(Path(jetson_config_path).resolve())
+        if jetson_config_path is not None:
+            load_jetson_config(Path(jetson_config_path).resolve())
         envelope = _strict_object(
             _secure_read(_status_path(config_path), owner_only=True),
             {"pid", "snapshot", "updated_at"},
@@ -722,11 +726,11 @@ def _parser() -> argparse.ArgumentParser:
     run = commands.add_parser("run")
     run.add_argument("--config", type=Path, required=True)
     run.add_argument("--tools", type=Path, required=True)
-    run.add_argument("--jetson-config", type=Path, required=True)
+    run.add_argument("--jetson-config", type=Path)
     status = commands.add_parser("status")
     status.add_argument("--config", type=Path, required=True)
     status.add_argument("--tools", type=Path, required=True)
-    status.add_argument("--jetson-config", type=Path, required=True)
+    status.add_argument("--jetson-config", type=Path)
     enroll_parser = commands.add_parser("enroll")
     enroll_parser.add_argument("--origin", required=True)
     enroll_parser.add_argument("--config", type=Path, required=True)

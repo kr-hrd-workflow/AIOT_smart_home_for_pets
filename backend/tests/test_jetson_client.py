@@ -398,6 +398,18 @@ def test_config_rejects_unpinned_or_unsafe_origins(tmp_path: Path, url: str) -> 
         JetsonConfig.model_validate(values | {"url": url})
 
 
+def test_config_rejects_mixed_lan_and_tailscale_pair(tmp_path: Path) -> None:
+    values = config(tmp_path).model_dump()
+    with pytest.raises(ValidationError):
+        JetsonConfig.model_validate(
+            values
+            | {
+                "url": "https://100.64.0.10:9443",
+                "home_ip": "192.168.50.10",
+            }
+        )
+
+
 def test_new_boot_reauthenticates_with_bootstrap_and_resets_sequence(tmp_path: Path) -> None:
     requests: list[tuple[str, str]] = []
     preview = FIXTURE["observation"]["preview"]

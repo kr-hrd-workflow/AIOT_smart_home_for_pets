@@ -473,7 +473,7 @@ def test_postgresql_round_trip_bootstraps_unknown_device_and_persists_sensor(
     monkeypatch.setenv("DATABASE_URL", database_url)
     alembic = Config(str(Path(__file__).parents[1] / "alembic.ini"))
     alembic.set_main_option("script_location", str(Path(__file__).parents[1] / "migrations"))
-    alembic.set_main_option("sqlalchemy.url", database_url)
+    alembic.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
     command.upgrade(alembic, "head")
     engine = create_engine(database_url)
     sessions = sessionmaker(bind=engine, expire_on_commit=False)

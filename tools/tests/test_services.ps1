@@ -6,6 +6,7 @@ $platformManifest = Join-Path $root 'tools/platform-manifest.json'
 $fixture = Join-Path $root '.runtime/tests/services-fixture'
 $runtime = Join-Path $root '.runtime/tests/services.json'
 $hardwareRuntime = Join-Path $root '.runtime/tests/services-hardware.json'
+$publicHardwareRuntime = Join-Path $root '.runtime/tests/services-hardware-public.json'
 
 foreach ($path in @($bootstrap,$services,(Join-Path $root 'compose.yml'),(Join-Path $root 'infra/mosquitto/mosquitto.conf'),(Join-Path $root 'infra/mosquitto/docker-entrypoint.sh'),(Join-Path $root '.env.example'))) {
   if (-not (Test-Path -LiteralPath $path)) { throw "ASSERT: missing $path" }
@@ -15,7 +16,7 @@ foreach ($property in @('source_url','source_ref','source_commit','cjson_source_
   if ([string]::IsNullOrWhiteSpace($managedMosquitto.$property)) { throw "ASSERT: Mosquitto source closure missing $property" }
 }
 
-foreach ($required in @('FixtureRoot','OutputPath','ToolchainRuntime','CheckOnly')) {
+foreach ($required in @('FixtureRoot','OutputPath','ToolchainRuntime','AllowPublicHardwareNetwork','CheckOnly')) {
   if (-not (Get-Command $bootstrap).Parameters.ContainsKey($required)) { throw "ASSERT: bootstrap missing $required" }
 }
 & $bootstrap -FixtureRoot $fixture -OutputPath $runtime
@@ -29,7 +30,7 @@ $local = $data.mqtt_profiles.local_live
 if ($local.bind_host -ne '127.0.0.1' -or $local.port -ne 18883 -or $local.client_host -ne '127.0.0.1') { throw 'ASSERT: local MQTT profile' }
 if ($data.mqtt_profiles.PSObject.Properties.Name -contains 'hardware') { throw 'ASSERT: fixture must not invent hardware profile' }
 
-foreach ($required in @('Action','RuntimePath','Provider','Profile','HardwareAddress','ConfirmReset','DryRun')) {
+foreach ($required in @('Action','RuntimePath','Provider','Profile','HardwareAddress','AllowPublicHardwareNetwork','ConfirmReset','DryRun')) {
   if (-not (Get-Command $services).Parameters.ContainsKey($required)) { throw "ASSERT: services missing $required" }
 }
 foreach ($address in @('10.0.0.1','172.16.0.1','172.31.255.254','192.168.1.10')) {
@@ -41,6 +42,11 @@ foreach ($address in @('0.0.0.0','127.0.0.1','169.254.1.1','172.15.0.1','172.32.
   )
   if ($child.ExitCode -eq 0) { throw "ASSERT: forbidden hardware address $address" }
 }
+& $services -Action ValidateAddress -RuntimePath $runtime -HardwareAddress '1.1.1.1' -AllowPublicHardwareNetwork | Out-Null
+$publicWithoutOptIn = Start-Process -FilePath (Get-Process -Id $PID).Path -Wait -PassThru -WindowStyle Hidden -ArgumentList @(
+  '-NoProfile','-ExecutionPolicy','Bypass','-File',$services,'-Action','ValidateAddress','-RuntimePath',$runtime,'-HardwareAddress','1.1.1.1'
+)
+if ($publicWithoutOptIn.ExitCode -eq 0) { throw 'ASSERT: public hardware address bypassed explicit opt-in' }
 & $services -Action Start -RuntimePath $runtime -Provider native -Profile local_live -DryRun
 $hardwareWithoutAuthority = Start-Process -FilePath (Get-Process -Id $PID).Path -Wait -PassThru -WindowStyle Hidden -ArgumentList @(
   '-NoProfile','-ExecutionPolicy','Bypass','-File',$services,'-Action','Start','-RuntimePath',$runtime,'-Provider','native','-Profile','hardware','-HardwareAddress','192.168.1.10','-DryRun'
@@ -48,6 +54,14 @@ $hardwareWithoutAuthority = Start-Process -FilePath (Get-Process -Id $PID).Path 
 if ($hardwareWithoutAuthority.ExitCode -eq 0) { throw 'ASSERT: hardware profile bypassed runtime authority' }
 & $bootstrap -FixtureRoot $fixture -OutputPath $hardwareRuntime -HardwareAddress '192.168.1.10'
 & $services -Action Stop -RuntimePath $hardwareRuntime -Provider native -Profile hardware -HardwareAddress '192.168.1.10' -DryRun
+& $bootstrap -FixtureRoot $fixture -OutputPath $publicHardwareRuntime -HardwareAddress '1.1.1.1' -AllowPublicHardwareNetwork
+$publicData = Get-Content -Raw -Encoding UTF8 -LiteralPath $publicHardwareRuntime | ConvertFrom-Json
+if ($publicData.mqtt_profiles.hardware.allow_public_network -ne $true) { throw 'ASSERT: public hardware authority marker is missing' }
+& $services -Action Stop -RuntimePath $publicHardwareRuntime -Provider native -Profile hardware -HardwareAddress '1.1.1.1' -AllowPublicHardwareNetwork -DryRun
+$publicRuntimeWithoutOptIn = Start-Process -FilePath (Get-Process -Id $PID).Path -Wait -PassThru -WindowStyle Hidden -ArgumentList @(
+  '-NoProfile','-ExecutionPolicy','Bypass','-File',$services,'-Action','Stop','-RuntimePath',$publicHardwareRuntime,'-Provider','native','-Profile','hardware','-HardwareAddress','1.1.1.1','-DryRun'
+)
+if ($publicRuntimeWithoutOptIn.ExitCode -eq 0) { throw 'ASSERT: public runtime authority bypassed invocation opt-in' }
 
 $allText = @(
   Get-Content -Raw -Encoding UTF8 (Join-Path $root 'compose.yml')

@@ -52,6 +52,7 @@ try {
   }
 
   & (Join-Path $PSScriptRoot 'tests/test_bootstrap_toolchain.ps1')
+  & (Join-Path $PSScriptRoot 'tests/test_bootstrap_agent_runtime.ps1')
   & (Join-Path $PSScriptRoot 'build_pico_host.ps1') -RuntimePath $RuntimePath -BuildDir (Join-Path $Root '.runtime/tests/check-all-host') -DryRun
 
   foreach ($key in @('git_path','bash_path','uv_path','python_path','node_path','cmake_path','ctest_path','ninja_path','arm_gcc_path','arm_gxx_path','arm_asm_path','arm_as_path','arm_ar_path','arm_ranlib_path','arm_ld_path','arm_objcopy_path','arm_size_path')) {

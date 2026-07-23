@@ -65,6 +65,7 @@ let setAll: (
 
 beforeEach(() => {
   vi.clearAllMocks();
+  delete process.env.PETCARE_E2E_TARGET;
   runtimeEnv.SUPABASE_URL = "https://project-ref.supabase.co";
   runtimeEnv.SUPABASE_PUBLISHABLE_KEY = "sb_publishable_test";
   mocks.createServerClient.mockImplementation(
@@ -84,6 +85,44 @@ beforeEach(() => {
   mocks.exchangeCodeForSession.mockResolvedValue({ data: {}, error: null });
   mocks.signOut.mockResolvedValue({ error: null });
   mocks.ensureHome.mockResolvedValue({ id: "home-a" });
+});
+
+it("permits the connected E2E dashboard only on loopback", async () => {
+  runtimeEnv.SUPABASE_URL = undefined;
+  runtimeEnv.SUPABASE_PUBLISHABLE_KEY = undefined;
+
+  const local = await proxy(
+    new NextRequest("http://127.0.0.1:4175/dashboard", {
+      headers: { "x-petcare-e2e-auth": "connected" },
+    }),
+  );
+  expect(local.status).toBe(200);
+  expect(local.headers.get("location")).toBeNull();
+  expect(
+    local.headers.get("x-middleware-request-x-petcare-authenticated"),
+  ).toBe("1");
+
+  const remote = await proxy(
+    new NextRequest("https://app.test/dashboard", {
+      headers: { "x-petcare-e2e-auth": "connected" },
+    }),
+  );
+  expect(remote.status).toBe(307);
+  expect(remote.headers.get("location")).toBe(
+    "https://app.test/login?error=unavailable",
+  );
+
+  const wrongTarget = await proxy(
+    new NextRequest("http://127.0.0.1:4175/dashboard", {
+      headers: { "x-petcare-e2e-auth": "demo-dev" },
+    }),
+  );
+  expect(wrongTarget.status).toBe(307);
+  const wrongTargetLocation = new URL(
+    wrongTarget.headers.get("location") ?? "http://invalid.test",
+  );
+  expect(wrongTargetLocation.pathname).toBe("/login");
+  expect(wrongTargetLocation.search).toBe("?error=unavailable");
 });
 
 it.each(["/login", "/signup", "/forgot-password", "/reset-password"])(
@@ -253,7 +292,7 @@ it("uses a safe callback destination and maps callback failures generically", as
   const safe = await GET(
     new NextRequest("https://app.test/auth/callback?code=pkce-code&next=https://evil.test"),
   );
-  expect(safe.headers.get("location")).toBe("https://app.test/");
+  expect(safe.headers.get("location")).toBe("https://app.test/dashboard");
 
   mocks.exchangeCodeForSession.mockResolvedValue({
     data: null,

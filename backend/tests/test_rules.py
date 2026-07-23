@@ -191,9 +191,10 @@ def test_rule_engine_calibration_persists_one_atomic_snapshot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     rules = importlib.import_module("app.rules")
+    monkeypatch.setenv("DATABASE_URL", database_url)
     alembic = Config(str(Path(__file__).parents[1] / "alembic.ini"))
     alembic.set_main_option("script_location", str(Path(__file__).parents[1] / "migrations"))
-    alembic.set_main_option("sqlalchemy.url", database_url)
+    alembic.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
     alembic_command.upgrade(alembic, "head")
     database = create_engine(database_url)
     sessions = sessionmaker(bind=database, expire_on_commit=False)

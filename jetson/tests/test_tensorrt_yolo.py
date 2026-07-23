@@ -50,6 +50,14 @@ class TensorRtYoloTests(unittest.TestCase):
         script = (Path(__file__).parents[1] / "build_engine.sh").read_text(encoding="utf-8")
         self.assertGreaterEqual(script.count('encoding="utf-8"'), 3)
 
+    def test_build_script_uses_stable_jetson_smoke_fixture(self):
+        script = (Path(__file__).parents[1] / "build_engine.sh").read_text(encoding="utf-8")
+        fixture = Path(__file__).parent / "fixtures" / "engine-smoke.ppm"
+        self.assertTrue(fixture.is_file())
+        self.assertNotIn("dashboard/public", script)
+        self.assertIn('golden="$script_dir/tests/fixtures/engine-smoke.ppm"', script)
+        self.assertIn(hashlib.sha256(fixture.read_bytes()).hexdigest().upper(), script)
+
     def test_letterbox_and_half_open_normalization_are_deterministic(self):
         self.assertEqual(letterbox_geometry(640, 480), (1.0, 0, 80, 640, 480))
         selected = normalize_detections(

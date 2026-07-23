@@ -241,6 +241,9 @@ const use = {
   screenshot: "off" as const,
   trace: "retain-on-failure" as const,
   launchOptions: { executablePath: runtime.executable_path },
+  ...(target === "connected"
+    ? { extraHTTPHeaders: { "x-petcare-e2e-auth": "connected" } }
+    : {}),
 };
 
 export default defineConfig({

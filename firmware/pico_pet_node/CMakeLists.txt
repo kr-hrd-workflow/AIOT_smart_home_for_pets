@@ -32,3 +32,10 @@ target_include_directories(test_sensor_schedule PRIVATE include pico/include)
 target_compile_definitions(test_sensor_schedule PRIVATE PETCARE_PROFILE_PETZONE=1)
 target_link_libraries(test_sensor_schedule PRIVATE pet_node_core)
 add_test(NAME sensor_schedule COMMAND test_sensor_schedule)
+
+add_executable(test_provisioning
+    tests/test_provisioning.cpp
+    src/provisioning.cpp
+)
+target_include_directories(test_provisioning PRIVATE include)
+add_test(NAME provisioning COMMAND test_provisioning)

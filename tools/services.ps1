@@ -8,6 +8,7 @@ param(
   [ValidateSet('local_live','hardware')]
   [string]$Profile = 'local_live',
   [string]$HardwareAddress = '',
+  [switch]$AllowPublicHardwareNetwork,
   [switch]$ConfirmReset,
   [switch]$DryRun
 )
@@ -23,8 +24,23 @@ function Test-Rfc1918([string]$Address) {
   return $bytes[0] -eq 10 -or ($bytes[0] -eq 172 -and $bytes[1] -ge 16 -and $bytes[1] -le 31) -or ($bytes[0] -eq 192 -and $bytes[1] -eq 168)
 }
 
+function Test-PublicUnicastIpv4([string]$Address) {
+  $parsed = $null
+  if (-not [Net.IPAddress]::TryParse($Address, [ref]$parsed) -or $parsed.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork -or $parsed.ToString() -cne $Address) { return $false }
+  $bytes = $parsed.GetAddressBytes()
+  if ($bytes[0] -eq 0 -or $bytes[0] -eq 127 -or ($bytes[0] -eq 169 -and $bytes[1] -eq 254) -or $bytes[0] -ge 224) { return $false }
+  if (($bytes[0] -eq 192 -and $bytes[1] -eq 0 -and $bytes[2] -eq 2) -or
+      ($bytes[0] -eq 198 -and $bytes[1] -eq 51 -and $bytes[2] -eq 100) -or
+      ($bytes[0] -eq 203 -and $bytes[1] -eq 0 -and $bytes[2] -eq 113)) { return $false }
+  return -not (Test-Rfc1918 $Address)
+}
+
+function Test-HardwareAddress([string]$Address, [bool]$AllowPublic) {
+  return (Test-Rfc1918 $Address) -or ($AllowPublic -and (Test-PublicUnicastIpv4 $Address))
+}
+
 if ($Action -eq 'ValidateAddress') {
-  if (-not (Test-Rfc1918 $HardwareAddress)) { throw 'hardware address must be one explicit RFC1918 IPv4 address' }
+  if (-not (Test-HardwareAddress $HardwareAddress $AllowPublicHardwareNetwork.IsPresent)) { throw 'hardware address must be RFC1918 IPv4 unless explicit public-network opt-in is enabled' }
   Write-Output $HardwareAddress
   exit 0
 }
@@ -39,12 +55,16 @@ foreach ($key in @('postgres_path','pg_ctl_path','initdb_path','pg_isready_path'
 
 $bindHost = '127.0.0.1'
 $postgresHost = '127.0.0.1'
+$hardwareFirewallProfile = 'Private'
 if ($Profile -eq 'hardware') {
-  if (-not (Test-Rfc1918 $HardwareAddress)) { throw 'hardware profile requires one explicit RFC1918 IPv4 address' }
   $hardwareProfile = $runtime.mqtt_profiles.hardware
+  $publicNetwork = [bool]$hardwareProfile.allow_public_network
+  if ($publicNetwork -and -not $AllowPublicHardwareNetwork) { throw 'hardware profile requires explicit public-network opt-in' }
+  if (-not (Test-HardwareAddress $HardwareAddress $publicNetwork)) { throw 'hardware profile requires an authorized explicit IPv4 address' }
   if (-not $hardwareProfile -or $hardwareProfile.bind_host -ne $HardwareAddress -or $hardwareProfile.client_host -ne $HardwareAddress -or $hardwareProfile.port -ne 18883) { throw 'hardware address does not match the bootstrapped runtime authority' }
   if ($Action -in @('Start','Status') -and -not (Get-NetIPAddress -AddressFamily IPv4 -IPAddress $HardwareAddress -ErrorAction SilentlyContinue)) { throw 'hardware address is not assigned to a local interface' }
   $bindHost = $HardwareAddress
+  if ($publicNetwork) { $hardwareFirewallProfile = 'Public' }
 }
 if ($DryRun) {
   Write-Output "service $Action dry-run PASS: $Provider/$Profile $bindHost"
@@ -156,12 +176,12 @@ function Test-ExpectedMosquittoProcess([int]$ProcessId, [string]$Address, [int]$
   } catch { return $false }
 }
 
-function Test-HardwareFirewall([string]$Address) {
+function Test-HardwareFirewall([string]$Address, [string]$RequiredProfile) {
   $ip = Get-NetIPAddress -AddressFamily IPv4 -IPAddress $Address -ErrorAction SilentlyContinue | Select-Object -First 1
   if (-not $ip) { return $false }
   $profile = Get-NetConnectionProfile -InterfaceIndex $ip.InterfaceIndex -ErrorAction SilentlyContinue | Select-Object -First 1
-  if (-not $profile -or [string]$profile.NetworkCategory -ne 'Private') { return $false }
-  $rules = Get-NetFirewallRule -Enabled True -Direction Inbound -Action Allow -ErrorAction SilentlyContinue | Where-Object { [string]$_.Profile -eq 'Private' }
+  if (-not $profile -or [string]$profile.NetworkCategory -ne $RequiredProfile) { return $false }
+  $rules = Get-NetFirewallRule -Enabled True -Direction Inbound -Action Allow -ErrorAction SilentlyContinue | Where-Object { [string]$_.Profile -eq $RequiredProfile }
   foreach ($rule in $rules) {
     $port = $rule | Get-NetFirewallPortFilter -ErrorAction SilentlyContinue
     $remote = $rule | Get-NetFirewallAddressFilter -ErrorAction SilentlyContinue
@@ -243,7 +263,7 @@ function Invoke-PostgresProof([string]$HostName, [string]$Password, [switch]$Use
 if ($Provider -eq 'compose') {
   if (-not $runtime.paths.compose_plugin_path -or -not (Test-Path -LiteralPath $runtime.paths.compose_plugin_path)) { throw 'compatible standalone Compose plugin is unavailable' }
   if (-not $runtime.paths.docker_path -or -not (Test-Path -LiteralPath $runtime.paths.docker_path)) { throw 'compatible Docker Engine is unavailable' }
-  if ($Profile -eq 'hardware' -and $Action -in @('Start','Status') -and -not (Test-HardwareFirewall $bindHost)) { throw 'hardware NOT_RUN: matching Private/LocalSubnet firewall evidence is unavailable' }
+  if ($Profile -eq 'hardware' -and $Action -in @('Start','Status') -and -not (Test-HardwareFirewall $bindHost $hardwareFirewallProfile)) { throw "hardware NOT_RUN: matching $hardwareFirewallProfile/LocalSubnet firewall evidence is unavailable" }
   $env:PETCARE_MQTT_PUBLISH_HOST = $bindHost
   $composeFile = Join-Path $Root 'compose.yml'
   switch ($Action) {
@@ -344,7 +364,7 @@ function Stop-NativeServices {
 
 switch ($Action) {
 'Start' {
-  if ($Profile -eq 'hardware' -and -not (Test-HardwareFirewall $bindHost)) { throw 'hardware NOT_RUN: matching Private/LocalSubnet firewall evidence is unavailable' }
+  if ($Profile -eq 'hardware' -and -not (Test-HardwareFirewall $bindHost $hardwareFirewallProfile)) { throw "hardware NOT_RUN: matching $hardwareFirewallProfile/LocalSubnet firewall evidence is unavailable" }
   $postgresPassword = Require-Secret 'PETCARE_POSTGRES_PASSWORD'
   $mqttUsername = Require-Secret 'PETCARE_MQTT_USERNAME'
   $mqttPassword = Require-Secret 'PETCARE_MQTT_PASSWORD'
@@ -425,7 +445,7 @@ switch ($Action) {
 }
 'Status' {
   if (Test-Path -LiteralPath $asciiAliasState) { Enable-AsciiServicePaths (Ensure-AsciiAlias $Root $asciiAliasState) }
-  if ($Profile -eq 'hardware' -and -not (Test-HardwareFirewall $bindHost)) { throw 'hardware NOT_RUN: matching Private/LocalSubnet firewall evidence is unavailable' }
+  if ($Profile -eq 'hardware' -and -not (Test-HardwareFirewall $bindHost $hardwareFirewallProfile)) { throw "hardware NOT_RUN: matching $hardwareFirewallProfile/LocalSubnet firewall evidence is unavailable" }
   & $runtime.paths.pg_isready_path -h $postgresHost -p 55432
   if ($LASTEXITCODE) { throw 'PostgreSQL is not ready' }
   $mqttRunning = $false

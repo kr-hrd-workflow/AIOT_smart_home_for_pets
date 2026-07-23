@@ -75,16 +75,16 @@ API 문서는 외부 OpenAPI route를 노출하지 않으며 `/docs`, `/redoc`, 
     "starter": "vinext",
     "bindings": {"d1": "DB", "r2": "CLIPS"},
     "project_id_present": true,
-    "source_chain": ["dashboard subtree split", "tree equality", "per-command source credential", "vinext build", "Sites archive", "saved version", "public deployment", "status poll", "anonymous / and /demo"],
-    "access": "public",
+    "source_chain": ["dashboard subtree split", "tree equality", "per-command source credential", "vinext build", "Sites archive", "saved version", "private deployment", "status poll", "owner-authenticated / and /demo"],
+    "access": "private",
     "environment_mutation": false,
     "demo_network": "document and same-origin static assets only"
   }
 }
 ```
 
-## Public Sites
+## Private Sites
 
-Sites source는 후보 commit의 `dashboard` subtree를 split하고 tree equality를 확인한 뒤, 짧은 source credential을 단일 Git process 환경에서만 사용해 전용 `main`에 push합니다. 같은 source SHA로 vinext build와 Sites archive를 만들고 saved version ID를 public deployment로 배포한 뒤 exact project/version/deployment ID로 `succeeded`를 확인합니다. `dashboard/.openai/hosting.json`의 D1/R2 binding과 opaque project ID를 재사용하며 environment update는 하지 않습니다.
+Sites source는 후보 commit의 `dashboard` subtree를 split하고 tree equality를 확인한 뒤, 짧은 source credential을 단일 Git process 환경에서만 사용해 전용 `main`에 push합니다. 같은 source SHA로 vinext build와 Sites archive를 만들고 saved version ID를 private deployment로 배포한 뒤 exact project/version/deployment ID로 `succeeded`를 확인합니다. `dashboard/.openai/hosting.json`의 D1/R2 binding과 opaque project ID를 재사용하며 environment update는 하지 않습니다.
 
-익명 요청으로 `/`와 `/demo`가 렌더링되는지 확인합니다. `/demo`는 fixture-only이며 실제 카메라·센서·등록·클립 데이터는 공개하지 않습니다.
+소유자 인증 세션으로 `/`와 `/demo`가 렌더링되고, 익명 요청은 Sites 접근 정책에서 차단되는지 확인합니다. `/demo`는 fixture-only이며 실제 카메라·센서·등록·클립 데이터를 제공하지 않습니다.

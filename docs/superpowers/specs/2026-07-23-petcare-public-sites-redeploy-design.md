@@ -1,5 +1,9 @@
 # PetCare Public Sites Redeploy Design
 
+> **Superseded on 2026-07-24:** The active release uses the existing Sites
+> project with private access. The public design below is historical and is not
+> the current deployment contract.
+
 ## Status
 
 Approved direction: publish the project shell and bundled demo publicly from the current ChatGPT account, while keeping real household sensors, camera video, enrollment, and clips behind team authentication.

@@ -8,7 +8,6 @@ import {
   test,
   type Page,
   type Request,
-  type WebSocketRoute,
 } from "@playwright/test";
 
 import {
@@ -18,11 +17,8 @@ import {
 } from "../playwright.config";
 import { demoDashboardData } from "../lib/demo-data";
 import type {
-  BedStatus,
   DashboardData,
   DashboardSummary,
-  ZoneIn,
-  ZoneOut,
 } from "../lib/types";
 
 const dashboardRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -46,151 +42,92 @@ function summaryOf(data: DashboardData): DashboardSummary {
   };
 }
 
-function jsonHeaders(origin = "*") {
-  return {
-    "access-control-allow-origin": origin,
-    "access-control-allow-methods": "GET, POST, PUT, OPTIONS",
-    "access-control-allow-headers": "Content-Type",
-    "content-type": "application/json",
-  };
-}
-
-type CalibrationReply = "success" | "occupied" | "unavailable";
-
 interface ConnectedState {
   summary: DashboardSummary;
-  zones: [ZoneOut, ZoneOut];
-  calibration: CalibrationReply;
-  holdCalibration: boolean;
-  releaseCalibration?: () => void;
-}
-
-function positiveAreaOverlap(left: ZoneIn, right: ZoneIn): boolean {
-  return (
-    Math.min(left.x2, right.x2) > Math.max(left.x1, right.x1) &&
-    Math.min(left.y2, right.y2) > Math.max(left.y1, right.y1)
-  );
+  cameraAvailable: boolean;
+  statusRequests: number;
 }
 
 async function mockConnectedBackend(page: Page, state: ConnectedState) {
-  let socket: WebSocketRoute | undefined;
   const requests: string[] = [];
-
-  await page.routeWebSocket("ws://127.0.0.1:8000/ws/dashboard", (route) => {
-    socket = route;
-  });
-  await page.route("http://127.0.0.1:8000/**", async (route) => {
+  await page.route("**/api/petcare/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     requests.push(`${request.method()} ${url.pathname}`);
-    const origin = request.headers().origin ?? "*";
 
-    if (request.method() === "OPTIONS") {
-      await route.fulfill({ status: 204, headers: jsonHeaders(origin) });
-      return;
-    }
-    if (url.pathname === "/api/dashboard/summary" && request.method() === "GET") {
-      await route.fulfill({ status: 200, headers: jsonHeaders(origin), json: state.summary });
-      return;
-    }
-    if (url.pathname === "/api/zones" && request.method() === "GET") {
-      await route.fulfill({ status: 200, headers: jsonHeaders(origin), json: state.zones });
-      return;
-    }
-    if (url.pathname === "/api/video_feed" && request.method() === "GET") {
+    if (
+      url.pathname === "/api/petcare/status" &&
+      request.method() === "GET"
+    ) {
+      state.statusRequests += 1;
       await route.fulfill({
         status: 200,
-        headers: { "access-control-allow-origin": origin },
+        contentType: "application/json",
+        json: {
+          home: { id: "home-1", state: "ready" },
+          agent: {
+            id: "agent-1",
+            state: "online",
+            last_seen_at: state.summary.generated_at,
+          },
+          camera: state.cameraAvailable
+            ? {
+                id: "camera-1",
+                state: "online",
+                last_seen_at: state.summary.generated_at,
+              }
+            : null,
+          dashboard: state.summary,
+        },
+      });
+      return;
+    }
+    if (
+      url.pathname === "/api/petcare/clips" &&
+      request.method() === "GET"
+    ) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        json: { clips: [] },
+      });
+      return;
+    }
+    if (
+      url.pathname === "/api/petcare/cameras/camera-1/stream.mjpeg" &&
+      request.method() === "GET"
+    ) {
+      await route.fulfill({
+        status: 200,
         contentType: "image/webp",
         body: demoCamera,
       });
       return;
     }
-    if (url.pathname === "/api/bed/calibration" && request.method() === "POST") {
-      if (state.holdCalibration) {
-        await new Promise<void>((resolveRequest) => {
-          state.releaseCalibration = resolveRequest;
-        });
-        state.releaseCalibration = undefined;
-        state.holdCalibration = false;
-      }
-      if (state.calibration === "success") {
-        await route.fulfill({
-          status: 200,
-          headers: jsonHeaders(origin),
-          json: {
-            device_id: "petzone-01",
-            calibrated_at: "2026-07-15T01:43:01Z",
-            window_start: "2026-07-15T01:42:00Z",
-            window_end: "2026-07-15T01:43:00Z",
-            channels: [
-              { channel: "left", sample_count: 60, baseline: 812, polarity: 1 },
-              { channel: "center", sample_count: 60, baseline: 905, polarity: 1 },
-              { channel: "right", sample_count: 60, baseline: 844, polarity: 1 },
-            ],
-          },
-        });
-        return;
-      }
-      if (state.calibration === "occupied") {
-        await route.fulfill({
-          status: 409,
-          headers: jsonHeaders(origin),
-          json: { code: "occupied", message: "Bed is occupied", channels: [] },
-        });
-        return;
-      }
-      await route.fulfill({
-        status: 503,
-        headers: jsonHeaders(origin),
-        json: { code: "worker_unavailable", message: "Rule worker is unavailable" },
-      });
-      return;
-    }
-    if (url.pathname.startsWith("/api/zones/") && request.method() === "PUT") {
-      const name = url.pathname.endsWith("food_bowl") ? "food_bowl" : "pet_bed";
-      const input = request.postDataJSON() as Omit<ZoneOut, "zone_name" | "updated_at">;
-      const other = state.zones.find((zone) => zone.zone_name !== name);
-      if (input.enabled && other?.enabled && positiveAreaOverlap(input, other)) {
-        await route.fulfill({
-          status: 409,
-          headers: jsonHeaders(origin),
-          json: { code: "zone_conflict", message: "Enabled zones must not overlap" },
-        });
-        return;
-      }
-      const updated: ZoneOut = {
-        zone_name: name,
-        ...input,
-        updated_at: "2026-07-15T01:44:00Z",
-      };
-      state.zones = state.zones.map((zone) => zone.zone_name === name ? updated : zone) as [ZoneOut, ZoneOut];
-      await route.fulfill({ status: 200, headers: jsonHeaders(origin), json: updated });
-      return;
-    }
-    await route.fulfill({ status: 404, headers: jsonHeaders(origin), json: { code: "not_found" } });
+    await route.fulfill({
+      status: 404,
+      contentType: "application/json",
+      json: { code: "not_found" },
+    });
   });
 
   return {
     requests,
-    send(message: unknown) {
-      if (!socket) throw new Error("Dashboard WebSocket is not connected");
-      socket.send(JSON.stringify(message));
-    },
-    connected: () => socket !== undefined,
+    connected: () => state.statusRequests > 0,
   };
 }
 
 async function gotoConnected(page: Page, state?: Partial<ConnectedState>) {
   const connectedState: ConnectedState = {
     summary: structuredClone(summaryOf(demoDashboardData)),
-    zones: structuredClone(demoDashboardData.zones),
-    calibration: "success",
-    holdCalibration: false,
+    cameraAvailable: true,
+    statusRequests: 0,
     ...state,
   };
   const backend = await mockConnectedBackend(page, connectedState);
-  const response = await page.goto("/", { waitUntil: "domcontentloaded" });
+  const response = await page.goto("/dashboard", {
+    waitUntil: "domcontentloaded",
+  });
   expect(response?.ok()).toBe(true);
   await expect(page.locator("[data-dashboard-mode=connected]")).toBeVisible();
   await expect.poll(backend.connected).toBe(true);
@@ -305,15 +242,6 @@ async function expectViewportIntegrity(page: Page, viewportName: string) {
   await expectNoSectionOverlap(page);
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations, JSON.stringify(results.violations, null, 2)).toEqual([]);
-}
-
-function fusionBed(fusionState: BedStatus["fusion_state"]): BedStatus {
-  const bed = structuredClone(demoDashboardData.bed);
-  bed.fusion_state = fusionState;
-  bed.camera_confirmed = false;
-  bed.current_rest_seconds = 0;
-  bed.pressure_state = fusionState === "unconfirmed_pressure" ? "occupied" : "empty";
-  return bed;
 }
 
 test.describe("Playwright runtime identity", () => {
@@ -473,74 +401,74 @@ test.describe("real /demo route", () => {
   });
 });
 
-test.describe("connected dashboard states", () => {
+test.describe("remote dashboard states", () => {
   test.beforeEach(async ({}, testInfo) => {
-    test.skip(testInfo.project.name !== "connected", "Connected QA uses fixed loopback mocks");
+    test.skip(
+      testInfo.project.name !== "connected",
+      "Remote dashboard QA uses same-origin PetCare mocks",
+    );
   });
 
   for (const viewport of viewports) {
-    test(`covers connected calibration, fusion, handoff, and offline states at ${viewport.name}`, async ({ page }) => {
+    test(`renders the remote polling dashboard at ${viewport.name}`, async ({
+      page,
+    }) => {
       await page.setViewportSize(viewport);
       const { backend, state } = await gotoConnected(page);
-      await expect(page.getByText("dog_001", { exact: true }).first()).toBeVisible();
-      await expect(page.getByText("12시간 식사 기록 없음", { exact: true }).first()).toBeVisible();
-      await expect(page.getByText("카메라 확인 대기", { exact: true }).first()).toBeVisible();
-      await expect(page.getByText("침대 센서 확인 필요", { exact: true }).first()).toBeVisible();
-      await expect(page.getByRole("row", { name: /왼쪽 1042 ADC 기준 812 변화 230/ })).toBeVisible();
+      await expect(page.getByText("필수 연결 완료")).toBeVisible();
+      await expect(
+        page.getByRole("list", { name: "우리 집 연결" }),
+      ).toBeVisible();
+      await expect(
+        page.getByText("dog_001", { exact: true }).first(),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("img", { name: "실시간 반려동물 카메라" }),
+      ).toBeVisible();
+      await expect(
+        page.locator(".remote-operational .roi-section"),
+      ).not.toBeVisible();
+      await expect(page.getByRole("spinbutton")).toHaveCount(0);
 
-      const button = page.getByRole("button", { name: "침대 영점 재설정" });
-      const status = page.getByRole("status");
-      state.calibration = "success";
-      state.holdCalibration = true;
-      await button.click();
-      await expect(button).toBeDisabled();
-      await expect(button).toHaveAttribute("aria-busy", "true");
-      await expect(status).toHaveText("60초 영점 보정을 진행하고 있습니다.");
-      await expect.poll(() => typeof state.releaseCalibration).toBe("function");
-      state.releaseCalibration?.();
-      await expect(status).toHaveText("침대 영점 보정이 완료되었습니다.");
-      await expect(button).toBeEnabled();
-
-      state.calibration = "occupied";
-      await button.click();
-      await expect(status).toHaveText("Bed is occupied");
-
-      state.calibration = "unavailable";
-      await button.click();
-      await expect(status).toHaveText("Rule worker is unavailable");
-
-      const restPanel = page.locator("[data-dashboard-section=confirmed-rest]");
-      for (const [fusionState, copy] of [
-        ["empty", "침대 비어 있음"],
-        ["unconfirmed_pressure", "카메라 확인 대기"],
-        ["sensor_check", "침대 센서 확인 필요"],
-      ] as const) {
-        backend.send({ type: "bed_status", payload: fusionBed(fusionState) });
-        await expect(restPanel.getByText(copy, { exact: true })).toBeVisible();
-      }
-
-      const catSummary = structuredClone(summaryOf(demoDashboardData));
-      catSummary.behaviors = [
-        { id: 5, subject_id: "cat_001", behavior_type: "resting", started_at: "2026-07-15T01:41:00Z", ended_at: null, duration_seconds: null },
-        { id: 4, subject_id: "dog_001", behavior_type: "resting", started_at: "2026-07-15T01:00:00Z", ended_at: "2026-07-15T01:41:00Z", duration_seconds: 2460 },
-        ...catSummary.behaviors.filter((behavior) => behavior.id !== 4),
-      ];
-      backend.send({ type: "dashboard_update", payload: catSummary });
-      await expect(restPanel.getByText("cat_001", { exact: true })).toBeVisible();
-
-      const offline = structuredClone(catSummary);
-      offline.health = { ...offline.health, status: "degraded", camera: "offline" };
-      offline.camera = { state: "offline", fps: 0, inference_ms: 0, last_frame_at: null, reason: "camera_unavailable" };
-      offline.bed = { ...offline.bed, fusion_state: "unavailable", camera_confirmed: false, current_rest_seconds: 0 };
+      const previousRequests = state.statusRequests;
+      const offline = structuredClone(state.summary);
+      offline.health = {
+        ...offline.health,
+        status: "degraded",
+        camera: "offline",
+      };
+      offline.camera = {
+        state: "offline",
+        fps: 0,
+        inference_ms: 0,
+        last_frame_at: null,
+        reason: "camera_unavailable",
+      };
+      offline.bed = {
+        ...offline.bed,
+        fusion_state: "unavailable",
+        camera_confirmed: false,
+        current_rest_seconds: 0,
+      };
       offline.behaviors = [];
       offline.anomalies = [];
-      backend.send({ type: "dashboard_update", payload: offline });
+      state.summary = offline;
+      state.cameraAvailable = false;
 
+      await expect
+        .poll(() => state.statusRequests, { timeout: 5_000 })
+        .toBeGreaterThan(previousRequests);
+      await expect(
+        page.getByRole("img", { name: "실시간 반려동물 카메라" }),
+      ).toHaveCount(0);
       await expect(page.getByText("카메라 연결 끊김")).toBeVisible();
-      await expect(page.getByText("현재 확인할 경고가 없습니다.")).toBeVisible();
-      await expect(page.getByText("아직 기록된 행동이 없습니다.")).toBeVisible();
-      await expect(page.getByText("센서와 카메라가 함께 확인하면 여기에 표시됩니다.")).toBeVisible();
-      await expect(page.getByRole("row", { name: /왼쪽 1042 ADC 기준 812 변화 230/ })).toBeVisible();
+      await expect(
+        page.getByText("현재 확인할 경고가 없습니다."),
+      ).toBeVisible();
+      await expect(
+        page.getByText("아직 기록된 행동이 없습니다."),
+      ).toBeVisible();
+      expect(backend.requests).toContain("GET /api/petcare/status");
       await expectViewportIntegrity(page, viewport.name);
     });
   }
