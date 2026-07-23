@@ -303,7 +303,11 @@ jobs:
           $npm = $runtime.paths.npm_cli_path
           $env:PATH = "$(Split-Path $node):/usr/bin:/bin"
           $env:PLAYWRIGHT_BROWSERS_PATH = [IO.Path]::GetFullPath('.runtime/ms-playwright')
+          $env:UV_PYTHON = $runtime.paths.python_path
+          $env:UV_PYTHON_DOWNLOADS = 'never'
 
+          & $runtime.paths.uv_path sync --project backend --frozen
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           & $node $npm ci --prefix dashboard
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           & $node dashboard/node_modules/playwright/cli.js install chromium

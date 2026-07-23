@@ -93,8 +93,12 @@ def test_ci_commands_keep_tool_and_platform_identities_explicit() -> None:
 
 
 def test_dashboard_e2e_uses_the_frozen_backend_environment_portably() -> None:
+    dashboard = run_text(load_workflow()["jobs"]["dashboard"])
     local_setup = LOCAL_SETUP_E2E.read_text(encoding="utf-8")
 
+    assert "$env:UV_PYTHON = $runtime.paths.python_path" in dashboard
+    assert "$env:UV_PYTHON_DOWNLOADS = 'never'" in dashboard
+    assert "& $runtime.paths.uv_path sync --project backend --frozen" in dashboard
     assert "toolchain.paths?.uv_path" in local_setup
     assert '["run", "--project", backendRoot, "--frozen", "python", "-c", serverCode]' in local_setup
     assert "UV_PYTHON: managedPython" in local_setup
