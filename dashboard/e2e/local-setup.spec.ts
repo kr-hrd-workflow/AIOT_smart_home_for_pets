@@ -54,20 +54,27 @@ async function waitForBackend(): Promise<void> {
 test.beforeAll(async () => {
   const toolchain = JSON.parse(
     readFileSync(resolve(repositoryRoot, ".runtime/toolchain.json"), "utf8"),
-  ) as { paths?: { python_path?: string } };
-  if (!toolchain.paths?.python_path) throw new Error("Managed Python path is missing");
+  ) as { paths?: { python_path?: string; uv_path?: string } };
+  if (!toolchain.paths?.python_path || !toolchain.paths?.uv_path) {
+    throw new Error("Managed Python or uv path is missing");
+  }
   const managedPython = realpathSync.native(toolchain.paths.python_path);
-  const pythonPath = resolve(backendRoot, ".venv/Lib/site-packages");
-  backend = spawn(managedPython, ["-c", serverCode], {
-    cwd: backendRoot,
-    env: {
-      ...process.env,
-      PYTHONPATH: pythonPath,
-      PYTHONUNBUFFERED: "1",
+  const managedUv = realpathSync.native(toolchain.paths.uv_path);
+  backend = spawn(
+    managedUv,
+    ["run", "--project", backendRoot, "--frozen", "python", "-c", serverCode],
+    {
+      cwd: backendRoot,
+      env: {
+        ...process.env,
+        UV_PYTHON: managedPython,
+        UV_PYTHON_DOWNLOADS: "never",
+        PYTHONUNBUFFERED: "1",
+      },
+      stdio: ["ignore", "ignore", "pipe"],
+      windowsHide: true,
     },
-    stdio: ["ignore", "ignore", "pipe"],
-    windowsHide: true,
-  });
+  );
   backend.stderr?.on("data", (chunk) => {
     backendError += String(chunk);
   });

@@ -12,6 +12,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+LOCAL_SETUP_E2E = ROOT / "dashboard" / "e2e" / "local-setup.spec.ts"
 MOSQUITTO_ENTRYPOINT = ROOT / "infra" / "mosquitto" / "docker-entrypoint.sh"
 MANIFEST = json.loads((ROOT / "tools" / "platform-manifest.json").read_text(encoding="utf-8"))
 CHECKOUT = MANIFEST["managed_exact"]["actions"]["actions/checkout"]
@@ -89,6 +90,16 @@ def test_ci_commands_keep_tool_and_platform_identities_explicit() -> None:
     for name in WORK_JOBS:
         body = "\n".join(str(step.get("run", "")) for step in workflow["jobs"][name]["steps"][2:])
         assert not forbidden.search(body), name
+
+
+def test_dashboard_e2e_uses_the_frozen_backend_environment_portably() -> None:
+    local_setup = LOCAL_SETUP_E2E.read_text(encoding="utf-8")
+
+    assert "toolchain.paths?.uv_path" in local_setup
+    assert '["run", "--project", backendRoot, "--frozen", "python", "-c", serverCode]' in local_setup
+    assert "UV_PYTHON: managedPython" in local_setup
+    assert 'UV_PYTHON_DOWNLOADS: "never"' in local_setup
+    assert '".venv/Lib/site-packages"' not in local_setup
 
 
 def test_mosquitto_runtime_credentials_belong_to_the_broker_user() -> None:
