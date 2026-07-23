@@ -39,6 +39,11 @@ it("keeps the product story and primary actions available without WebGL", () => 
   expect(screen.getByRole("heading", { name: "식사 순간을 알아봅니다" })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "휴식 변화를 놓치지 않습니다" })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "이벤트만 안전하게 보관합니다" })).toBeInTheDocument();
+  expect(
+    screen.getByRole("heading", { name: "기기는 Home Agent를 통해 연결합니다" }),
+  ).toBeInTheDocument();
+  expect(screen.getByText(/연결만으로 사이트에 표시되지 않습니다/)).toBeInTheDocument();
+  expect(screen.getByText(/Jetson.*Pico 2 W.*MQTT/s)).toBeInTheDocument();
   expect(screen.getByText(/이벤트 클립은 7일 후 자동 삭제/)).toBeInTheDocument();
   expect(screen.getByTestId("landing-fallback")).toHaveAttribute("aria-hidden", "true");
 });

@@ -2,7 +2,7 @@
 
 PetCare는 두 대의 Raspberry Pi Pico 2 W 센서 노드, Home PC의 FastAPI/카메라 파이프라인, React/vinext 대시보드를 결합한 반려동물 생활 관찰 MVP입니다. 펌웨어는 센서 원값을 인증된 MQTT로 발행하고, Home 백엔드가 저장·융합·행동 판정·WebSocket 전달을 담당합니다.
 
-현재 구현 범위는 펌웨어, PostgreSQL/MQTT 백엔드, USB/file/Jetson 카메라 입력, dog/cat 급식·휴식 판정, 반응형 대시보드, 로컬 통합 게이트, CI, 소유자 전용 Sites `/demo`입니다. 물리 장치 설치·배선·실카메라 증거는 아직 `NOT RUN`이며 소프트웨어 통과와 구분합니다.
+현재 구현 범위는 펌웨어, PostgreSQL/MQTT 백엔드, USB/file/Jetson 카메라 입력, dog/cat 급식·휴식 판정, 반응형 대시보드, 로컬 통합 게이트, CI, 공개 Sites 랜딩·데모와 로그인 보호 실데이터입니다. 물리 장치 설치·배선·실카메라 증거는 아직 `NOT RUN`이며 소프트웨어 통과와 구분합니다.
 
 ## 구성
 

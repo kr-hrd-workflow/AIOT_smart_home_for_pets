@@ -12,7 +12,7 @@
 
 ## Sites
 
-production `/demo`는 fixture-only 화면입니다. document와 같은 origin의 정적 asset만 허용하고 `PetCareClient`, PetCare API/WebSocket, localhost/loopback 요청, cross-origin image 요청을 생성하지 않습니다. Sites 프로젝트는 custom owner-only access이며 public fallback을 사용하지 않습니다. source token은 단일 Git 명령의 메모리에만 두고 remote/config/file에 저장하지 않으며, 배포 중 environment variable을 변경하지 않습니다.
+Sites 자체는 공개입니다. production `/demo`는 fixture-only 화면으로 document와 같은 origin의 정적 asset만 허용하고 `PetCareClient`, PetCare API/WebSocket, localhost/loopback 요청, cross-origin image 요청을 생성하지 않습니다. 실제 카메라·센서·등록·클립 route는 Supabase 인증과 tenant scope로 보호합니다. source token은 단일 Git 명령의 메모리에만 두고 remote/config/file에 저장하지 않으며, 배포 중 environment variable을 변경하지 않습니다.
 
 <!-- petcare-docs:privacy-contract -->
 ```json

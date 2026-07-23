@@ -304,8 +304,8 @@ def _validate_demo(block: Any, root: Path, manifest: dict[str, Any], hosting: di
             "starter": manifest["managed_exact"]["sites_plugin"]["starter"],
             "bindings": {"d1": hosting["d1"], "r2": hosting["r2"]},
             "project_id_present": isinstance(hosting.get("project_id"), str) and bool(hosting["project_id"]),
-            "source_chain": ["dashboard subtree split", "tree equality", "per-command source credential", "vinext build", "Sites archive", "saved version", "private deployment", "status poll", "authenticated /demo"],
-            "access": "owner-only custom",
+            "source_chain": ["dashboard subtree split", "tree equality", "per-command source credential", "vinext build", "Sites archive", "saved version", "public deployment", "status poll", "anonymous / and /demo"],
+            "access": "public",
             "environment_mutation": False,
             "demo_network": "document and same-origin static assets only",
         },
@@ -342,7 +342,7 @@ def _validate_privacy(block: Any, root: Path) -> None:
 
 def _validate_delivery(block: Any) -> None:
     expected = {
-        "implemented": ["pico firmware", "backend", "dashboard", "local-live integration", "CI", "private Sites"],
+        "implemented": ["pico firmware", "backend", "dashboard", "local-live integration", "CI", "public Sites shell with protected live data"],
         "sites_production": "PASS",
         "physical_hardware": "NOT RUN",
         "deferred": ["physical installation evidence"],

@@ -1,9 +1,9 @@
 # PetCare Dashboard
 
 The PetCare dashboard runs on [vinext](https://github.com/cloudflare/vinext).
-It provides an owner-only Sites landing page, isolated `/demo`, loopback-only
-local live dashboard, and authenticated remote dashboard backed by Cloudflare D1
-and R2.
+It provides a public Sites landing page and fixture-only `/demo`, a loopback-only
+local live dashboard, and a Supabase-authenticated, tenant-scoped remote dashboard
+backed by Cloudflare D1 and R2.
 
 ## Prerequisites
 
@@ -77,16 +77,16 @@ optional or required ChatGPT sign-in:
 
 Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
 OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper rely on the
-outer Sites access policy and do not establish an in-app user.
+those reserved paths. Routes that do not import and call the helper remain public
+and do not establish an in-app user.
 
 SIWC establishes identity only; it does not prove workspace membership. Use the
 Sites hosting platform's access policy controls for workspace-wide restrictions,
 or enforce explicit server-side membership or allowlist checks.
 
 Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. For routes that do not need in-app user
-identity, retain the owner-only Sites access boundary instead of calling SIWC.
+actions tied to the current ChatGPT user. The public landing and `/demo` do not
+need in-app identity; live data remains behind authenticated, tenant-scoped routes.
 
 ## Useful Commands
 

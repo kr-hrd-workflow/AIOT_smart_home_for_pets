@@ -14,15 +14,15 @@ PetCare는 센서 노드와 Home 런타임을 분리합니다. 두 Pico 2 W는 C
 | Backend/API/DB/rules | 구현·테스트됨 | unit/component/local-live |
 | Dashboard/demo/responsive QA | 구현·테스트됨 | Vitest, Playwright, build |
 | CI | PASS | exact-SHA 6-job workflow |
-| Sites | private production PASS | owner-only access, saved version, private deployment |
+| Sites | public production PASS | public shell, fixture `/demo`, protected live data, saved version |
 | 실제 Pico/센서/웹캠 설치 | NOT RUN | 물리 증거 없음 |
 
-Sites production `/demo`는 fixture UI만 제공하고 Home API·WebSocket을 생성하지 않습니다. 소유자 인증 후 DOM smoke 확인은 브라우저 로그인 세션이 있어야 하며, 이 인증 요구 자체가 private access 경계입니다.
+Sites production `/demo`는 fixture UI만 제공하고 Home API·WebSocket을 생성하지 않습니다. 공개 shell은 익명으로 확인하며 실제 카메라·센서·등록·클립 route는 Supabase 인증과 tenant scope로 보호합니다.
 
 <!-- petcare-docs:delivery-status -->
 ```json
 {
-  "implemented": ["pico firmware", "backend", "dashboard", "local-live integration", "CI", "private Sites"],
+  "implemented": ["pico firmware", "backend", "dashboard", "local-live integration", "CI", "public Sites shell with protected live data"],
   "sites_production": "PASS",
   "physical_hardware": "NOT RUN",
   "deferred": ["physical installation evidence"]

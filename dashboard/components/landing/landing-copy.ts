@@ -14,4 +14,9 @@ export const LANDING_CHAPTERS = [
     title: "이벤트만 안전하게 보관합니다",
     body: "감지 전후의 짧은 클립만 계정별로 분리해 저장하고, 이벤트 클립은 7일 후 자동 삭제합니다.",
   },
+  {
+    id: "connect",
+    title: "기기는 Home Agent를 통해 연결합니다",
+    body: "Jetson은 USB 카메라를 분석해 Home Agent로 전달하고, Pico 2 W는 Wi-Fi와 MQTT로 센서 값을 보냅니다. 연결만으로 사이트에 표시되지 않습니다. Home Agent 등록과 서비스 실행이 완료되어야 합니다.",
+  },
 ] as const;
