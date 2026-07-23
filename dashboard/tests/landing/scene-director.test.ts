@@ -34,11 +34,11 @@ it("creates one scoped timeline and reverts it exactly once", () => {
   const target = { x: 0, y: 0.7, z: 0 };
   const cleanup = createSceneDirector({
     root,
-    camera: { position: { x: 12, y: 9, z: 16 }, lookAt },
+    camera: { position: { x: 0, y: 0, z: 8 }, lookAt },
     target,
-    bowlLight: { intensity: 0.35 },
-    bedLight: { intensity: 0.25 },
-    eventScreen: { scale: { x: 1, y: 1, z: 1 } },
+    bowlSignal: { scale: { x: 1, y: 1, z: 1 } },
+    bedSignal: { scale: { x: 1, y: 1, z: 1 } },
+    cameraSignal: { scale: { x: 1, y: 1, z: 1 } },
     invalidate,
   });
 

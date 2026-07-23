@@ -13,16 +13,16 @@ export function PetHomeCanvas({
   return (
     <div className="pet-home-experience">
       <Canvas
-        camera={{ position: [12.8, 9.4, 17.2], fov: 39, near: 0.1, far: 80 }}
+        camera={{ position: [0, 0, 8], fov: 42, near: 0.1, far: 20 }}
         dpr={[1, compact ? 1.15 : animated ? 1.5 : 1.2]}
         frameloop="demand"
         gl={{
           antialias: animated && !compact,
+          alpha: false,
           powerPreference: compact ? "low-power" : "high-performance",
         }}
-        shadows={animated && !compact}
       >
-        <PetHomeScene animated={animated} />
+        <PetHomeScene animated={animated && !compact} compact={compact} />
       </Canvas>
     </div>
   );

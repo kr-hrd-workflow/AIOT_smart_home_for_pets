@@ -6,9 +6,9 @@ export type SceneDirectorNodes = {
   root: HTMLElement;
   camera: { position: Position; lookAt: (x: number, y: number, z: number) => void };
   target: Position;
-  bowlLight: { intensity: number };
-  bedLight: { intensity: number };
-  eventScreen: { scale: Position };
+  bowlSignal: { scale: Position };
+  bedSignal: { scale: Position };
+  cameraSignal: { scale: Position };
   invalidate: () => void;
 };
 
@@ -29,15 +29,15 @@ export function createSceneDirector(nodes: SceneDirectorNodes): () => void {
     });
 
     timeline
-      .to(nodes.camera.position, { x: -6.2, y: 5.1, z: 10.8, ease: "none" })
-      .to(nodes.target, { x: -6.2, y: 0.45, z: 4.4, ease: "none" }, "<")
-      .to(nodes.bowlLight, { intensity: 1.15, ease: "none" }, "<")
-      .to(nodes.camera.position, { x: -1.8, y: 4.4, z: 10.2, ease: "none" })
-      .to(nodes.target, { x: -5.1, y: 0.55, z: 2.3, ease: "none" }, "<")
-      .to(nodes.bedLight, { intensity: 0.82, ease: "none" }, "<")
-      .to(nodes.camera.position, { x: 6.5, y: 5.6, z: 12.4, ease: "none" })
-      .to(nodes.target, { x: -8.7, y: 2.45, z: -0.25, ease: "none" }, "<")
-      .to(nodes.eventScreen.scale, { x: 1.08, y: 1.08, z: 1.08, ease: "none" }, "<");
+      .to(nodes.camera.position, { x: -0.42, y: -0.18, z: 7.45, ease: "none" })
+      .to(nodes.target, { x: -0.12, y: -0.06, z: 0, ease: "none" }, "<")
+      .to(nodes.bowlSignal.scale, { x: 1.34, y: 1.34, z: 1.34, ease: "none" }, "<")
+      .to(nodes.camera.position, { x: -0.18, y: -0.05, z: 7.1, ease: "none" })
+      .to(nodes.target, { x: -0.2, y: -0.08, z: 0, ease: "none" }, "<")
+      .to(nodes.bedSignal.scale, { x: 1.38, y: 1.38, z: 1.38, ease: "none" }, "<")
+      .to(nodes.camera.position, { x: 0.24, y: 0.08, z: 7.55, ease: "none" })
+      .to(nodes.target, { x: 0.08, y: 0.02, z: 0, ease: "none" }, "<")
+      .to(nodes.cameraSignal.scale, { x: 1.3, y: 1.3, z: 1.3, ease: "none" }, "<");
   }, nodes.root);
 
   return () => context.revert();
