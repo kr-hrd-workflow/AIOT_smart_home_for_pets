@@ -63,6 +63,15 @@ def test_only_approved_public_media_assets_are_whitelisted(tmp_path: Path) -> No
     (public / "landing-apartment-cinematic-loop-mobile.mp4").write_bytes(
         b"approved mobile cinematic loop"
     )
+    scroll_world = public / "landing" / "scroll-world"
+    (scroll_world / "desktop").mkdir(parents=True)
+    (scroll_world / "source").mkdir(parents=True)
+    (scroll_world / "desktop" / "scene-01-arrival.mp4").write_bytes(
+        b"approved Seedance arrival"
+    )
+    (scroll_world / "source" / "scene-01-arrival.png").write_bytes(
+        b"approved Seedance poster"
+    )
     (public / "og.png").write_bytes(b"approved social card")
     scan_remote_artifacts(tmp_path, ())
 

@@ -31,6 +31,8 @@ _MEDIA_ALLOWLIST = {
     "dashboard/public/landing-apartment-photoreal-mobile-v2.webp",
     "dashboard/public/landing-apartment-photoreal-v3-blue.webp",
     "dashboard/public/landing-apartment-photoreal-v3.webp",
+    "dashboard/public/landing/scroll-world/desktop/scene-01-arrival.mp4",
+    "dashboard/public/landing/scroll-world/source/scene-01-arrival.png",
     "dashboard/public/og.png",
 }
 _PRIVATE_KEY = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
