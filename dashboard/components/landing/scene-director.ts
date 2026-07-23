@@ -1,7 +1,9 @@
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger.js";
 
-gsap.registerPlugin(ScrollTrigger);
+if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
+  gsap.registerPlugin(ScrollTrigger);
+}
 
 type Position = { x: number; y: number; z: number };
 
