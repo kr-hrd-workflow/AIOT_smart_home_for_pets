@@ -63,6 +63,55 @@ void wait_with_usb(
     }
 }
 
+bool connect_wifi_with_usb(petcare::ProvisioningConfig& runtime) {
+    if (cyw43_arch_wifi_connect_async(
+            runtime.ssid.data(),
+            runtime.wifi_password.data(),
+            CYW43_AUTH_WPA2_AES_PSK) != 0) {
+        return false;
+    }
+
+    const auto deadline =
+        make_timeout_time_ms(petcare::config::wifi_timeout_ms);
+    while (!time_reached(deadline)) {
+        const auto status =
+            cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
+        if (status == CYW43_LINK_UP) {
+            return true;
+        }
+        if (status == CYW43_LINK_NONET) {
+            if (cyw43_arch_wifi_connect_async(
+                    runtime.ssid.data(),
+                    runtime.wifi_password.data(),
+                    CYW43_AUTH_WPA2_AES_PSK) != 0) {
+                return false;
+            }
+        } else if (status == CYW43_LINK_BADAUTH ||
+                   status == CYW43_LINK_FAIL) {
+            return false;
+        }
+        wait_with_usb(runtime, 10);
+    }
+    return false;
+}
+
+bool synchronize_clock_with_usb(
+    petcare::UtcClock& clock,
+    petcare::ProvisioningConfig& runtime) {
+    const auto deadline =
+        make_timeout_time_ms(petcare::config::sntp_timeout_ms);
+    while (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) ==
+               CYW43_LINK_UP &&
+           !time_reached(deadline)) {
+        const auto now_ms = monotonic_ms();
+        if (clock.synchronize(wall_clock_ms(), now_ms)) {
+            return true;
+        }
+        wait_with_usb(runtime, 100);
+    }
+    return false;
+}
+
 }
 
 extern "C" void petcare_sntp_set_system_time_us(std::uint32_t seconds, std::uint32_t microseconds) {
@@ -98,12 +147,7 @@ int main() {
     petcare::UtcClock clock;
 
     for (;;) {
-        if (cyw43_arch_wifi_connect_timeout_ms(
-                runtime.ssid.data(),
-                runtime.wifi_password.data(),
-                CYW43_AUTH_WPA2_AES_PSK,
-                petcare::config::wifi_timeout_ms
-            ) != 0) {
+        if (!connect_wifi_with_usb(runtime)) {
             wait_with_usb(
                 runtime,
                 wifi_backoff.next_delay_seconds() * 1'000U);
@@ -112,16 +156,7 @@ int main() {
         wifi_backoff.reset();
         start_sntp();
 
-        std::uint64_t next_sync_attempt_ms = 0;
-        while (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) == CYW43_LINK_UP && !clock.valid()) {
-            const auto now_ms = monotonic_ms();
-            if (now_ms >= next_sync_attempt_ms) {
-                clock.synchronize(wall_clock_ms(), now_ms);
-                next_sync_attempt_ms = now_ms + petcare::UtcClock::retry_ms;
-            }
-            wait_with_usb(runtime, 50);
-        }
-        if (!clock.valid()) {
+        if (!synchronize_clock_with_usb(clock, runtime)) {
             wait_with_usb(
                 runtime,
                 wifi_backoff.next_delay_seconds() * 1'000U);
@@ -179,7 +214,7 @@ int main() {
         clock.mark_published(status_utc_ms);
         sensor_schedule.start(static_cast<std::uint32_t>(now_ms));
         auto next_resync_ms = now_ms + petcare::UtcClock::resync_ms;
-        next_sync_attempt_ms = 0;
+        std::uint64_t next_sync_attempt_ms = 0;
 
         while (publisher.connected() &&
                cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) == CYW43_LINK_UP) {

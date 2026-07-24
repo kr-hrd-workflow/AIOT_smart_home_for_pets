@@ -18,6 +18,7 @@ inline constexpr DeviceProfile device_profile = DeviceProfile::petzone_01;
 
 inline constexpr auto client_id = device_id;
 inline constexpr std::uint32_t wifi_timeout_ms = 10'000;
+inline constexpr std::uint32_t sntp_timeout_ms = 30'000;
 inline constexpr std::uint32_t mqtt_timeout_ms = 10'000;
 
 inline constexpr std::uint8_t sht31_i2c_index = 0;
