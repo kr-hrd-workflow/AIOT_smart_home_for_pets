@@ -43,6 +43,52 @@ const MOBILE_FALLBACK = "/landing-apartment-photoreal-mobile-v2.webp";
 const SEAM_OVERLAP = 0.12;
 const clamp = (value: number) => Math.min(1, Math.max(0, value));
 
+export const LANDING_COPY_SCENES = [
+  "hero",
+  "feeding",
+  "rest",
+  "events",
+  "connect",
+  "final",
+] as const;
+
+export type LandingCopyScene = (typeof LANDING_COPY_SCENES)[number];
+
+export type LandingCopyLayer = {
+  scene: LandingCopyScene;
+  opacity: number;
+  translateY: number;
+};
+
+export function getLandingCopyLayers(progress: number): LandingCopyLayer[] {
+  const position = clamp(progress) * LANDING_COPY_SCENES.length;
+  const activeIndex = Math.min(
+    LANDING_COPY_SCENES.length - 1,
+    Math.floor(position),
+  );
+  const localProgress = position - activeIndex;
+  const blend =
+    activeIndex < LANDING_COPY_SCENES.length - 1
+      ? clamp((localProgress - 0.72) / 0.28)
+      : 0;
+
+  return LANDING_COPY_SCENES.map((scene, index) => {
+    if (index === activeIndex) {
+      return { scene, opacity: 1 - blend, translateY: -16 * blend };
+    }
+    if (index === activeIndex + 1) {
+      return { scene, opacity: blend, translateY: 36 * (1 - blend) };
+    }
+    return { scene, opacity: 0, translateY: 36 };
+  });
+}
+
+export function getLandingCopyScene(progress: number): LandingCopyScene {
+  return getLandingCopyLayers(progress).reduce(
+    (visible, layer) => (layer.opacity > visible.opacity ? layer : visible),
+  ).scene;
+}
+
 export function getRootScrollProgress(
   root: HTMLElement,
   viewportHeight = window.innerHeight,
@@ -153,6 +199,11 @@ export function mountScrollWorld(
   let closed = false;
   let frame = 0;
 
+  if (!staticMode) {
+    options.root.dataset.scrollWorldActive = "true";
+    options.root.dataset.landingScene = "hero";
+  }
+
   layer.className = "scroll-world-layer";
   stage.appendChild(layer);
 
@@ -236,7 +287,6 @@ export function mountScrollWorld(
   const seek = (runtime: SegmentRuntime) => {
     const video = runtime.video;
     if (!runtime.ready || !video || isAtTarget(runtime)) return;
-    runtime.element.classList.remove("has-video-frame");
     if (!video.seeking) video.currentTime = targetTime(runtime);
   };
 
@@ -284,10 +334,29 @@ export function mountScrollWorld(
     frame = 0;
     if (closed || !runtimes.length) return;
 
-    const state = mapScrollWorldProgress(
-      runtimes,
-      getRootScrollProgress(options.root),
-    );
+    const progress = getRootScrollProgress(options.root);
+    const state = mapScrollWorldProgress(runtimes, progress);
+    if (!staticMode) {
+      const copyLayers = getLandingCopyLayers(progress);
+      const activeCopyScene = getLandingCopyScene(progress);
+      const peer = copyLayers.find(
+        (layer) => layer.scene !== activeCopyScene && layer.opacity > 0,
+      );
+
+      options.root.dataset.landingScene = activeCopyScene;
+      if (peer) options.root.dataset.landingCopyPeer = peer.scene;
+      else delete options.root.dataset.landingCopyPeer;
+      copyLayers.forEach((layer) => {
+        options.root.style.setProperty(
+          `--landing-copy-${layer.scene}-opacity`,
+          String(layer.opacity),
+        );
+        options.root.style.setProperty(
+          `--landing-copy-${layer.scene}-translate`,
+          `${layer.translateY}px`,
+        );
+      });
+    }
 
     runtimes.forEach((runtime) => {
       runtime.element.classList.remove("is-active");
@@ -333,6 +402,13 @@ export function mountScrollWorld(
     window.removeEventListener("scroll", scheduleUpdate);
     window.removeEventListener("resize", scheduleUpdate);
     if (frame) window.cancelAnimationFrame(frame);
+    delete options.root.dataset.scrollWorldActive;
+    delete options.root.dataset.landingScene;
+    delete options.root.dataset.landingCopyPeer;
+    LANDING_COPY_SCENES.forEach((scene) => {
+      options.root.style.removeProperty(`--landing-copy-${scene}-opacity`);
+      options.root.style.removeProperty(`--landing-copy-${scene}-translate`);
+    });
     layer.remove();
   };
 }

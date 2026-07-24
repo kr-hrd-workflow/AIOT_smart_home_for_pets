@@ -3,6 +3,8 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, expect, it, vi } from "vitest";
 import {
   buildScrollWorldSegments,
+  getLandingCopyLayers,
+  getLandingCopyScene,
   getRootScrollProgress,
   mapScrollWorldProgress,
   mountScrollWorld,
@@ -83,6 +85,28 @@ it("maps root-relative progress and scroll-linked seam overlap deterministically
   expect(seam.layers[1].progress).toBe(0);
 });
 
+it("maps the same scroll progress into one fixed copy scene", () => {
+  expect(getLandingCopyScene(0)).toBe("hero");
+  expect(getLandingCopyScene(0.2)).toBe("feeding");
+  expect(getLandingCopyScene(0.4)).toBe("rest");
+  expect(getLandingCopyScene(0.6)).toBe("events");
+  expect(getLandingCopyScene(0.8)).toBe("connect");
+  expect(getLandingCopyScene(1)).toBe("final");
+});
+
+it("crossfades adjacent copy scenes from scroll progress instead of elapsed time", () => {
+  const layers = getLandingCopyLayers(0.16);
+  const hero = layers.find((layer) => layer.scene === "hero");
+  const feeding = layers.find((layer) => layer.scene === "feeding");
+
+  expect(hero?.opacity).toBeGreaterThan(0);
+  expect(hero?.opacity).toBeLessThan(1);
+  expect(hero?.translateY).toBeLessThan(0);
+  expect(feeding?.opacity).toBeGreaterThan(0);
+  expect(feeding?.opacity).toBeLessThan(1);
+  expect(feeding?.translateY).toBeGreaterThan(0);
+});
+
 it.each([
   ["reduced motion", true, false],
   ["data saver", false, true],
@@ -120,9 +144,10 @@ it("streams nearby clips directly, keeps posters until the requested frame paint
   const root = document.createElement("main");
   const stage = document.createElement("div");
   Object.defineProperty(root, "scrollHeight", { value: 6000 });
-  vi.spyOn(root, "getBoundingClientRect").mockReturnValue({
-    top: 0,
-  } as DOMRect);
+  let top = 0;
+  vi.spyOn(root, "getBoundingClientRect").mockImplementation(
+    () => ({ top }) as DOMRect,
+  );
   Object.defineProperty(navigator, "connection", {
     configurable: true,
     value: { saveData: false },
@@ -161,6 +186,18 @@ it("streams nearby clips directly, keeps posters until the requested frame paint
   expect(firstScene).not.toHaveClass("has-video-frame");
   await new Promise((resolve) => window.setTimeout(resolve, 100));
   expect(firstScene).toHaveClass("has-video-frame");
+  top = -1000;
+  window.dispatchEvent(new Event("scroll"));
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  expect(root.dataset.landingScene).toBe("feeding");
+  expect(firstScene).toHaveClass("has-video-frame");
+  top = -((root.scrollHeight - window.innerHeight) * 0.16);
+  window.dispatchEvent(new Event("scroll"));
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  expect(root.dataset.landingScene).toBe("feeding");
+  expect(root.dataset.landingCopyPeer).toBe("hero");
+  expect(Number(root.style.getPropertyValue("--landing-copy-hero-opacity"))).toBeGreaterThan(0);
+  expect(Number(root.style.getPropertyValue("--landing-copy-feeding-opacity"))).toBeGreaterThan(0);
   firstVideo?.dispatchEvent(new Event("error"));
   expect(firstScene).toHaveAttribute("data-video-error", "true");
   expect(firstScene).not.toHaveClass("has-video-frame");

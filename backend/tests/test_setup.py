@@ -54,6 +54,8 @@ def test_setup_is_loopback_session_only() -> None:
     assert response.status_code == 200
     assert "현관 Pico 연결" in response.text
     assert "생활공간 Pico 연결" in response.text
+    assert 'data-product="petzone-01" disabled' not in response.text
+    assert 'document.querySelector("[data-product=\'petzone-01\']").disabled = false;' not in response.text
     assert "/setup/api/pico/" in response.text
     assert "/setup/api/bootstrap" not in response.text
     assert "requestPort" not in response.text

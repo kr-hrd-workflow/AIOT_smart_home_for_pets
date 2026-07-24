@@ -401,6 +401,57 @@ test.describe("real /demo route", () => {
   });
 });
 
+test.describe("animated public landing", () => {
+  test.use({ reducedMotion: "no-preference" });
+
+  test.beforeEach(async ({}, testInfo) => {
+    test.skip(testInfo.project.name !== "demo-dev", "Animated landing QA runs once against dev");
+  });
+
+  test("scrubs the accepted arrival video and copy together", async ({ page }) => {
+    const response = await page.goto("/", { waitUntil: "domcontentloaded" });
+    expect(response?.ok()).toBe(true);
+
+    const landing = page.locator("#petcare-story");
+    const scene = landing.locator(".scroll-world-scene");
+    const video = scene.locator("video");
+    await expect(landing).toHaveAttribute("data-scroll-world-active", "true");
+    await page.evaluate(() => {
+      document.documentElement.style.scrollBehavior = "auto";
+    });
+    await expect(landing).toHaveAttribute("data-landing-scene", "hero");
+    await expect(video).toHaveCount(1);
+    await expect(video).toHaveAttribute("src", /scene-01-arrival\.mp4$/);
+    await expect.poll(() => video.evaluate((element) => element.readyState)).toBeGreaterThanOrEqual(1);
+    await expect(scene).toHaveClass(/has-video-frame/);
+
+    const scrollLandingTo = async (progress: number) => {
+      await page.evaluate((value) => {
+        const root = document.getElementById("petcare-story");
+        if (!root) throw new Error("Landing root is missing");
+        const start = root.getBoundingClientRect().top + window.scrollY;
+        const range = Math.max(1, root.scrollHeight - window.innerHeight);
+        window.scrollTo(0, start + range * value);
+      }, progress);
+      await page.evaluate(() => new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }));
+    };
+
+    const topTime = await video.evaluate((element) => element.currentTime);
+    await scrollLandingTo(0.5);
+    await expect(landing).toHaveAttribute("data-landing-scene", "events");
+    await expect.poll(() => video.evaluate((element) => element.currentTime)).toBeGreaterThan(topTime);
+    const middleTime = await video.evaluate((element) => element.currentTime);
+    await expect(scene).toHaveClass(/has-video-frame/);
+
+    await scrollLandingTo(0.9);
+    await expect(landing).toHaveAttribute("data-landing-scene", "final");
+    await expect.poll(() => video.evaluate((element) => element.currentTime)).toBeGreaterThan(middleTime);
+    await expect(scene).toHaveClass(/has-video-frame/);
+  });
+});
+
 test.describe("remote dashboard states", () => {
   test.beforeEach(async ({}, testInfo) => {
     test.skip(

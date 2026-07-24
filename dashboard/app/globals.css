@@ -1133,6 +1133,86 @@ a:focus-visible {
   margin-top: 28px;
 }
 
+.landing-page[data-scroll-world-active="true"] .landing-copy-track {
+  min-height: 600dvh;
+}
+
+.landing-page[data-scroll-world-active="true"] .landing-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  animation: none;
+}
+
+.landing-page[data-scroll-world-active="true"] .landing-hero,
+.landing-page[data-scroll-world-active="true"] .landing-chapter,
+.landing-page[data-scroll-world-active="true"] .landing-final {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  margin: 0 auto;
+  opacity: var(--landing-copy-opacity, 0);
+  pointer-events: none;
+  transform: translate3d(0, var(--landing-copy-translate, 36px), 0);
+  visibility: hidden;
+}
+
+.landing-page[data-scroll-world-active="true"] .landing-hero {
+  --landing-copy-opacity: var(--landing-copy-hero-opacity);
+  --landing-copy-translate: var(--landing-copy-hero-translate);
+}
+
+.landing-page[data-scroll-world-active="true"] #feeding {
+  --landing-copy-opacity: var(--landing-copy-feeding-opacity);
+  --landing-copy-translate: var(--landing-copy-feeding-translate);
+}
+
+.landing-page[data-scroll-world-active="true"] #rest {
+  --landing-copy-opacity: var(--landing-copy-rest-opacity);
+  --landing-copy-translate: var(--landing-copy-rest-translate);
+}
+
+.landing-page[data-scroll-world-active="true"] #events {
+  --landing-copy-opacity: var(--landing-copy-events-opacity);
+  --landing-copy-translate: var(--landing-copy-events-translate);
+}
+
+.landing-page[data-scroll-world-active="true"] #connect {
+  --landing-copy-opacity: var(--landing-copy-connect-opacity);
+  --landing-copy-translate: var(--landing-copy-connect-translate);
+}
+
+.landing-page[data-scroll-world-active="true"] .landing-final {
+  --landing-copy-opacity: var(--landing-copy-final-opacity);
+  --landing-copy-translate: var(--landing-copy-final-translate);
+}
+
+.landing-page[data-landing-scene="hero"] .landing-hero,
+.landing-page[data-landing-scene="feeding"] #feeding,
+.landing-page[data-landing-scene="rest"] #rest,
+.landing-page[data-landing-scene="events"] #events,
+.landing-page[data-landing-scene="connect"] #connect,
+.landing-page[data-landing-scene="final"] .landing-final {
+  pointer-events: auto;
+  visibility: visible;
+}
+
+.landing-page[data-landing-copy-peer="hero"] .landing-hero,
+.landing-page[data-landing-copy-peer="feeding"] #feeding,
+.landing-page[data-landing-copy-peer="rest"] #rest,
+.landing-page[data-landing-copy-peer="events"] #events,
+.landing-page[data-landing-copy-peer="connect"] #connect,
+.landing-page[data-landing-copy-peer="final"] .landing-final {
+  visibility: visible;
+}
+
+@supports (animation-timeline: view()) {
+  .landing-page[data-scroll-world-active="true"] .landing-chapter-copy {
+    animation: none;
+  }
+}
+
 .auth-scene-shell {
   display: grid;
   min-height: 100dvh;
@@ -1367,6 +1447,26 @@ a:focus-visible {
   .landing-chapter-copy {
     animation: none !important;
     transform: none !important;
+  }
+
+  .landing-page[data-scroll-world-active="true"] .landing-copy-track {
+    min-height: 0;
+  }
+
+  .landing-page[data-scroll-world-active="true"] .landing-header {
+    position: sticky;
+    left: auto;
+  }
+
+  .landing-page[data-scroll-world-active="true"] .landing-hero,
+  .landing-page[data-scroll-world-active="true"] .landing-chapter,
+  .landing-page[data-scroll-world-active="true"] .landing-final {
+    position: relative;
+    inset: auto;
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+    visibility: visible;
   }
 }
 

@@ -48,7 +48,7 @@ async function waitForBackend(): Promise<void> {
     }
     await new Promise((resolveWait) => setTimeout(resolveWait, 100));
   }
-  throw new Error("Local setup server did not become ready");
+  throw new Error(`Local setup server did not become ready\n${backendError}`);
 }
 
 test.beforeAll(async () => {
@@ -83,6 +83,15 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   if (!backend || backend.exitCode !== null) return;
+  if (process.platform === "win32" && backend.pid) {
+    const killer = spawn(
+      "taskkill",
+      ["/pid", String(backend.pid), "/T", "/F"],
+      { stdio: "ignore", windowsHide: true },
+    );
+    await new Promise<void>((resolveExit) => killer.once("exit", () => resolveExit()));
+    return;
+  }
   backend.kill();
   await Promise.race([
     new Promise<void>((resolveExit) => backend?.once("exit", () => resolveExit())),
@@ -103,19 +112,19 @@ test("provisions both fixed Pico products through the Home Agent API", async ({ 
   await page.getByLabel("Wi-Fi 비밀번호").fill("password-for-test");
   expect(requests).toHaveLength(0);
 
-  await page.getByRole("button", { name: "현관 Pico 연결" }).click();
-  await expect(page.getByTestId("entrance-status")).toHaveText("연결 완료");
+  await page.getByRole("button", { name: "생활공간 Pico 연결" }).click();
+  await expect(page.getByTestId("petzone-status")).toHaveText("연결 완료");
   expect(requests).toHaveLength(1);
-  expect(requests[0].url).toBe(`${setupUrl}/api/pico/entrance-01`);
+  expect(requests[0].url).toBe(`${setupUrl}/api/pico/petzone-01`);
   expect(JSON.parse(requests[0].body ?? "")).toEqual({
     wifi_ssid: "test-network",
     wifi_password: "password-for-test",
   });
 
-  await page.getByRole("button", { name: "생활공간 Pico 연결" }).click();
-  await expect(page.getByTestId("petzone-status")).toHaveText("연결 완료");
+  await page.getByRole("button", { name: "현관 Pico 연결" }).click();
+  await expect(page.getByTestId("entrance-status")).toHaveText("연결 완료");
   expect(requests).toHaveLength(2);
-  expect(requests[1].url).toBe(`${setupUrl}/api/pico/petzone-01`);
+  expect(requests[1].url).toBe(`${setupUrl}/api/pico/entrance-01`);
   await expect(page.getByLabel("Wi-Fi 이름")).toHaveValue("");
   await expect(page.getByLabel("Wi-Fi 비밀번호")).toHaveValue("");
 });
@@ -141,7 +150,7 @@ test("keeps the first step active when the server detects the other Pico", async
 
   await expect(page.getByTestId("entrance-status")).toContainText("다른 Pico");
   await expect(page.getByRole("button", { name: "현관 Pico 연결" })).toBeEnabled();
-  await expect(page.getByRole("button", { name: "생활공간 Pico 연결" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "생활공간 Pico 연결" })).toBeEnabled();
 });
 
 test("permits retry when the Home Agent cannot find a connected Pico", async ({ page }) => {
@@ -206,5 +215,5 @@ test("uses the web page without exposing or requiring Web Serial", async ({ page
     "Home Agent가 USB로 연결된 Pico를 자동으로 찾습니다",
   );
   await expect(page.getByRole("button", { name: "현관 Pico 연결" })).toBeEnabled();
-  await expect(page.getByRole("button", { name: "생활공간 Pico 연결" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "생활공간 Pico 연결" })).toBeEnabled();
 });
