@@ -338,8 +338,8 @@ SETUP_HTML = """<!doctype html>
         <span class="step-number">02</span>
         <h2>생활공간 센서</h2>
         <p class="device-copy">식기와 침대가 있는 생활공간의 Pico를 USB로 연결하세요.</p>
-        <button class="connect" type="button" data-product="petzone-01" disabled>생활공간 Pico 연결</button>
-        <p class="status" data-testid="petzone-status" data-state="idle" aria-live="polite">현관 센서 연결 후 진행</p>
+        <button class="connect" type="button" data-product="petzone-01">생활공간 Pico 연결</button>
+        <p class="status" data-testid="petzone-status" data-state="idle" aria-live="polite">연결 대기</p>
       </article>
     </section>
 
@@ -539,9 +539,6 @@ SETUP_HTML = """<!doctype html>
 
           completed.add(product);
           setStatus(product, "연결 완료", "success");
-          if (product === "entrance-01") {
-            document.querySelector("[data-product='petzone-01']").disabled = false;
-          }
           if (completed.size === 2) {
             ssidInput.value = "";
             wifiPasswordInput.value = "";

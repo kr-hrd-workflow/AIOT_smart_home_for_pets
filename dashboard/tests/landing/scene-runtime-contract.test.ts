@@ -47,6 +47,7 @@ it("uses the photorealistic apartment plate instead of low-poly room geometry", 
 it("scrubs one continuous photoreal journey instead of stitching scene fragments", () => {
   const canvas = readLandingSource("pet-home-canvas.tsx");
   const config = readLandingSource("scroll-world-config.ts");
+  const overlay = readLandingSource("landing-overlay.tsx");
   const globals = readFileSync(
     new URL("../../app/globals.css", import.meta.url),
     "utf8",
@@ -74,6 +75,15 @@ it("scrubs one continuous photoreal journey instead of stitching scene fragments
   expect(canvas).not.toContain("autoPlay");
   expect(canvas).not.toContain("loop");
   expect(globals).not.toContain("animation: landing-cinematic-drift");
+  expect(overlay).toContain('className="landing-copy-track"');
+  expect(globals).toContain(
+    '.landing-page[data-scroll-world-active="true"] .landing-copy-track',
+  );
+  expect(globals).toContain('[data-landing-scene="hero"]');
+  expect(globals).toContain("--landing-copy-hero-opacity");
+  expect(globals).toMatch(
+    /\.landing-page\[data-scroll-world-active="true"\] \.landing-header\s*\{[^}]*left:\s*0;[^}]*right:\s*0;/s,
+  );
 });
 
 it("selects the compact scene profile at the mobile breakpoint", () => {

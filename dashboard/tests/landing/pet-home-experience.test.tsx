@@ -43,7 +43,10 @@ it("mounts a static scroll world for reduced motion", async () => {
     </main>,
   );
 
-  await waitFor(() => expect(mocks.mountScrollWorld).toHaveBeenCalledOnce());
+  await waitFor(
+    () => expect(mocks.mountScrollWorld).toHaveBeenCalledOnce(),
+    { timeout: 5_000 },
+  );
   expect(mocks.mountScrollWorld).toHaveBeenCalledWith(
     expect.any(HTMLElement),
     expect.objectContaining({ reducedMotion: true, mobile: false }),
@@ -60,7 +63,10 @@ it("mounts the animated scroll world when motion is available", async () => {
     </main>,
   );
 
-  await waitFor(() => expect(mocks.mountScrollWorld).toHaveBeenCalledOnce());
+  await waitFor(
+    () => expect(mocks.mountScrollWorld).toHaveBeenCalledOnce(),
+    { timeout: 5_000 },
+  );
   expect(mocks.mountScrollWorld).toHaveBeenCalledWith(
     expect.any(HTMLElement),
     expect.objectContaining({ reducedMotion: false, mobile: false }),

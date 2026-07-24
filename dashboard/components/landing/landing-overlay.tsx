@@ -14,6 +14,7 @@ export function LandingOverlay() {
         </nav>
       </header>
 
+      <div className="landing-copy-track">
       <section className="landing-hero" aria-labelledby="landing-title">
         <div className="landing-hero-copy">
           <p className="landing-kicker">집에 없는 시간도 안심할 수 있게</p>
@@ -52,6 +53,7 @@ export function LandingOverlay() {
           <Link className="landing-primary" href="/dashboard">로그인</Link>
         </div>
       </section>
+      </div>
     </div>
   );
 }
