@@ -16,7 +16,8 @@ export function LandingOverlay() {
         </Link>
         <nav aria-label="주요 메뉴">
           <Link href="/demo">먼저 둘러보기</Link>
-          <Link className="landing-header-cta" href="/dashboard">로그인</Link>
+          <Link className="landing-header-login" href="/login">로그인</Link>
+          <Link className="landing-header-cta" href="/signup">회원가입</Link>
         </nav>
       </header>
 
@@ -71,8 +72,14 @@ export function LandingOverlay() {
                   {chapter.id === "connect" && (
                     <>
                       <div className="landing-install-actions">
-                        <Link className="landing-install-cta" href="/dashboard">
+                        <Link className="landing-install-cta" href="/login">
                           로그인하고 연결하기
+                        </Link>
+                        <Link
+                          className="landing-install-download"
+                          href="/signup"
+                        >
+                          계정 만들기
                         </Link>
                         <Link
                           className="landing-install-download"
@@ -135,7 +142,10 @@ export function LandingOverlay() {
           <div>
             <p>지금 시작해 보세요</p>
             <h2 id="landing-final-title">반려동물의 오늘을 지금 확인하세요</h2>
-            <Link className="landing-primary" href="/signup">PetCare 시작하기</Link>
+            <div className="landing-actions">
+              <Link className="landing-primary" href="/signup">회원가입</Link>
+              <Link className="landing-secondary" href="/login">로그인</Link>
+            </div>
           </div>
         </section>
       </div>

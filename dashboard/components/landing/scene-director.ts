@@ -34,6 +34,9 @@ type SegmentRuntime = ScrollWorldSegment & {
   element: HTMLDivElement;
   image: HTMLImageElement;
   video?: HTMLVideoElement;
+  playbackFrame?: number;
+  reverseFromTime?: number;
+  reverseStartedAt?: number;
   ready: boolean;
   targetTime: number;
 };
@@ -41,6 +44,10 @@ type SegmentRuntime = ScrollWorldSegment & {
 const DESKTOP_FALLBACK = "/landing-apartment-photoreal-v3.webp";
 const MOBILE_FALLBACK = "/landing-apartment-photoreal-mobile-v2.webp";
 const SEAM_OVERLAP = 0.12;
+const PLAYBACK_EPSILON_SECONDS = 0.04;
+const SCROLL_PLAYBACK_RATE = 0.72;
+const REVERSE_SEEK_DURATION_MS = 2200;
+const CHAPTER_SCROLL_LOCK_MS = 720;
 const clamp = (value: number) => Math.min(1, Math.max(0, value));
 
 export const LANDING_COPY_SCENES = [
@@ -225,11 +232,12 @@ export function mountScrollWorld(
         connection?: { saveData?: boolean };
       }
     ).connection?.saveData === true;
-  const staticMode = reducedMotion || saveData;
+  const staticMode = saveData;
   const segments = buildScrollWorldSegments(options.config, mobile);
   const layer = document.createElement("div");
   let closed = false;
   let frame = 0;
+  let wheelLock = 0;
 
   if (!staticMode) {
     options.root.dataset.scrollWorldActive = "true";
@@ -316,10 +324,117 @@ export function mountScrollWorld(
     }
   };
 
-  const seek = (runtime: SegmentRuntime) => {
+  const cancelPlaybackFrame = (runtime: SegmentRuntime) => {
+    if (runtime.playbackFrame) {
+      window.cancelAnimationFrame(runtime.playbackFrame);
+      runtime.playbackFrame = undefined;
+    }
+  };
+
+  const resetReverseSeek = (runtime: SegmentRuntime) => {
+    runtime.reverseFromTime = undefined;
+    runtime.reverseStartedAt = undefined;
+  };
+
+  const pauseAtTarget = (runtime: SegmentRuntime) => {
     const video = runtime.video;
-    if (!runtime.ready || !video || isAtTarget(runtime)) return;
-    if (!video.seeking) video.currentTime = targetTime(runtime);
+    if (!video) return;
+    video.pause();
+    cancelPlaybackFrame(runtime);
+    resetReverseSeek(runtime);
+    const target = targetTime(runtime);
+    if (!video.seeking && Math.abs(video.currentTime - target) > 0.008) {
+      video.currentTime = target;
+    } else {
+      revealPaintedFrame(runtime);
+    }
+  };
+
+  const monitorPlayback = (runtime: SegmentRuntime) => {
+    cancelPlaybackFrame(runtime);
+    const tick = () => {
+      runtime.playbackFrame = undefined;
+      const video = runtime.video;
+      if (closed || !runtime.ready || !video) return;
+      const remaining = targetTime(runtime) - video.currentTime;
+      if (remaining <= PLAYBACK_EPSILON_SECONDS) {
+        pauseAtTarget(runtime);
+        return;
+      }
+      video.playbackRate = SCROLL_PLAYBACK_RATE;
+      runtime.playbackFrame = window.requestAnimationFrame(tick);
+    };
+    runtime.playbackFrame = window.requestAnimationFrame(tick);
+  };
+
+  const seekBackward = (runtime: SegmentRuntime) => {
+    const video = runtime.video;
+    if (!video) return;
+    video.pause();
+    if (
+      runtime.reverseStartedAt === undefined ||
+      runtime.reverseFromTime === undefined
+    ) {
+      cancelPlaybackFrame(runtime);
+      runtime.reverseStartedAt = performance.now();
+      runtime.reverseFromTime = video.currentTime;
+    } else if (runtime.playbackFrame) {
+      return;
+    }
+    const tick = (now: number) => {
+      runtime.playbackFrame = undefined;
+      const activeVideo = runtime.video;
+      if (closed || !runtime.ready || !activeVideo) return;
+      const target = targetTime(runtime);
+      const startedAt = runtime.reverseStartedAt;
+      const fromTime = runtime.reverseFromTime;
+      if (startedAt === undefined || fromTime === undefined) return;
+      const progress = clamp((now - startedAt) / REVERSE_SEEK_DURATION_MS);
+      const nextTime = fromTime + (target - fromTime) * progress;
+      if (
+        progress >= 1 ||
+        activeVideo.currentTime - target <= PLAYBACK_EPSILON_SECONDS
+      ) {
+        if (activeVideo.seeking) {
+          runtime.playbackFrame = window.requestAnimationFrame(tick);
+          return;
+        }
+        pauseAtTarget(runtime);
+        return;
+      }
+      if (!activeVideo.seeking) {
+        activeVideo.currentTime = Math.max(target, nextTime);
+      }
+      runtime.playbackFrame = window.requestAnimationFrame(tick);
+    };
+    runtime.playbackFrame = window.requestAnimationFrame(tick);
+  };
+
+  const driveToTarget = (runtime: SegmentRuntime) => {
+    const video = runtime.video;
+    if (!runtime.ready || !video) return;
+    const difference = targetTime(runtime) - video.currentTime;
+    if (reducedMotion) {
+      pauseAtTarget(runtime);
+      return;
+    }
+    if (Math.abs(difference) <= PLAYBACK_EPSILON_SECONDS) {
+      pauseAtTarget(runtime);
+      return;
+    }
+    if (difference < 0) {
+      seekBackward(runtime);
+      return;
+    }
+    if (runtime.reverseStartedAt !== undefined) {
+      cancelPlaybackFrame(runtime);
+    }
+    resetReverseSeek(runtime);
+    video.playbackRate = SCROLL_PLAYBACK_RATE;
+    void video.play().then(
+      () => monitorPlayback(runtime),
+      () => pauseAtTarget(runtime),
+    );
   };
 
   const loadClip = (runtime: SegmentRuntime) => {
@@ -339,15 +454,15 @@ export function mountScrollWorld(
     video.src = runtime.clip;
     video.addEventListener("loadedmetadata", () => {
       runtime.ready = true;
-      seek(runtime);
+      driveToTarget(runtime);
     });
     video.addEventListener("loadeddata", () => {
       if (isAtTarget(runtime)) revealPaintedFrame(runtime);
-      else seek(runtime);
+      else driveToTarget(runtime);
     });
     video.addEventListener("seeked", () => {
-      seek(runtime);
       if (isAtTarget(runtime)) revealPaintedFrame(runtime);
+      else if (!runtime.playbackFrame) driveToTarget(runtime);
     });
     video.addEventListener(
       "error",
@@ -373,10 +488,6 @@ export function mountScrollWorld(
     options.root.style.setProperty("--landing-media-scale", String(motion.scale));
     options.root.style.setProperty("--landing-media-x", `${motion.x}%`);
     options.root.style.setProperty("--landing-media-y", `${motion.y}%`);
-
-    runtimes.forEach((runtime) => {
-      if (runtime.video && !runtime.video.paused) runtime.video.pause();
-    });
 
     if (!staticMode) {
       const copyLayers = getLandingCopyLayers(progress);
@@ -432,19 +543,73 @@ export function mountScrollWorld(
         String(layerState.opacity),
       );
       loadClip(runtime);
-      seek(runtime);
+      driveToTarget(runtime);
     });
 
     const nextRuntime = runtimes[state.activeIndex + 1];
     if (nextRuntime) loadClip(nextRuntime);
+    runtimes.forEach((runtime, index) => {
+      if (
+        runtime.video &&
+        index !== state.activeIndex &&
+        !state.layers.some((layerState) => layerState.index === index)
+      ) {
+        runtime.video.pause();
+        cancelPlaybackFrame(runtime);
+      }
+    });
   };
 
   const scheduleUpdate = () => {
     if (!frame) frame = window.requestAnimationFrame(update);
   };
 
+  const armWheelLock = () => {
+    if (wheelLock) window.clearTimeout(wheelLock);
+    wheelLock = window.setTimeout(() => {
+      wheelLock = 0;
+    }, CHAPTER_SCROLL_LOCK_MS);
+  };
+
+  const scrollToChapter = (event: WheelEvent) => {
+    if (
+      mobile ||
+      staticMode ||
+      event.ctrlKey ||
+      Math.abs(event.deltaY) < Math.abs(event.deltaX) ||
+      Math.abs(event.deltaY) < 8
+    ) {
+      return;
+    }
+
+    const rootTop = options.root.getBoundingClientRect().top;
+    const rootBottom = rootTop + options.root.scrollHeight;
+    if (rootBottom <= 0 || rootTop >= window.innerHeight) return;
+
+    const progress = getRootScrollProgress(options.root);
+    const lastIndex = LANDING_COPY_SCENES.length - 1;
+    const currentIndex = Math.round(progress * lastIndex);
+    const direction = Math.sign(event.deltaY);
+    const nextIndex = Math.min(lastIndex, Math.max(0, currentIndex + direction));
+    if (nextIndex === currentIndex) return;
+
+    event.preventDefault();
+    if (wheelLock) {
+      armWheelLock();
+      return;
+    }
+    const rootStart = window.scrollY + rootTop;
+    const scrollRange = Math.max(1, options.root.scrollHeight - window.innerHeight);
+    armWheelLock();
+    window.scrollTo({
+      top: rootStart + scrollRange * (nextIndex / lastIndex),
+      behavior: reducedMotion ? "auto" : "smooth",
+    });
+  };
+
   window.addEventListener("scroll", scheduleUpdate, { passive: true });
   window.addEventListener("resize", scheduleUpdate);
+  window.addEventListener("wheel", scrollToChapter, { passive: false });
   update();
 
   return () => {
@@ -452,9 +617,12 @@ export function mountScrollWorld(
     closed = true;
     window.removeEventListener("scroll", scheduleUpdate);
     window.removeEventListener("resize", scheduleUpdate);
+    window.removeEventListener("wheel", scrollToChapter);
     if (frame) window.cancelAnimationFrame(frame);
+    if (wheelLock) window.clearTimeout(wheelLock);
     runtimes.forEach((runtime) => {
       if (runtime.video && !runtime.video.paused) runtime.video.pause();
+      cancelPlaybackFrame(runtime);
     });
     delete options.root.dataset.scrollWorldActive;
     delete options.root.dataset.landingScene;

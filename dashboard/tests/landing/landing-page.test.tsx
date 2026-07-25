@@ -30,7 +30,11 @@ it("keeps the product story and primary actions available without WebGL", () => 
   ).toBeInTheDocument();
   expect(screen.getAllByRole("link", { name: "로그인" })[0]).toHaveAttribute(
     "href",
-    "/dashboard",
+    "/login",
+  );
+  expect(screen.getAllByRole("link", { name: "회원가입" })[0]).toHaveAttribute(
+    "href",
+    "/signup",
   );
   expect(screen.getAllByRole("link", { name: "먼저 둘러보기" })[0]).toHaveAttribute(
     "href",
@@ -48,7 +52,11 @@ it("keeps the product story and primary actions available without WebGL", () => 
   ).toBeInTheDocument();
   expect(
     screen.getByRole("link", { name: "로그인하고 연결하기" }),
-  ).toHaveAttribute("href", "/dashboard");
+  ).toHaveAttribute("href", "/login");
+  expect(screen.getByRole("link", { name: "계정 만들기" })).toHaveAttribute(
+    "href",
+    "/signup",
+  );
   expect(screen.getByRole("link", { name: "Home Agent 설치하기" })).toHaveAttribute(
     "href",
     "/dashboard",

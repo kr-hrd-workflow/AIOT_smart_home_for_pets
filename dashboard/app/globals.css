@@ -1054,6 +1054,7 @@ a:focus-visible {
 }
 
 .landing-header nav > a:first-child,
+.landing-header-login,
 .landing-install-download,
 .landing-secondary {
   color: var(--landing-text);
@@ -1370,7 +1371,8 @@ a:focus-visible {
   border-bottom: 1px solid var(--landing-line);
 }
 
-.landing-final a {
+.landing-final .landing-actions {
+  justify-content: center;
   margin-top: 28px;
 }
 

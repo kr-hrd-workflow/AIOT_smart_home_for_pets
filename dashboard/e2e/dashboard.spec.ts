@@ -435,6 +435,14 @@ test.describe("animated public landing", () => {
     await expect(video).toHaveAttribute("src", /scene-01-arrival\.mp4$/);
     await expect.poll(() => video.evaluate((element) => element.readyState)).toBeGreaterThanOrEqual(1);
     await expect(scene).toHaveClass(/has-video-frame/);
+    await expect(page.getByRole("link", { name: "로그인" }).first()).toHaveAttribute(
+      "href",
+      "/login",
+    );
+    await expect(page.getByRole("link", { name: "회원가입" }).first()).toHaveAttribute(
+      "href",
+      "/signup",
+    );
 
     const scrollLandingTo = async (progress: number) => {
       await page.evaluate((value) => {
@@ -450,16 +458,46 @@ test.describe("animated public landing", () => {
     };
 
     const topTime = await video.evaluate((element) => element.currentTime);
+    await page.mouse.wheel(0, 420);
+    await expect(landing).toHaveAttribute("data-landing-scene", "feeding");
+    await expect.poll(() => video.evaluate((element) => element.currentTime)).toBeGreaterThan(
+      topTime,
+    );
+    const wheelTime = await video.evaluate((element) => element.currentTime);
+    await page.waitForTimeout(600);
+    await expect.poll(() => video.evaluate((element) => element.currentTime)).toBeGreaterThan(
+      wheelTime,
+    );
+
     await scrollLandingTo(0.5);
     await expect(landing).toHaveAttribute("data-landing-scene", "events");
-    await expect.poll(() => video.evaluate((element) => element.currentTime)).toBeGreaterThan(topTime);
+    await expect.poll(() => video.evaluate((element) => element.currentTime)).toBeGreaterThan(
+      wheelTime,
+    );
     const middleTime = await video.evaluate((element) => element.currentTime);
     await expect(scene).toHaveClass(/has-video-frame/);
 
     await scrollLandingTo(0.9);
     await expect(landing).toHaveAttribute("data-landing-scene", "final");
     await expect.poll(() => video.evaluate((element) => element.currentTime)).toBeGreaterThan(middleTime);
+    await expect.poll(() => video.evaluate((element) => element.currentTime), {
+      timeout: 10_000,
+    }).toBeGreaterThan(6);
     await expect(scene).toHaveClass(/has-video-frame/);
+    const lateTime = await video.evaluate((element) => element.currentTime);
+
+    await scrollLandingTo(0.5);
+    await expect.poll(() => video.evaluate((element) => element.currentTime)).toBeLessThan(
+      lateTime,
+    );
+    const reverseEarly = await video.evaluate((element) => element.currentTime);
+    await page.waitForTimeout(600);
+    const reverseLater = await video.evaluate((element) => element.currentTime);
+    expect(reverseLater).toBeLessThan(reverseEarly);
+    expect(reverseLater).toBeGreaterThan(4.1);
+    await expect.poll(() => video.evaluate((element) => element.currentTime), {
+      timeout: 5_000,
+    }).toBeLessThan(4.2);
   });
 });
 

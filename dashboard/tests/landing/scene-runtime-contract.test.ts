@@ -105,7 +105,7 @@ it("keeps Korean landing copy on word boundaries", () => {
   );
 });
 
-it("moves only from scroll progress and disables motion for reduced motion", () => {
+it("moves only after scroll input and keeps reduced-motion playback user-controlled", () => {
   const styles = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
   const director = readLandingSource("scene-director.ts");
 
@@ -113,7 +113,11 @@ it("moves only from scroll progress and disables motion for reduced motion", () 
   expect(styles).not.toContain("@keyframes landing-entry-rise");
   expect(styles).not.toContain("@keyframes landing-lens-breathe");
   expect(styles).not.toContain("@keyframes landing-sensor-pulse");
-  expect(director).not.toContain("video.play(");
+  expect(director).toContain("video.play(");
+  expect(director).toContain("SCROLL_PLAYBACK_RATE = 0.72");
+  expect(director).toContain("REVERSE_SEEK_DURATION_MS = 2200");
+  expect(director).toContain('window.addEventListener("wheel", scrollToChapter');
+  expect(director).toContain("pauseAtTarget(runtime)");
   expect(director).not.toContain("pointermove");
   expect(styles).toContain("animation-timeline: view()");
   expect(styles).toMatch(
