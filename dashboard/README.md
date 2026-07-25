@@ -2,7 +2,7 @@
 
 PetCare 웹은 React 19와 [vinext](https://github.com/cloudflare/vinext)로 동작합니다. 공개 Sites 랜딩과 fixture 전용 데모, Supabase 고객 인증, tenant별 원격 대시보드, Windows Home Agent 등록·다운로드 화면을 한 앱에서 제공합니다. D1은 tenant·기기·클립 메타데이터를, R2는 승인된 이벤트 클립을 저장합니다.
 
-공개 URL은 [kr-hrd-petcare-aiot-team.parkchan0302.chatgpt.site](https://kr-hrd-petcare-aiot-team.parkchan0302.chatgpt.site)입니다. 배포 시 검증된 `dashboard` subtree와 공개 URL의 커밋 SHA를 함께 확인합니다.
+공개 URL은 [kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site](https://kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site)입니다. 배포 시 검증된 `dashboard` subtree와 공개 URL의 커밋 SHA를 함께 확인합니다.
 
 ## 제품 경계
 

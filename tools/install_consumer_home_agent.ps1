@@ -2,7 +2,7 @@
 param(
     [ValidateSet('Install', 'Status', 'Uninstall', 'Fixture')]
     [string]$Action = 'Install',
-    [string]$SiteOrigin = 'https://kr-hrd-petcare-aiot-team.parkchan0302.chatgpt.site',
+    [string]$SiteOrigin = 'https://kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site',
     [string]$InstallRoot = '',
     [string]$FixtureRoot = ''
 )
