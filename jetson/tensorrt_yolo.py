@@ -307,11 +307,18 @@ class TensorRtYolo(object):
             if trt.__version__ != manifest["tensorrt_version"]:
                 raise ValueError("tensorrt_version_mismatch")
             backend_factory = lambda value, model: _TensorRtBackend(value, model, trt, _CudaRuntime(), np)
-        self.backend = backend_factory(engine_bytes, manifest)
+        self._backend_factory = backend_factory
+        self._engine_bytes = engine_bytes
+        self._manifest = manifest
+        self.backend = None
 
     def infer(self, frame):
         if not isinstance(frame, self.np.ndarray) or frame.dtype != self.np.uint8 or frame.shape != FRAME_SHAPE:
             raise ValueError("invalid_frame")
+        if self.backend is None:
+            self.backend = self._backend_factory(self._engine_bytes, self._manifest)
+            self._engine_bytes = None
+            self._manifest = None
         canvas = self.np.full((640, 640, 3), 114, dtype=self.np.uint8)
         canvas[80:560, :, :] = frame
         tensor = self.np.ascontiguousarray(canvas[:, :, ::-1].transpose(2, 0, 1), dtype=self.np.float32)

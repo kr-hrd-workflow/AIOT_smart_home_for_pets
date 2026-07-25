@@ -405,10 +405,15 @@ def test_jetson_pairing_uses_an_owner_only_temporary_and_returns_no_secret(
         )
 
     assert response.status_code == 200
-    assert response.json() == {"status": "paired", "restart_required": True}
+    assert response.json() == {
+        "status": "paired",
+        "restart_required": False,
+        "restarting": True,
+    }
     assert calls[0][0] == agent_path
     assert calls[0][2] == jetson_path
     assert not calls[0][1].exists()
+    assert (tmp_path / "agent-reload.request").read_bytes() == b"jetson_paired\n"
     assert secret not in response.text
     assert secret not in caplog.text
     assert_security_headers(response)

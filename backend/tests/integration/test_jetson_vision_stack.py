@@ -326,7 +326,7 @@ def test_45_second_media_budget_times_out_without_blocking_new_put(tmp_path: Pat
     put_started = time.monotonic()
     second = client.put_clip(second_id, _command(42), first=True)
     put_elapsed = time.monotonic() - put_started
-    remaining = 45.0 - (time.monotonic() - stall_started)
+    remaining = 45.25 - (time.monotonic() - stall_started)
     if remaining > 0:
         time.sleep(remaining)
     fixture.release_media.set()

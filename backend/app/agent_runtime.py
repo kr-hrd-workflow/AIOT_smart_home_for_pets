@@ -10,6 +10,7 @@ import os
 import socket
 import stat
 import subprocess
+import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -31,6 +32,9 @@ from .jetson_client import JetsonVisionClient
 SAFE_PARENT_ENVIRONMENT = ("COMSPEC", "PATH", "PATHEXT", "SYSTEMROOT", "TEMP", "TMP", "WINDIR")
 TOOL_NAMES = frozenset({"cloudflared_path", "ffmpeg_path", "ffprobe_path", "python_path", "uv_path"})
 STATUS_MAX_AGE = timedelta(seconds=5)
+AGENT_RELOAD_EXIT_CODE = 75
+AGENT_RELOAD_REQUEST = b"jetson_paired\n"
+AGENT_RELOAD_GRACE_SECONDS = 1.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -296,6 +300,14 @@ def _write_config_no_overwrite(path: Path, payload: dict[str, str]) -> None:
     except BaseException:
         temporary.unlink(missing_ok=True)
         raise
+
+
+def _reload_request_path(config_path: Path) -> Path:
+    return Path(config_path).resolve().with_name("agent-reload.request")
+
+
+def request_agent_reload(config_path: Path) -> None:
+    _write_private_file(_reload_request_path(config_path), AGENT_RELOAD_REQUEST)
 
 
 def _verify_signed_status(config: JetsonConfig) -> None:
@@ -629,6 +641,8 @@ class AgentSupervisor:
                 snapshot=snapshot,
             )
             event = stop_event or Event()
+            reload_seen_at: float | None = None
+            reload_path = _reload_request_path(self.config_path)
             while True:
                 _write_status_file(
                     self.config_path,
@@ -642,6 +656,18 @@ class AgentSupervisor:
                         outcome = int(code) if code else 1
                         preserve_outcome = True
                         return outcome
+                if reload_path.exists():
+                    if _secure_read(reload_path, owner_only=True) != AGENT_RELOAD_REQUEST:
+                        raise ValueError("invalid agent reload request")
+                    if reload_seen_at is None:
+                        reload_seen_at = time.monotonic()
+                    elif time.monotonic() - reload_seen_at >= AGENT_RELOAD_GRACE_SECONDS:
+                        reload_path.unlink()
+                        outcome = AGENT_RELOAD_EXIT_CODE
+                        preserve_outcome = True
+                        return outcome
+                else:
+                    reload_seen_at = None
                 if event.wait(self._poll_interval):
                     outcome = 0
                     return outcome

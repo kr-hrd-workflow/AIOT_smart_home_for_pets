@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -302,6 +303,48 @@ class TensorRtYoloTests(unittest.TestCase):
             self.assertEqual(result[0]["detected_type"], "cat")
             with self.assertRaisesRegex(ValueError, "invalid_frame"):
                 detector.infer(np.zeros((640, 480, 3), dtype=np.uint8))
+
+    def test_backend_is_created_on_the_first_inference_thread(self):
+        with tempfile.TemporaryDirectory() as directory:
+            engine = os.path.join(directory, "model.engine")
+            manifest = os.path.join(directory, "model-manifest.json")
+            metadata = engine + ".json"
+            engine_bytes = b"engine"
+            with open(engine, "wb") as handle:
+                handle.write(engine_bytes)
+            os.chmod(engine, 0o600)
+            with open(manifest, "w", encoding="utf-8") as handle:
+                json.dump(MANIFEST, handle)
+            generated = dict(MANIFEST)
+            generated["jetson_module_model"] = "NVIDIA Jetson Nano Developer Kit"
+            generated["engine_sha256"] = hashlib.sha256(engine_bytes).hexdigest()
+            with open(metadata, "w", encoding="utf-8") as handle:
+                json.dump(generated, handle)
+            os.chmod(metadata, 0o600)
+            output = np.zeros((1, 84, 8400), dtype=np.float32)
+            created_on = []
+            detector = TensorRtYolo(
+                engine,
+                manifest_path=manifest,
+                metadata_path=metadata,
+                backend_factory=lambda unused_bytes, unused_manifest: (
+                    created_on.append(threading.current_thread().ident)
+                    or FakeBackend(output)
+                ),
+                module_model="NVIDIA Jetson Nano Developer Kit",
+            )
+            self.assertEqual(created_on, [])
+            inferred_on = []
+
+            def infer():
+                inferred_on.append(threading.current_thread().ident)
+                detector.infer(np.zeros((480, 640, 3), dtype=np.uint8))
+
+            thread = threading.Thread(target=infer)
+            thread.start()
+            thread.join()
+
+            self.assertEqual(created_on, inferred_on)
 
 
 if __name__ == "__main__":

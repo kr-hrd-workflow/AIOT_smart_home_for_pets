@@ -121,7 +121,12 @@ export function Dashboard({
   );
 
   return (
-    <div className="app-shell" data-dashboard-mode={mode} aria-busy={busy || undefined}>
+    <div
+      className="app-shell"
+      data-dashboard-mode={mode}
+      data-health={data.health.status}
+      aria-busy={busy || undefined}
+    >
       <header className="topbar">
         <a className="brand" href="#main-content" aria-label="PetCare 운영 현황으로 이동">
           <span aria-hidden="true">PC</span>
@@ -280,16 +285,19 @@ export function Dashboard({
               <SectionHeading title="장치 상태" meta={data.health.status === "healthy" ? "정상" : "확인 필요"} />
               <div className="health-list">
                 {data.devices.map((device) => (
-                  <div key={device.device_id}>
+                  <div
+                    key={device.device_id}
+                    data-state={device.status === "online" ? "healthy" : "degraded"}
+                  >
                     <strong>{device.device_id}</strong>
                     <span>{device.status === "online" ? "온라인" : device.status === "offline" ? "오프라인" : "상태 확인 중"}</span>
                   </div>
                 ))}
-                <div><strong>데이터베이스</strong><span>{data.health.database === "up" ? "연결됨" : "연결 끊김"}</span></div>
-                <div><strong>MQTT</strong><span>{data.health.mqtt === "up" ? "연결됨" : data.health.mqtt === "disabled" ? "사용 안 함" : "연결 끊김"}</span></div>
-                <div><strong>카메라 처리</strong><span>{data.health.camera === "online" ? "온라인" : "사용 불가"}</span></div>
-                <div><strong>이벤트 큐</strong><span>{data.health.queue === "ok" ? "정상" : "처리 지연"}</span></div>
-                <div><strong>백그라운드 워커</strong><span>{data.health.worker === "running" ? "실행 중" : "중지됨"}</span></div>
+                <div data-state={data.health.database === "up" ? "healthy" : "degraded"}><strong>데이터베이스</strong><span>{data.health.database === "up" ? "연결됨" : "연결 끊김"}</span></div>
+                <div data-state={data.health.mqtt === "up" || data.health.mqtt === "disabled" ? "healthy" : "degraded"}><strong>MQTT</strong><span>{data.health.mqtt === "up" ? "연결됨" : data.health.mqtt === "disabled" ? "사용 안 함" : "연결 끊김"}</span></div>
+                <div data-state={data.health.camera === "online" ? "healthy" : "degraded"}><strong>카메라 처리</strong><span>{data.health.camera === "online" ? "온라인" : "사용 불가"}</span></div>
+                <div data-state={data.health.queue === "ok" ? "healthy" : "degraded"}><strong>이벤트 큐</strong><span>{data.health.queue === "ok" ? "정상" : "처리 지연"}</span></div>
+                <div data-state={data.health.worker === "running" ? "healthy" : "degraded"}><strong>백그라운드 워커</strong><span>{data.health.worker === "running" ? "실행 중" : "중지됨"}</span></div>
               </div>
             </section>
           </div>

@@ -5,6 +5,7 @@ import {
   buildScrollWorldSegments,
   getLandingCopyLayers,
   getLandingCopyScene,
+  getLandingMotionFrame,
   getRootScrollProgress,
   mapScrollWorldProgress,
   mountScrollWorld,
@@ -107,6 +108,19 @@ it("crossfades adjacent copy scenes from scroll progress instead of elapsed time
   expect(feeding?.translateY).toBeGreaterThan(0);
 });
 
+it("moves through distinct camera crops without discontinuities", () => {
+  const hero = getLandingMotionFrame(0);
+  const feeding = getLandingMotionFrame(0.2);
+  const between = getLandingMotionFrame(0.1);
+
+  expect(feeding.scale).toBeGreaterThan(hero.scale);
+  expect(feeding.x).toBeLessThan(hero.x);
+  expect(between.scale).toBeGreaterThan(hero.scale);
+  expect(between.scale).toBeLessThan(feeding.scale);
+  expect(getLandingMotionFrame(-1)).toEqual(hero);
+  expect(getLandingMotionFrame(2)).toEqual(getLandingMotionFrame(1));
+});
+
 it.each([
   ["reduced motion", true, false],
   ["data saver", false, true],
@@ -186,6 +200,7 @@ it("streams nearby clips directly, keeps posters until the requested frame paint
   expect(firstScene).not.toHaveClass("has-video-frame");
   await new Promise((resolve) => window.setTimeout(resolve, 100));
   expect(firstScene).toHaveClass("has-video-frame");
+  expect(firstVideo?.paused).toBe(true);
   top = -1000;
   window.dispatchEvent(new Event("scroll"));
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));

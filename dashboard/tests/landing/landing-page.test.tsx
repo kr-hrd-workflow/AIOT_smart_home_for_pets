@@ -25,45 +25,46 @@ it("keeps the product story and primary actions available without WebGL", () => 
   expect(
     screen.getByRole("heading", {
       level: 1,
-      name: "반려동물의 하루를 필요한 순간만 기록합니다",
+      name: "평범한 하루는 그대로. 달라진 순간만 알려드려요.",
     }),
   ).toBeInTheDocument();
   expect(screen.getAllByRole("link", { name: "로그인" })[0]).toHaveAttribute(
     "href",
     "/dashboard",
   );
-  expect(screen.getAllByRole("link", { name: "데모 보기" })[0]).toHaveAttribute(
+  expect(screen.getAllByRole("link", { name: "먼저 둘러보기" })[0]).toHaveAttribute(
     "href",
     "/demo",
   );
-  expect(screen.getByRole("heading", { name: "식사 순간을 알아봅니다" })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "휴식 변화를 놓치지 않습니다" })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "이벤트만 안전하게 보관합니다" })).toBeInTheDocument();
+  expect(screen.getAllByRole("link", { name: "PetCare 시작하기" })[0]).toHaveAttribute(
+    "href",
+    "/signup",
+  );
+  expect(screen.getByRole("heading", { name: "식사 패턴의 변화를 알아채요" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "쉬는 시간도 함께 살펴요" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "필요한 장면만 남겨요" })).toBeInTheDocument();
   expect(
-    screen.getByRole("heading", { name: "기기는 Home Agent를 통해 연결합니다" }),
+    screen.getByRole("heading", { name: "집의 기기를 한곳에 연결하세요" }),
   ).toBeInTheDocument();
   expect(
-    screen.getByRole("link", { name: "로그인하고 연결" }),
+    screen.getByRole("link", { name: "로그인하고 연결하기" }),
   ).toHaveAttribute("href", "/dashboard");
-  for (const installer of screen.getAllByRole("link", {
-    name: /로그인 후 (Home Agent 설치|Windows 베타 설치)/,
-  })) {
-    expect(installer).toHaveAttribute("href", "/dashboard");
-    expect(installer).not.toHaveAttribute("download");
-  }
+  expect(screen.getByRole("link", { name: "Home Agent 설치하기" })).toHaveAttribute(
+    "href",
+    "/dashboard",
+  );
   expect(
     screen.getAllByText(/디지털 서명이 없어 Windows SmartScreen/),
-  ).toHaveLength(2);
-  expect(screen.getByText(/연결만으로 사이트에 표시되지 않습니다/)).toBeInTheDocument();
-  expect(screen.getByText(/Jetson.*Pico 2 W.*MQTT/s)).toBeInTheDocument();
-  expect(screen.getByText(/이벤트 클립은 7일 후 자동 삭제/)).toBeInTheDocument();
+  ).toHaveLength(1);
+  expect(screen.getByText(/Pico 센서와 Jetson 카메라를 Home Agent에 등록/)).toBeInTheDocument();
+  expect(screen.getByText(/이벤트 영상은 7일 뒤 자동으로 삭제/)).toBeInTheDocument();
   expect(screen.getByTestId("landing-fallback")).toHaveAttribute("aria-hidden", "true");
 });
 
 it("renders the public landing unless the proxy supplied a verified marker", async () => {
   requestHeaders.mockResolvedValue(new Headers({ "x-petcare-authenticated": "0" }));
   const html = renderToString(await Home());
-  expect(html).toContain("반려동물의 하루를 필요한 순간만 기록합니다");
+  expect(html).toContain("평범한 하루는 그대로. 달라진 순간만 알려드려요.");
   expect(html).not.toContain("remote-dashboard");
 });
 

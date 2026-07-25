@@ -451,6 +451,42 @@ def test_supervisor_runs_without_jetson_and_disables_only_the_camera(tmp_path: P
     assert processes[1].terminated
 
 
+def test_supervisor_consumes_owner_only_reload_request_and_stops_children(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "agent.json"
+    tools_path = tmp_path / "agent-tools.json"
+    agent_config(config_path)
+    agent_tools(tools_path)
+    processes = [FakeProcess(None), FakeProcess(None)]
+    launches = 0
+
+    def popen(_command: list[str], **_kwargs: object) -> FakeProcess:
+        nonlocal launches
+        process = processes[launches]
+        launches += 1
+        return process
+
+    runtime.request_agent_reload(config_path)
+    reload_path = runtime._reload_request_path(config_path)
+    assert _secure_read(reload_path, owner_only=True) == runtime.AGENT_RELOAD_REQUEST
+    monkeypatch.setattr(runtime, "AGENT_RELOAD_GRACE_SECONDS", 0.0)
+
+    result = AgentSupervisor(
+        config_path,
+        tools_path,
+        None,
+        popen=popen,
+        parent_environment={"SYSTEMROOT": r"C:\Windows", "PATH": r"C:\safe"},
+        poll_interval=0.001,
+    ).run()
+
+    assert result == runtime.AGENT_RELOAD_EXIT_CODE
+    assert not reload_path.exists()
+    assert all(process.terminated for process in processes)
+
+
 @pytest.mark.parametrize(("fixture", "tamper"), [(True, None), (False, "ffprobe_path")])
 def test_supervisor_refuses_fixture_or_tampered_tools_before_launch(
     tmp_path: Path, fixture: bool, tamper: str | None

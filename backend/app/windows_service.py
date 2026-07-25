@@ -10,7 +10,7 @@ import servicemanager
 import win32service
 import win32serviceutil
 
-from .agent_runtime import AgentSupervisor
+from .agent_runtime import AGENT_RELOAD_EXIT_CODE, AgentSupervisor
 from .config import _secure_read
 
 
@@ -88,8 +88,15 @@ class PetCareHomeAgentService(win32serviceutil.ServiceFramework):
     def SvcDoRun(self) -> None:
         try:
             paths = read_service_paths()
-            jetson_config_path = _optional_jetson_config_path(paths.jetson_config_path)
-            AgentSupervisor(paths.config_path, paths.tools_path, jetson_config_path).run(self._stop_event)
+            while not self._stop_event.is_set():
+                jetson_config_path = _optional_jetson_config_path(paths.jetson_config_path)
+                outcome = AgentSupervisor(
+                    paths.config_path,
+                    paths.tools_path,
+                    jetson_config_path,
+                ).run(self._stop_event)
+                if outcome != AGENT_RELOAD_EXIT_CODE:
+                    return
         except BaseException:
             servicemanager.LogErrorMsg("PetCare Home Agent supervisor failed")
 

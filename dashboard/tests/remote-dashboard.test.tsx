@@ -194,11 +194,11 @@ it("prevents duplicate enrollment, reports failure, and permits retry", async ()
   expect(steps[0]).toHaveTextContent("홈 에이전트");
   expect(steps[1]).toHaveTextContent("현관 Pico");
   expect(steps[2]).toHaveTextContent("생활공간 Pico");
-  expect(steps[3]).toHaveTextContent("Jetson 카메라선택");
+  expect(steps[3]).toHaveTextContent("Jetson 카메라필수");
   const button = await screen.findByRole("button", { name: "10분 코드 만들기" });
   expect(steps[0]).toContainElement(button);
   const installer = screen.getByRole("link", {
-    name: "Windows Home Agent 베타 설치",
+    name: "Windows Home Agent 설치",
   });
   expect(steps[0]).toContainElement(installer);
   expect(installer).toHaveAttribute(
@@ -246,7 +246,9 @@ it("keeps the setup checklist visible when optional runtime data is absent", asy
     screen.getByRole("heading", { name: "Pico Wi-Fi 설정" }),
   ).toBeInTheDocument();
   expect(screen.queryByText("필수 연결 완료")).not.toBeInTheDocument();
-  expect(screen.getByText("Jetson 카메라는 선택 사항입니다.")).toBeInTheDocument();
+  expect(
+    screen.getByText(/Jetson 카메라를 연결해야 실시간 영상과 센서 융합/),
+  ).toBeInTheDocument();
 });
 
 it("provisions each Pico from the authenticated dashboard and clears the password", async () => {
@@ -295,7 +297,7 @@ it("provisions each Pico from the authenticated dashboard and clears the passwor
   expect(password).toHaveValue("");
 });
 
-it("marks fixed Pico IDs independently and completes without a Jetson camera", async () => {
+it("marks fixed Pico IDs independently and requires the Jetson camera for completion", async () => {
   const { client, media, accountClient } = mockRemote({
     getStatus: vi.fn().mockResolvedValue({
       home: { id: "home-1", state: "ready" },
@@ -341,17 +343,18 @@ it("marks fixed Pico IDs independently and completes without a Jetson camera", a
     />,
   );
 
-  expect(await screen.findByText("필수 연결 완료")).toBeInTheDocument();
+  expect(await screen.findByText(/Jetson 카메라를 연결해야/)).toBeInTheDocument();
+  expect(screen.queryByText("필수 연결 완료")).not.toBeInTheDocument();
   expect(
     screen.getByRole("heading", { name: "PetCare 운영 현황", level: 1 }),
   ).toBeInTheDocument();
   const completeChecklist = screen.getByRole("list", { name: "우리 집 연결" });
   expect(within(completeChecklist).getAllByRole("listitem")[3]).toHaveTextContent(
-    "Jetson 카메라선택",
+    "Jetson 카메라필수",
   );
 });
 
-it("marks the optional Jetson camera connected from remote status", async () => {
+it("marks the required Jetson camera connected from remote status", async () => {
   const { client, media, accountClient } = mockRemote();
   render(
     <RemoteDashboardView
@@ -363,8 +366,9 @@ it("marks the optional Jetson camera connected from remote status", async () => 
 
   const checklist = await screen.findByRole("list", { name: "우리 집 연결" });
   expect(within(checklist).getAllByRole("listitem")[3]).toHaveTextContent(
-    "Jetson 카메라선택연결됨",
+    "Jetson 카메라필수연결됨",
   );
+  expect(screen.getByText("필수 연결 완료")).toBeInTheDocument();
 });
 
 it("lists private clips through media adapter and reloads after deletion", async () => {
@@ -525,7 +529,7 @@ it("keeps enrollment and destructive controls in keyboard order", async () => {
   );
 
   const installer = await screen.findByRole("link", {
-    name: "Windows Home Agent 베타 설치",
+    name: "Windows Home Agent 설치",
   });
   const enrollment = screen.getByRole("button", {
     name: "10분 코드 만들기",

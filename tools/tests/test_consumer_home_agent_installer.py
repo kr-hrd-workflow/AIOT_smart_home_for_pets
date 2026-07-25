@@ -4,7 +4,6 @@ import hashlib
 import json
 import re
 import subprocess
-import zipfile
 from pathlib import Path
 
 
@@ -131,15 +130,18 @@ def test_consumer_installer_fixture_is_non_mutating_and_jetson_optional(tmp_path
             "profile": "Private",
             "remote_address": "LocalSubnet",
         },
-        "site_origin": "https://kr-hrd-petcare-aiot.parkccccc3.chatgpt.site",
+        "site_origin": "https://kr-hrd-petcare-aiot-team.parkchan0302.chatgpt.site",
         "jetson_optional": True,
         "supabase_customer_configuration": False,
     }
 
 
-def test_public_installer_artifacts_are_hashed_and_contain_only_the_consumer_runtime() -> None:
+def test_public_installer_is_self_contained_and_hashed() -> None:
     setup = DOWNLOADS / "PetCare-Home-Agent-Setup.exe"
     checksums = DOWNLOADS / "PetCare-Home-Agent-Setup.sha256"
+    build_source = (ROOT / "tools" / "build_consumer_home_agent_installer.ps1").read_text(
+        encoding="utf-8"
+    )
 
     assert setup.read_bytes()[:2] == b"MZ"
     assert setup.stat().st_size < 1_000_000
@@ -148,27 +150,9 @@ def test_public_installer_artifacts_are_hashed_and_contain_only_the_consumer_run
         line.split()[1]: line.split()[0]
         for line in checksums.read_text(encoding="utf-8").splitlines()
     }
-    bundle_names = [name for name in expected if name.startswith("PetCare-Home-Agent-Bundle-")]
-    assert len(bundle_names) == 1
-    bundle = DOWNLOADS / bundle_names[0]
-    bundle_hash = hashlib.sha256(bundle.read_bytes()).hexdigest().upper()
-    assert bundle.name == f"PetCare-Home-Agent-Bundle-{bundle_hash}.zip"
-    assert bundle.stat().st_size < 5_000_000
-    assert expected == {
-        setup.name: hashlib.sha256(setup.read_bytes()).hexdigest().upper(),
-        bundle.name: bundle_hash,
-    }
-
-    with zipfile.ZipFile(bundle) as archive:
-        names = set(archive.namelist())
-    assert "tools/install_consumer_home_agent.ps1" in names
-    assert "tools/platform-manifest.json" in names
-    assert "backend/app/agent_runtime.py" in names
-    assert "backend/requirements-home-agent.in" in names
-    assert "backend/requirements-home-agent.lock" in names
-    assert "packaging/windows/install-home-agent.ps1" in names
-    assert all(
-        segment not in name
-        for name in names
-        for segment in ("node_modules/", ".runtime/", "__pycache__/", "tests/")
-    )
+    assert expected == {setup.name: hashlib.sha256(setup.read_bytes()).hexdigest().upper()}
+    assert not list(DOWNLOADS.glob("PetCare-Home-Agent-Bundle*.zip"))
+    assert "[Convert]::ToBase64String" in build_source
+    assert "Convert.FromBase64String(BundleBase64)" in build_source
+    assert "WebClient" not in build_source
+    assert "BundleUrl" not in build_source

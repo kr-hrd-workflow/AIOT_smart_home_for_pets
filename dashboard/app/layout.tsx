@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import "./globals.css";
+import "./dashboard-polish.css";
 
 const title = "PetCare 운영 현황";
 const description = "카메라와 센서가 함께 확인한 상태만 표시합니다.";

@@ -189,7 +189,7 @@ export function RemoteDashboardView({
 
   if (offline) {
     return (
-      <main className="remote-page">
+      <main className="remote-page remote-state-page" data-state="offline">
         <p className="remote-offline" role="alert">
           에이전트가 오프라인입니다. 마지막 확인:{" "}
           <time dateTime={offline.last_seen_at ?? undefined}>
@@ -207,7 +207,7 @@ export function RemoteDashboardView({
 
   if (!status) {
     return (
-      <main className="remote-page">
+      <main className="remote-page remote-state-page" data-state="loading">
         {statusError ? (
           <p role="alert">{statusError}</p>
         ) : (
@@ -228,10 +228,15 @@ export function RemoteDashboardView({
       ({ device_id, status: deviceStatus }) =>
         device_id === "petzone-01" && deviceStatus === "online",
     ) ?? false;
-  const cameraOnline = status.dashboard?.camera.state === "online";
+  const cameraOnline =
+    status.camera?.state === "online" &&
+    status.dashboard?.camera.state === "online";
 
   return (
-    <div className="remote-page">
+    <div
+      className="remote-page remote-dashboard-page"
+      data-home-state={status.home.state}
+    >
       {statusError && <p role="alert">{statusError}</p>}
       <section className="connection-card" aria-labelledby="connection-title">
         <header className="connection-heading">
@@ -239,7 +244,7 @@ export function RemoteDashboardView({
             <p className="eyebrow">기기 설정</p>
             <h1 id="connection-title">우리 집 연결</h1>
           </div>
-          {agentReady && entranceOnline && petzoneOnline && (
+          {agentReady && entranceOnline && petzoneOnline && cameraOnline && (
             <strong className="connection-complete" role="status">
               필수 연결 완료
             </strong>
@@ -267,7 +272,7 @@ export function RemoteDashboardView({
                 </p>
                 <div className="connection-enrollment-actions">
                   <a href={HOME_AGENT_INSTALLER_URL} download>
-                    Windows Home Agent 베타 설치
+                    Windows Home Agent 설치
                   </a>
                   <button
                     type="button"
@@ -279,13 +284,13 @@ export function RemoteDashboardView({
                   </button>
                 </div>
                 <small>
-                  코드서명 준비 전 베타 파일은 Windows SmartScreen 확인이 필요할 수
+                  코드서명 준비 전 파일은 Windows SmartScreen 확인이 필요할 수
                   있습니다.
                 </small>
                 {enrollmentError && <p role="alert">{enrollmentError}</p>}
                 {enrollment && (
                   <p aria-live="polite">
-                    <strong>{enrollment.code}</strong>{" "}
+                    <strong className="enrollment-code">{enrollment.code}</strong>{" "}
                     <time dateTime={enrollment.expiresAt}>
                       {enrollment.expiresAt}
                     </time>{" "}
@@ -309,13 +314,13 @@ export function RemoteDashboardView({
             </div>
             <p>petzone-01</p>
           </li>
-          <li data-state={cameraOnline ? "complete" : "optional"}>
+          <li data-state={cameraOnline ? "complete" : "pending"}>
             <div className="connection-step-heading">
               <h2>Jetson 카메라</h2>
-              <span>선택</span>
+              <span>필수</span>
               <strong>{cameraOnline ? "연결됨" : "연결 안 됨"}</strong>
             </div>
-            <p>Jetson 카메라는 선택 사항입니다.</p>
+            <p>Jetson 카메라를 연결해야 실시간 영상과 센서 융합을 사용할 수 있습니다.</p>
             {agentReady && (
               <a href={LOCAL_SETUP_URL}>Jetson 연결 설정</a>
             )}
@@ -329,13 +334,16 @@ export function RemoteDashboardView({
             <div>
               <p className="eyebrow">Pico를 처음 연결할 때</p>
               <h2 id="pico-cloud-setup-title">Pico Wi-Fi 설정</h2>
-              <p>
+              <p id="pico-cloud-setup-description">
                 Pico를 Home Agent PC에 USB로 연결한 뒤, 이 화면에서 집 Wi-Fi를
                 입력하세요. MQTT 비밀번호는 Home Agent가 기기에 직접 결합하며
                 웹에 표시하거나 저장하지 않습니다.
               </p>
             </div>
-            <form onSubmit={(event) => void configurePico(event)}>
+            <form
+              aria-describedby="pico-cloud-setup-description"
+              onSubmit={(event) => void configurePico(event)}
+            >
               <label>
                 Wi-Fi 이름 (SSID)
                 <input
@@ -392,7 +400,7 @@ export function RemoteDashboardView({
       {status.dashboard && status.agent && (
         <>
           <p className="remote-online" role="status">
-            에이전트 온라인 · {cameraOnline ? "카메라 온라인" : "카메라 선택 안 함"} · 마지막 확인:{" "}
+            에이전트 온라인 · {cameraOnline ? "카메라 온라인" : "카메라 연결 필요"} · 마지막 확인:{" "}
             <time dateTime={status.agent.last_seen_at}>
               {status.agent.last_seen_at}
             </time>

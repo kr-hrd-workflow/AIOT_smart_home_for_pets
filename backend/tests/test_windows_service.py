@@ -7,6 +7,7 @@ from threading import Event
 import pytest
 import win32service
 
+from app.agent_runtime import AGENT_RELOAD_EXIT_CODE
 from app.windows_service import (
     PetCareHomeAgentService,
     ServicePaths,
@@ -142,6 +143,45 @@ def test_service_treats_a_missing_reserved_jetson_path_as_optional(
     service.SvcDoRun()
 
     assert constructed == [(paths.config_path, paths.tools_path, None)]
+
+
+def test_service_reloads_reserved_jetson_after_pairing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = ServicePaths(
+        (tmp_path / "agent.json").resolve(),
+        (tmp_path / "agent-tools.json").resolve(),
+        (tmp_path / "jetson.json").resolve(),
+    )
+    constructed: list[Path | None] = []
+    results = iter((AGENT_RELOAD_EXIT_CODE, 0))
+
+    class Supervisor:
+        def __init__(
+            self,
+            _config: Path,
+            _runtime_tools: Path,
+            jetson_config: Path | None,
+        ) -> None:
+            constructed.append(jetson_config)
+
+        def run(self, _stop_event: Event) -> int:
+            return next(results)
+
+    optional_paths = iter((None, paths.jetson_config_path))
+    service = object.__new__(PetCareHomeAgentService)
+    service._stop_event = Event()
+    monkeypatch.setattr("app.windows_service.read_service_paths", lambda: paths)
+    monkeypatch.setattr(
+        "app.windows_service._optional_jetson_config_path",
+        lambda _path: next(optional_paths),
+    )
+    monkeypatch.setattr("app.windows_service.AgentSupervisor", Supervisor)
+
+    service.SvcDoRun()
+
+    assert constructed == [None, paths.jetson_config_path]
 
 
 def test_service_status_never_exposes_paths_or_secrets(tmp_path: Path) -> None:

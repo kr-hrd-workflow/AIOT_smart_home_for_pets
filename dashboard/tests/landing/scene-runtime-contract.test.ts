@@ -81,6 +81,11 @@ it("scrubs one continuous photoreal journey instead of stitching scene fragments
   );
   expect(globals).toContain('[data-landing-scene="hero"]');
   expect(globals).toContain("--landing-copy-hero-opacity");
+  expect(globals).toContain("--landing-media-scale");
+  expect(overlay).toContain('className="landing-progress"');
+  expect(overlay).toContain("landing-sensor-signal");
+  expect(overlay).toContain("landing-event-sequence");
+  expect(overlay).toContain("landing-connection-flow");
   expect(globals).toMatch(
     /\.landing-page\[data-scroll-world-active="true"\] \.landing-header\s*\{[^}]*left:\s*0;[^}]*right:\s*0;/s,
   );
@@ -96,14 +101,20 @@ it("keeps Korean landing copy on word boundaries", () => {
   const styles = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
 
   expect(styles).toMatch(
-    /\.landing-hero h1,\s*\.landing-chapter h2,\s*\.landing-final h2,\s*\.landing-lede,\s*\.landing-chapter-copy > p:last-child\s*\{[^}]*word-break: keep-all;/s,
+    /\.landing-hero h1,\s*\.landing-chapter h2,\s*\.landing-final h2,\s*\.landing-lede,\s*\.landing-chapter-body\s*\{[^}]*word-break: keep-all;/s,
   );
 });
 
-it("keeps entry and chapter motion without an idle scene drift", () => {
+it("moves only from scroll progress and disables motion for reduced motion", () => {
   const styles = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
+  const director = readLandingSource("scene-director.ts");
 
   expect(styles).not.toContain("@keyframes landing-cinematic-drift");
+  expect(styles).not.toContain("@keyframes landing-entry-rise");
+  expect(styles).not.toContain("@keyframes landing-lens-breathe");
+  expect(styles).not.toContain("@keyframes landing-sensor-pulse");
+  expect(director).not.toContain("video.play(");
+  expect(director).not.toContain("pointermove");
   expect(styles).toContain("animation-timeline: view()");
   expect(styles).toMatch(
     /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.pet-home-experience[\s\S]*animation:\s*none !important;/,

@@ -13,6 +13,7 @@ import socket
 import ssl
 import stat
 import subprocess
+import sys
 import threading
 import time
 from collections import OrderedDict
@@ -176,7 +177,11 @@ class OpenCvCamera(object):
         self._open()
 
     def _open(self):
-        self.capture = self.cv2.VideoCapture(self.device)
+        self.capture = self.cv2.VideoCapture(self.device, self.cv2.CAP_V4L2)
+        self.capture.set(
+            self.cv2.CAP_PROP_FOURCC,
+            self.cv2.VideoWriter_fourcc("M", "J", "P", "G"),
+        )
         self.capture.set(self.cv2.CAP_PROP_FRAME_WIDTH, 640)
         self.capture.set(self.cv2.CAP_PROP_FRAME_HEIGHT, 480)
         if not self.capture.isOpened():
@@ -256,6 +261,7 @@ class VisionNode(object):
         self._stop = threading.Event()
         self._capture_thread = None
         self._sampler_thread = None
+        self._last_capture_error = None
         self._closed = False
 
     def start(self):
@@ -440,7 +446,13 @@ class VisionNode(object):
                     ("detections", detections),
                 ))
                 self.publish(observation, jpeg)
-            except BaseException:
+                self._last_capture_error = None
+            except BaseException as error:
+                error_code = "{}:{}".format(type(error).__name__, str(error))[:200]
+                if error_code != self._last_capture_error:
+                    sys.stderr.write("capture_loop_error={}\n".format(error_code))
+                    sys.stderr.flush()
+                    self._last_capture_error = error_code
                 self.set_camera_state(False)
                 self._stop.wait(0.25)
 

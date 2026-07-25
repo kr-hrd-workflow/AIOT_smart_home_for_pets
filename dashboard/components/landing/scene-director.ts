@@ -60,6 +60,38 @@ export type LandingCopyLayer = {
   translateY: number;
 };
 
+export type LandingMotionFrame = {
+  scale: number;
+  x: number;
+  y: number;
+};
+
+const LANDING_MOTION_STOPS = [
+  { at: 0, scale: 1.025, x: 0, y: 0 },
+  { at: 0.2, scale: 1.14, x: -3.2, y: 1.2 },
+  { at: 0.4, scale: 1.08, x: 3, y: -1.4 },
+  { at: 0.6, scale: 1.18, x: 0.8, y: 0.5 },
+  { at: 0.8, scale: 1.07, x: -2.2, y: -0.8 },
+  { at: 1, scale: 1.13, x: 0, y: 0 },
+] as const;
+
+export function getLandingMotionFrame(progress: number): LandingMotionFrame {
+  const value = clamp(progress);
+  const nextIndex = LANDING_MOTION_STOPS.findIndex((stop) => stop.at >= value);
+  if (nextIndex <= 0) return LANDING_MOTION_STOPS[0];
+
+  const next = LANDING_MOTION_STOPS[nextIndex];
+  const previous = LANDING_MOTION_STOPS[nextIndex - 1];
+  const mix = (value - previous.at) / (next.at - previous.at);
+  const interpolate = (from: number, to: number) => from + (to - from) * mix;
+
+  return {
+    scale: interpolate(previous.scale, next.scale),
+    x: interpolate(previous.x, next.x),
+    y: interpolate(previous.y, next.y),
+  };
+}
+
 export function getLandingCopyLayers(progress: number): LandingCopyLayer[] {
   const position = clamp(progress) * LANDING_COPY_SCENES.length;
   const activeIndex = Math.min(
@@ -69,7 +101,7 @@ export function getLandingCopyLayers(progress: number): LandingCopyLayer[] {
   const localProgress = position - activeIndex;
   const blend =
     activeIndex < LANDING_COPY_SCENES.length - 1
-      ? clamp((localProgress - 0.72) / 0.28)
+      ? clamp((localProgress - 0.82) / 0.18)
       : 0;
 
   return LANDING_COPY_SCENES.map((scene, index) => {
@@ -336,6 +368,16 @@ export function mountScrollWorld(
 
     const progress = getRootScrollProgress(options.root);
     const state = mapScrollWorldProgress(runtimes, progress);
+    const motion = getLandingMotionFrame(progress);
+    options.root.style.setProperty("--landing-story-progress", String(progress));
+    options.root.style.setProperty("--landing-media-scale", String(motion.scale));
+    options.root.style.setProperty("--landing-media-x", `${motion.x}%`);
+    options.root.style.setProperty("--landing-media-y", `${motion.y}%`);
+
+    runtimes.forEach((runtime) => {
+      if (runtime.video && !runtime.video.paused) runtime.video.pause();
+    });
+
     if (!staticMode) {
       const copyLayers = getLandingCopyLayers(progress);
       const activeCopyScene = getLandingCopyScene(progress);
@@ -344,6 +386,15 @@ export function mountScrollWorld(
       );
 
       options.root.dataset.landingScene = activeCopyScene;
+      options.root
+        .querySelectorAll<HTMLElement>("[data-landing-target]")
+        .forEach((item) => {
+          if (item.dataset.landingTarget === activeCopyScene) {
+            item.setAttribute("aria-current", "step");
+          } else {
+            item.removeAttribute("aria-current");
+          }
+        });
       if (peer) options.root.dataset.landingCopyPeer = peer.scene;
       else delete options.root.dataset.landingCopyPeer;
       copyLayers.forEach((layer) => {
@@ -402,6 +453,9 @@ export function mountScrollWorld(
     window.removeEventListener("scroll", scheduleUpdate);
     window.removeEventListener("resize", scheduleUpdate);
     if (frame) window.cancelAnimationFrame(frame);
+    runtimes.forEach((runtime) => {
+      if (runtime.video && !runtime.video.paused) runtime.video.pause();
+    });
     delete options.root.dataset.scrollWorldActive;
     delete options.root.dataset.landingScene;
     delete options.root.dataset.landingCopyPeer;
@@ -409,6 +463,10 @@ export function mountScrollWorld(
       options.root.style.removeProperty(`--landing-copy-${scene}-opacity`);
       options.root.style.removeProperty(`--landing-copy-${scene}-translate`);
     });
+    options.root.style.removeProperty("--landing-story-progress");
+    options.root.style.removeProperty("--landing-media-scale");
+    options.root.style.removeProperty("--landing-media-x");
+    options.root.style.removeProperty("--landing-media-y");
     layer.remove();
   };
 }

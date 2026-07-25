@@ -380,8 +380,10 @@ class CameraRecoveryTests(unittest.TestCase):
             def __init__(self, succeeds):
                 self.succeeds = succeeds
                 self.released = False
+                self.settings = []
 
-            def set(self, unused_name, unused_value):
+            def set(self, name, value):
+                self.settings.append((name, value))
                 return True
 
             def isOpened(self):
@@ -396,11 +398,18 @@ class CameraRecoveryTests(unittest.TestCase):
                 self.released = True
 
         class Cv2(object):
+            CAP_V4L2 = 200
+            CAP_PROP_FOURCC = 0
             CAP_PROP_FRAME_WIDTH = 1
             CAP_PROP_FRAME_HEIGHT = 2
 
             @staticmethod
-            def VideoCapture(unused_device):
+            def VideoWriter_fourcc(*values):
+                return values
+
+            @staticmethod
+            def VideoCapture(unused_device, backend):
+                self.assertEqual(backend, Cv2.CAP_V4L2)
                 capture = Capture(bool(captures))
                 captures.append(capture)
                 return capture
@@ -415,6 +424,13 @@ class CameraRecoveryTests(unittest.TestCase):
             self.assertEqual(frame.shape, (480, 640, 3))
             self.assertEqual(len(captures), 2)
             self.assertTrue(captures[0].released)
+            expected = [
+                (Cv2.CAP_PROP_FOURCC, ("M", "J", "P", "G")),
+                (Cv2.CAP_PROP_FRAME_WIDTH, 640),
+                (Cv2.CAP_PROP_FRAME_HEIGHT, 480),
+            ]
+            self.assertEqual(captures[0].settings, expected)
+            self.assertEqual(captures[1].settings, expected)
         finally:
             if previous is None:
                 del sys.modules["cv2"]

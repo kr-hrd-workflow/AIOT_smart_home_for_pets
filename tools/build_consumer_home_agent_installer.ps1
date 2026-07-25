@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$SiteOrigin = 'https://kr-hrd-petcare-aiot.parkccccc3.chatgpt.site',
+    [string]$SiteOrigin = 'https://kr-hrd-petcare-aiot-team.parkchan0302.chatgpt.site',
     [string]$OutputDirectory = ''
 )
 
@@ -89,26 +89,22 @@ foreach ($file in @(
 $BundleDraftPath = Join-Path $BuildRoot 'PetCare-Home-Agent-Bundle.zip'
 Compress-Archive -Path (Join-Path $StageRoot '*') -DestinationPath $BundleDraftPath -CompressionLevel Optimal
 $BundleHash = (Get-FileHash -LiteralPath $BundleDraftPath -Algorithm SHA256).Hash
-$BundleName = "PetCare-Home-Agent-Bundle-$BundleHash.zip"
-$BundlePath = Join-Path $OutputDirectory $BundleName
+$BundleBase64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($BundleDraftPath))
 Get-ChildItem -LiteralPath $OutputDirectory -Filter 'PetCare-Home-Agent-Bundle*.zip' -File |
     Remove-Item -Force
-Move-Item -LiteralPath $BundleDraftPath -Destination $BundlePath -Force
-$BundleUrl = "$SiteOrigin/downloads/$BundleName"
 
 $source = @'
 using System;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
-using System.Net;
 using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Text;
 
 internal static class Program
 {
-    private const string BundleUrl = "__BUNDLE_URL__";
+    private const string BundleBase64 = "__BUNDLE_BASE64__";
     private const string BundleSha256 = "__BUNDLE_SHA256__";
 
     private static bool IsAdministrator()
@@ -157,12 +153,8 @@ internal static class Program
         Directory.CreateDirectory(temporary);
         try
         {
-            ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
             string archive = Path.Combine(temporary, "bundle.zip");
-            using (WebClient client = new WebClient())
-            {
-                client.DownloadFile(BundleUrl, archive);
-            }
+            File.WriteAllBytes(archive, Convert.FromBase64String(BundleBase64));
             if (!String.Equals(Sha256(archive), BundleSha256, StringComparison.Ordinal))
             {
                 Console.Error.WriteLine("PetCare installer integrity verification failed.");
@@ -197,7 +189,7 @@ internal static class Program
 }
 '@
 $source = $source.
-    Replace('__BUNDLE_URL__', $BundleUrl).
+    Replace('__BUNDLE_BASE64__', $BundleBase64).
     Replace('__BUNDLE_SHA256__', $BundleHash)
 $sourcePath = Join-Path $BuildRoot 'PetCareHomeAgentSetup.cs'
 [IO.File]::WriteAllText($sourcePath, $source, [Text.UTF8Encoding]::new($false))
@@ -221,9 +213,9 @@ if ($LASTEXITCODE) { throw 'consumer installer compilation failed' }
 $SetupHash = (Get-FileHash -LiteralPath $SetupPath -Algorithm SHA256).Hash
 [IO.File]::WriteAllText(
     (Join-Path $OutputDirectory 'PetCare-Home-Agent-Setup.sha256'),
-    "$SetupHash  PetCare-Home-Agent-Setup.exe`n$BundleHash  $BundleName`n",
+    "$SetupHash  PetCare-Home-Agent-Setup.exe`n",
     [Text.UTF8Encoding]::new($false)
 )
 Write-Output "Consumer Home Agent installer PASS: $SetupPath"
-Write-Output "Bundle SHA-256: $BundleHash"
+Write-Output "Embedded bundle SHA-256: $BundleHash"
 Write-Output "Setup SHA-256: $SetupHash"

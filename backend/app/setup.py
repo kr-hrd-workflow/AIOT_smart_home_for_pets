@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers, MutableHeaders
 
-from .agent_runtime import _write_private_file, pair_jetson
+from .agent_runtime import _write_private_file, pair_jetson, request_agent_reload
 from .mqtt_ingest import MqttEndpoint
 from .pico_provision import PicoProvisioningError, diagnose_pico, provision_pico
 
@@ -457,11 +457,15 @@ SETUP_HTML = """<!doctype html>
             );
           }
           const result = await response.json();
-          if (result.status !== "paired" || result.restart_required !== true) {
+          if (
+            result.status !== "paired" ||
+            result.restart_required !== false ||
+            result.restarting !== true
+          ) {
             throw new SetupError("jetson", "Jetson 연결 응답이 올바르지 않습니다.");
           }
           jetsonStatus.textContent =
-            "Jetson 연결 완료 · Home Agent를 재시작하면 카메라가 켜집니다.";
+            "Jetson 연결 완료 · Home Agent가 자동으로 다시 연결하고 있습니다.";
           jetsonStatus.dataset.state = "success";
         } catch (error) {
           jetsonStatus.textContent = friendlyError(error);
@@ -1040,6 +1044,7 @@ def install_setup(application: FastAPI) -> None:
             try:
                 _write_private_file(temporary, bundle)
                 pair_jetson(agent_config_path, temporary, jetson_config_path)
+                request_agent_reload(agent_config_path)
             finally:
                 temporary.unlink(missing_ok=True)
 
@@ -1050,7 +1055,13 @@ def install_setup(application: FastAPI) -> None:
         finally:
             bundle[:] = b"\0" * len(bundle)
         return _response_headers(
-            JSONResponse({"status": "paired", "restart_required": True})
+            JSONResponse(
+                {
+                    "status": "paired",
+                    "restart_required": False,
+                    "restarting": True,
+                }
+            )
         )
 
     application.include_router(router)

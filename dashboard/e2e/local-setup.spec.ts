@@ -227,7 +227,7 @@ test("pairs an optional Jetson bundle through the local web page", async ({ page
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      json: { status: "paired", restart_required: true },
+      json: { status: "paired", restart_required: false, restarting: true },
     });
   });
   await page.goto(setupUrl);

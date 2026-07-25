@@ -329,6 +329,17 @@ test.describe("real /demo route", () => {
     expect(crossOriginImages).toEqual([]);
   });
 
+  test("runs the worker before serving the authenticated installer asset", async ({
+    request,
+  }) => {
+    const response = await request.get(
+      "/downloads/PetCare-Home-Agent-Setup.exe",
+      { maxRedirects: 0 },
+    );
+    expect([302, 303, 307, 308]).toContain(response.status());
+    expect(response.headers().location).toMatch(/\/login(?:\?|$)/);
+  });
+
   test("renders the full state without overflow or overlap at every target viewport", async ({ page }) => {
     for (const viewport of viewports) {
       await page.setViewportSize(viewport);
