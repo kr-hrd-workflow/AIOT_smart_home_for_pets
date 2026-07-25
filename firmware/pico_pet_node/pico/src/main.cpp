@@ -4,6 +4,7 @@
 #include "sensors.hpp"
 
 #include "lwip/apps/sntp.h"
+#include "hardware/watchdog.h"
 #include "pico/cyw43_arch.h"
 #include "pico/stdlib.h"
 #include "pico/time.h"
@@ -52,18 +53,23 @@ bool make_status(
 
 void wait_with_usb(
     petcare::ProvisioningConfig& runtime,
+    petcare::RuntimeDiagnostics& diagnostics,
     std::uint32_t duration_ms) {
     while (duration_ms != 0) {
+        watchdog_update();
         petcare::poll_usb_provisioning(
             petcare::config::device_id,
-            runtime);
+            runtime,
+            diagnostics);
         const auto slice = std::min<std::uint32_t>(duration_ms, 10);
         sleep_ms(slice);
         duration_ms -= slice;
     }
 }
 
-bool connect_wifi_with_usb(petcare::ProvisioningConfig& runtime) {
+bool connect_wifi_with_usb(
+    petcare::ProvisioningConfig& runtime,
+    petcare::RuntimeDiagnostics& diagnostics) {
     if (cyw43_arch_wifi_connect_async(
             runtime.ssid.data(),
             runtime.wifi_password.data(),
@@ -76,6 +82,8 @@ bool connect_wifi_with_usb(petcare::ProvisioningConfig& runtime) {
     while (!time_reached(deadline)) {
         const auto status =
             cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
+        diagnostics.wifi_link_status =
+            static_cast<std::int8_t>(status);
         if (status == CYW43_LINK_UP) {
             return true;
         }
@@ -90,14 +98,15 @@ bool connect_wifi_with_usb(petcare::ProvisioningConfig& runtime) {
                    status == CYW43_LINK_FAIL) {
             return false;
         }
-        wait_with_usb(runtime, 10);
+        wait_with_usb(runtime, diagnostics, 10);
     }
     return false;
 }
 
 bool synchronize_clock_with_usb(
     petcare::UtcClock& clock,
-    petcare::ProvisioningConfig& runtime) {
+    petcare::ProvisioningConfig& runtime,
+    petcare::RuntimeDiagnostics& diagnostics) {
     const auto deadline =
         make_timeout_time_ms(petcare::config::sntp_timeout_ms);
     while (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) ==
@@ -107,9 +116,30 @@ bool synchronize_clock_with_usb(
         if (clock.synchronize(wall_clock_ms(), now_ms)) {
             return true;
         }
-        wait_with_usb(runtime, 100);
+        wait_with_usb(runtime, diagnostics, 100);
     }
     return false;
+}
+
+bool await_publication(
+    petcare::MqttPublisher& publisher,
+    petcare::ProvisioningConfig& runtime,
+    petcare::RuntimeDiagnostics& diagnostics
+) {
+    const auto started_ms = monotonic_ms();
+    while (publisher.publication_pending() &&
+           publisher.connected() &&
+           monotonic_ms() - started_ms < petcare::config::mqtt_timeout_ms &&
+           cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) ==
+               CYW43_LINK_UP) {
+        wait_with_usb(runtime, diagnostics, 10);
+    }
+    diagnostics.wifi_link_status = static_cast<std::int8_t>(
+        cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA));
+    return !publisher.publication_pending() &&
+           publisher.connected() &&
+           !publisher.publish_failed() &&
+           diagnostics.wifi_link_status == CYW43_LINK_UP;
 }
 
 }
@@ -123,23 +153,41 @@ extern "C" void petcare_sntp_set_system_time_us(std::uint32_t seconds, std::uint
 
 int main() {
     stdio_init_all();
+    const bool watchdog_reboot = watchdog_caused_reboot();
+    watchdog_enable(8'000, true);
 
     petcare::ProvisioningConfig runtime{};
+    petcare::RuntimeDiagnostics diagnostics{
+        petcare::RuntimePhase::awaiting_provisioning,
+        petcare::RuntimeError::none,
+        0,
+        watchdog_reboot,
+    };
     while (!petcare::load_provisioning(runtime)) {
+        watchdog_update();
         petcare::poll_usb_provisioning(
             petcare::config::device_id,
-            runtime);
+            runtime,
+            diagnostics);
         sleep_ms(10);
     }
 
-    if (cyw43_arch_init()) {
-        return 1;
+    if (cyw43_arch_init_with_country(CYW43_COUNTRY_SOUTH_KOREA)) {
+        diagnostics.phase = petcare::RuntimePhase::backoff;
+        diagnostics.error = petcare::RuntimeError::wifi;
+        for (;;) {
+            wait_with_usb(runtime, diagnostics, 1'000);
+        }
     }
     cyw43_arch_enable_sta_mode();
 
     petcare::SensorHardware sensor_hardware;
     if (!sensor_hardware.init()) {
-        return 1;
+        diagnostics.phase = petcare::RuntimePhase::backoff;
+        diagnostics.error = petcare::RuntimeError::sensor;
+        for (;;) {
+            wait_with_usb(runtime, diagnostics, 1'000);
+        }
     }
 
     petcare::ReconnectBackoff wifi_backoff;
@@ -147,20 +195,26 @@ int main() {
     petcare::UtcClock clock;
 
     for (;;) {
-        if (!connect_wifi_with_usb(runtime)) {
+        diagnostics.phase = petcare::RuntimePhase::wifi_connecting;
+        diagnostics.error = petcare::RuntimeError::none;
+        if (!connect_wifi_with_usb(runtime, diagnostics)) {
+            diagnostics.phase = petcare::RuntimePhase::backoff;
+            diagnostics.error = petcare::RuntimeError::wifi;
             wait_with_usb(
                 runtime,
+                diagnostics,
                 wifi_backoff.next_delay_seconds() * 1'000U);
             continue;
         }
+        diagnostics.wifi_link_status = static_cast<std::int8_t>(
+            cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA));
         wifi_backoff.reset();
         start_sntp();
 
-        if (!synchronize_clock_with_usb(clock, runtime)) {
-            wait_with_usb(
-                runtime,
-                wifi_backoff.next_delay_seconds() * 1'000U);
-            continue;
+        diagnostics.phase = petcare::RuntimePhase::time_syncing;
+        diagnostics.error = petcare::RuntimeError::none;
+        if (!synchronize_clock_with_usb(clock, runtime, diagnostics)) {
+            diagnostics.error = petcare::RuntimeError::time_sync;
         }
 
         petcare::MqttPublisher publisher;
@@ -168,19 +222,30 @@ int main() {
         std::uint64_t lwt_utc_ms = 0;
         std::array<char, 25> lwt_observed_at{};
         const auto connect_started_ms = monotonic_ms();
-        if (!clock.timestamp(connect_started_ms, lwt_observed_at, lwt_utc_ms) ||
-            !petcare::make_offline_lwt(petcare::config::device_id, {lwt_observed_at.data(), 24}, lwt) ||
+        const bool lwt_ready =
+            clock.valid() &&
+            clock.timestamp(
+                connect_started_ms, lwt_observed_at, lwt_utc_ms) &&
+            petcare::make_offline_lwt(
+                petcare::config::device_id,
+                {lwt_observed_at.data(), 24},
+                lwt);
+        diagnostics.phase = petcare::RuntimePhase::mqtt_connecting;
+        if ((clock.valid() && !lwt_ready) ||
             !publisher.connect(
                 runtime.mqtt_host.data(),
                 runtime.mqtt_port,
                 petcare::config::client_id,
                 runtime.mqtt_username.data(),
                 runtime.mqtt_password.data(),
-                lwt
+                lwt_ready ? &lwt : nullptr
             )) {
             publisher.abort();
+            diagnostics.phase = petcare::RuntimePhase::backoff;
+            diagnostics.error = petcare::RuntimeError::mqtt;
             wait_with_usb(
                 runtime,
+                diagnostics,
                 mqtt_backoff.next_delay_seconds() * 1'000U);
             continue;
         }
@@ -188,33 +253,79 @@ int main() {
         while (!publisher.connected() &&
                monotonic_ms() - connect_started_ms < petcare::config::mqtt_timeout_ms &&
                cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) == CYW43_LINK_UP) {
-            wait_with_usb(runtime, 10);
+            wait_with_usb(runtime, diagnostics, 10);
         }
         if (!publisher.connected()) {
             publisher.abort();
+            diagnostics.phase = petcare::RuntimePhase::backoff;
+            diagnostics.error = petcare::RuntimeError::mqtt;
             wait_with_usb(
                 runtime,
+                diagnostics,
                 mqtt_backoff.next_delay_seconds() * 1'000U);
             continue;
         }
         mqtt_backoff.reset();
+
+        if (!clock.valid()) {
+            diagnostics.phase = petcare::RuntimePhase::time_syncing;
+            diagnostics.error = petcare::RuntimeError::time_sync;
+            std::uint64_t next_sync_attempt_ms = 0;
+            while (publisher.connected() &&
+                   cyw43_tcpip_link_status(
+                       &cyw43_state, CYW43_ITF_STA) == CYW43_LINK_UP &&
+                   !clock.valid()) {
+                const auto now_ms = monotonic_ms();
+                if (now_ms >= next_sync_attempt_ms) {
+                    clock.synchronize(wall_clock_ms(), now_ms);
+                    next_sync_attempt_ms =
+                        now_ms + petcare::UtcClock::retry_ms;
+                }
+                sensor_hardware.poll();
+                wait_with_usb(runtime, diagnostics, 10);
+            }
+            const bool clock_ready = clock.valid();
+            const bool link_up = cyw43_tcpip_link_status(
+                &cyw43_state, CYW43_ITF_STA) == CYW43_LINK_UP;
+            publisher.abort();
+            if (clock_ready) {
+                diagnostics.phase =
+                    petcare::RuntimePhase::mqtt_connecting;
+                diagnostics.error = petcare::RuntimeError::none;
+                continue;
+            }
+            diagnostics.phase = petcare::RuntimePhase::backoff;
+            diagnostics.error = link_up
+                ? petcare::RuntimeError::mqtt
+                : petcare::RuntimeError::wifi;
+            wait_with_usb(
+                runtime,
+                diagnostics,
+                mqtt_backoff.next_delay_seconds() * 1'000U);
+            continue;
+        }
 
         petcare::SensorSchedule sensor_schedule{petcare::config::device_profile, sensor_hardware.source()};
         petcare::TelemetryMessage status{};
         std::uint64_t status_utc_ms = 0;
         auto now_ms = monotonic_ms();
         if (!make_status(clock, petcare::DeviceState::online, now_ms, status, status_utc_ms) ||
-            !publisher.publish_status(status)) {
+            !publisher.publish_status(status) ||
+            !await_publication(publisher, runtime, diagnostics)) {
             publisher.abort();
+            diagnostics.phase = petcare::RuntimePhase::backoff;
+            diagnostics.error = petcare::RuntimeError::publish;
             wait_with_usb(
                 runtime,
+                diagnostics,
                 mqtt_backoff.next_delay_seconds() * 1'000U);
             continue;
         }
         clock.mark_published(status_utc_ms);
+        diagnostics.phase = petcare::RuntimePhase::online;
+        diagnostics.error = petcare::RuntimeError::none;
         sensor_schedule.start(static_cast<std::uint32_t>(now_ms));
         auto next_resync_ms = now_ms + petcare::UtcClock::resync_ms;
-        std::uint64_t next_sync_attempt_ms = 0;
 
         while (publisher.connected() &&
                cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) == CYW43_LINK_UP) {
@@ -223,10 +334,6 @@ int main() {
             if (now_ms >= next_resync_ms) {
                 clock.synchronize(wall_clock_ms(), now_ms);
                 next_resync_ms = now_ms + petcare::UtcClock::resync_ms;
-                next_sync_attempt_ms = now_ms + petcare::UtcClock::retry_ms;
-            } else if (!clock.valid() && now_ms >= next_sync_attempt_ms) {
-                clock.synchronize(wall_clock_ms(), now_ms);
-                next_sync_attempt_ms = now_ms + petcare::UtcClock::retry_ms;
             }
             petcare::ScheduledOutput scheduled{};
             while (sensor_schedule.next_due(static_cast<std::uint32_t>(now_ms), scheduled)) {
@@ -254,15 +361,43 @@ int main() {
                           },
                           message
                       ) && publisher.publish_sensor(message);
-                if (published) {
+                if (published &&
+                    await_publication(publisher, runtime, diagnostics)) {
                     clock.mark_published(utc_ms);
+                } else {
+                    diagnostics.error =
+                        petcare::RuntimeError::publish;
+                    break;
                 }
             }
-            wait_with_usb(runtime, 10);
+            if (diagnostics.error != petcare::RuntimeError::publish) {
+                diagnostics.error = sensor_schedule.sensor_read_failed()
+                    ? petcare::RuntimeError::sensor
+                    : petcare::RuntimeError::none;
+            }
+            if (publisher.publish_failed()) {
+                diagnostics.error = petcare::RuntimeError::publish;
+                break;
+            }
+            wait_with_usb(runtime, diagnostics, 10);
         }
+        const bool publish_failed =
+            diagnostics.error == petcare::RuntimeError::publish ||
+            publisher.publish_failed();
+        const auto link_status = cyw43_tcpip_link_status(
+            &cyw43_state, CYW43_ITF_STA);
+        const bool link_up = link_status == CYW43_LINK_UP;
+        diagnostics.wifi_link_status =
+            static_cast<std::int8_t>(link_status);
         publisher.abort();
+        diagnostics.phase = petcare::RuntimePhase::backoff;
+        diagnostics.error = publish_failed
+            ? petcare::RuntimeError::publish
+            : (link_up ? petcare::RuntimeError::mqtt
+                       : petcare::RuntimeError::wifi);
         wait_with_usb(
             runtime,
+            diagnostics,
             mqtt_backoff.next_delay_seconds() * 1'000U);
     }
 }

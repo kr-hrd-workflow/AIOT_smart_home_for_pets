@@ -13,6 +13,7 @@ constexpr std::size_t max_product_id_bytes = 11;
 constexpr std::size_t max_ssid_bytes = 32;
 constexpr std::size_t max_wifi_password_bytes = 63;
 constexpr std::size_t max_mqtt_host_bytes = 253;
+constexpr std::size_t max_mqtt_ipv4_bytes = 15;
 constexpr std::size_t max_mqtt_username_bytes = 64;
 constexpr std::size_t max_mqtt_password_bytes = 128;
 constexpr std::uint32_t provisioning_record_magic = 0x31544550U;
@@ -22,6 +23,7 @@ enum class ProvisioningKind : std::uint8_t {
     config = 2,
     ack = 3,
     error = 4,
+    diagnostics = 5,
 };
 
 enum class ProvisioningError {
@@ -38,6 +40,31 @@ enum class ProvisioningError {
     wrong_product,
     invalid_port,
     generation_overflow,
+};
+
+enum class RuntimePhase : std::uint8_t {
+    awaiting_provisioning = 0,
+    wifi_connecting = 1,
+    time_syncing = 2,
+    mqtt_connecting = 3,
+    online = 4,
+    backoff = 5,
+};
+
+enum class RuntimeError : std::uint8_t {
+    none = 0,
+    wifi = 1,
+    time_sync = 2,
+    mqtt = 3,
+    publish = 4,
+    sensor = 5,
+};
+
+struct RuntimeDiagnostics {
+    RuntimePhase phase = RuntimePhase::awaiting_provisioning;
+    RuntimeError error = RuntimeError::none;
+    std::int8_t wifi_link_status = 0;
+    bool watchdog_reboot = false;
 };
 
 struct ProvisioningConfig {
@@ -93,6 +120,11 @@ std::size_t encode_provisioning_frame(
 std::size_t encode_ack_frame(
     std::string_view product_id,
     std::uint32_t configuration_crc,
+    std::uint8_t* output,
+    std::size_t output_capacity);
+
+std::size_t encode_diagnostics_frame(
+    const RuntimeDiagnostics& diagnostics,
     std::uint8_t* output,
     std::size_t output_capacity);
 

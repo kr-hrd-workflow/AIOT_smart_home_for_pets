@@ -36,6 +36,12 @@ from .vision import CameraUnavailable
 
 
 DEFAULT_ALLOWED_ORIGINS = ("http://127.0.0.1:3000", "http://localhost:3000")
+PICO_PROVISION_PATHS = frozenset(
+    {
+        "/api/pico/entrance-01/provision",
+        "/api/pico/petzone-01/provision",
+    }
+)
 ALLOWED_METHODS = "GET,POST,PUT,OPTIONS"
 ALLOWED_HEADERS = "Content-Type"
 CALIBRATION_WAIT_SECONDS = 15.0
@@ -72,7 +78,11 @@ class OriginPolicyMiddleware:
             await self.app(scope, receive, send)
             return
         path = str(scope.get("path", ""))
-        if path == "/setup" or path.startswith("/setup/"):
+        if (
+            path == "/setup"
+            or path.startswith("/setup/")
+            or path in PICO_PROVISION_PATHS
+        ):
             await self.app(scope, receive, send)
             return
         headers = Headers(scope=scope)

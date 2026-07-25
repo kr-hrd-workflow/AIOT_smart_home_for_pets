@@ -130,8 +130,8 @@ bool Ld2410cStream::take_latest(bool& moving, bool& stationary) {
 }
 
 void SensorSchedule::start(std::uint32_t now_ms) {
-    next_sht_ms_ = now_ms + config::sht31_cadence_ms;
-    next_fast_ms_ = now_ms + config::presence_cadence_ms;
+    next_sht_ms_ = now_ms;
+    next_fast_ms_ = now_ms;
     next_status_ms_ = now_ms + static_cast<std::uint32_t>(MqttContract::heartbeat_ms);
     pending_size_ = 0;
     pending_index_ = 0;
@@ -151,50 +151,81 @@ void SensorSchedule::prepare(std::uint32_t due_ms, bool sht_due, bool fast_due, 
     pending_size_ = 0;
     pending_index_ = 0;
 
-    if (sht_due && source_.read_sht31) {
+    if (sht_due) {
+        bool failed = false;
         double temperature = 0.0;
         double humidity = 0.0;
-        if (source_.read_sht31(source_.context, temperature, humidity)) {
+        if (source_.read_sht31 &&
+            source_.read_sht31(source_.context, temperature, humidity)) {
             if (std::isfinite(temperature) && temperature >= -45.0 && temperature <= 130.0) {
                 append(due_ms, "temperature", SensorValue::number(temperature), "C");
             }
             if (std::isfinite(humidity) && humidity >= 0.0 && humidity <= 100.0) {
                 append(due_ms, "humidity", SensorValue::number(humidity), "%");
             }
+            failed =
+                !std::isfinite(temperature) ||
+                temperature < -45.0 || temperature > 130.0 ||
+                !std::isfinite(humidity) ||
+                humidity < 0.0 || humidity > 100.0;
+        } else {
+            failed = true;
         }
+        sht_read_failed_ = failed;
     }
 
-    if (fast_due && source_.read_presence) {
-        bool moving = false;
-        bool stationary = false;
-        if (source_.read_presence(source_.context, moving, stationary)) {
-            append(due_ms, "presence_moving", SensorValue::boolean(moving), "bool");
-            append(due_ms, "presence_stationary", SensorValue::boolean(stationary), "bool");
+    if (fast_due) {
+        bool failed = false;
+        if (source_.read_presence) {
+            bool moving = false;
+            bool stationary = false;
+            if (source_.read_presence(source_.context, moving, stationary)) {
+                append(due_ms, "presence_moving", SensorValue::boolean(moving), "bool");
+                append(due_ms, "presence_stationary", SensorValue::boolean(stationary), "bool");
+            } else {
+                failed = true;
+            }
+        } else {
+            failed = true;
         }
-    }
 
-    if (fast_due && profile_ == DeviceProfile::petzone_01) {
-        if (source_.read_weight) {
-            double grams = 0.0;
-            if (source_.read_weight(source_.context, Bowl::food, grams) && std::isfinite(grams)) {
-                append(due_ms, "food_weight", SensorValue::number(grams), "g");
-            }
-            if (source_.read_weight(source_.context, Bowl::water, grams) && std::isfinite(grams)) {
-                append(due_ms, "water_weight", SensorValue::number(grams), "g");
-            }
-        }
-        if (source_.read_fsr) {
-            constexpr std::array<FsrChannel, 3> channels{{FsrChannel::left, FsrChannel::center, FsrChannel::right}};
-            constexpr std::array<std::string_view, 3> names{{
-                "bed_pressure_left", "bed_pressure_center", "bed_pressure_right",
-            }};
-            for (std::size_t index = 0; index < channels.size(); ++index) {
-                std::uint16_t raw = 0;
-                if (source_.read_fsr(source_.context, channels[index], raw) && raw <= config::fsr_adc_max) {
-                    append(due_ms, names[index], SensorValue::integer(raw), "adc");
+        if (profile_ == DeviceProfile::petzone_01) {
+            if (source_.read_weight) {
+                double grams = 0.0;
+                if (source_.read_weight(source_.context, Bowl::food, grams) && std::isfinite(grams)) {
+                    append(due_ms, "food_weight", SensorValue::number(grams), "g");
+                } else {
+                    failed = true;
                 }
+                if (source_.read_weight(source_.context, Bowl::water, grams) && std::isfinite(grams)) {
+                    append(due_ms, "water_weight", SensorValue::number(grams), "g");
+                } else {
+                    failed = true;
+                }
+            } else {
+                failed = true;
+            }
+            if (source_.read_fsr) {
+                constexpr std::array<FsrChannel, 3> channels{{
+                    FsrChannel::left, FsrChannel::center, FsrChannel::right,
+                }};
+                constexpr std::array<std::string_view, 3> names{{
+                    "bed_pressure_left", "bed_pressure_center", "bed_pressure_right",
+                }};
+                for (std::size_t index = 0; index < channels.size(); ++index) {
+                    std::uint16_t raw = 0;
+                    if (source_.read_fsr(source_.context, channels[index], raw) &&
+                        raw <= config::fsr_adc_max) {
+                        append(due_ms, names[index], SensorValue::integer(raw), "adc");
+                    } else {
+                        failed = true;
+                    }
+                }
+            } else {
+                failed = true;
             }
         }
+        fast_read_failed_ = failed;
     }
 
     if (status_due) {
@@ -212,34 +243,24 @@ bool SensorSchedule::next_due(std::uint32_t now_ms, ScheduledOutput& output) {
             return false;
         }
 
-        bool found = false;
-        std::uint32_t due_ms = 0;
-        const auto choose = [&](std::uint32_t candidate) {
-            if (due(now_ms, candidate) && (!found || now_ms - candidate > now_ms - due_ms)) {
-                due_ms = candidate;
-                found = true;
-            }
-        };
-        choose(next_sht_ms_);
-        choose(next_fast_ms_);
-        choose(next_status_ms_);
-        if (!found) {
+        const bool sht_due = due(now_ms, next_sht_ms_);
+        const bool fast_due = due(now_ms, next_fast_ms_);
+        const bool status_due = due(now_ms, next_status_ms_);
+        if (!sht_due && !fast_due && !status_due) {
             return false;
         }
 
-        const bool sht_due = next_sht_ms_ == due_ms;
-        const bool fast_due = next_fast_ms_ == due_ms;
-        const bool status_due = next_status_ms_ == due_ms;
         if (sht_due) {
-            next_sht_ms_ += config::sht31_cadence_ms;
+            next_sht_ms_ = now_ms + config::sht31_cadence_ms;
         }
         if (fast_due) {
-            next_fast_ms_ += config::presence_cadence_ms;
+            next_fast_ms_ = now_ms + config::presence_cadence_ms;
         }
         if (status_due) {
-            next_status_ms_ += static_cast<std::uint32_t>(MqttContract::heartbeat_ms);
+            next_status_ms_ =
+                now_ms + static_cast<std::uint32_t>(MqttContract::heartbeat_ms);
         }
-        prepare(due_ms, sht_due, fast_due, status_due);
+        prepare(now_ms, sht_due, fast_due, status_due);
     }
 }
 

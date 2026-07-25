@@ -49,7 +49,6 @@ public:
 
     bool synchronize(std::uint64_t utc_ms, std::uint64_t monotonic_ms) {
         if (utc_ms < minimum_utc_ms || (has_last_published_ && utc_ms <= last_published_ms_)) {
-            valid_ = false;
             return false;
         }
         anchor_utc_ms_ = utc_ms;
@@ -140,9 +139,11 @@ public:
         const char* client_id,
         const char* username,
         const char* password,
-        const TelemetryMessage& offline_lwt
+        const TelemetryMessage* offline_lwt
     );
     bool connected() const;
+    bool publish_failed() const;
+    bool publication_pending() const;
     bool publish_sensor(const TelemetryMessage& message);
     bool publish_status(const TelemetryMessage& message);
     bool graceful_disconnect(const TelemetryMessage& offline_status);
@@ -156,6 +157,8 @@ private:
     mqtt_client_t* client_ = nullptr;
     TelemetryMessage offline_lwt_{};
     std::atomic_bool connected_{false};
+    std::atomic_bool publish_failed_{false};
+    std::atomic_bool publication_pending_{false};
     std::atomic_bool disconnect_after_publish_{false};
 };
 #endif

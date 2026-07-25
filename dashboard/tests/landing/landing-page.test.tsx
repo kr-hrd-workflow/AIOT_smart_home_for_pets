@@ -42,6 +42,18 @@ it("keeps the product story and primary actions available without WebGL", () => 
   expect(
     screen.getByRole("heading", { name: "기기는 Home Agent를 통해 연결합니다" }),
   ).toBeInTheDocument();
+  expect(
+    screen.getByRole("link", { name: "로그인하고 연결" }),
+  ).toHaveAttribute("href", "/dashboard");
+  for (const installer of screen.getAllByRole("link", {
+    name: /로그인 후 (Home Agent 설치|Windows 베타 설치)/,
+  })) {
+    expect(installer).toHaveAttribute("href", "/dashboard");
+    expect(installer).not.toHaveAttribute("download");
+  }
+  expect(
+    screen.getAllByText(/디지털 서명이 없어 Windows SmartScreen/),
+  ).toHaveLength(2);
   expect(screen.getByText(/연결만으로 사이트에 표시되지 않습니다/)).toBeInTheDocument();
   expect(screen.getByText(/Jetson.*Pico 2 W.*MQTT/s)).toBeInTheDocument();
   expect(screen.getByText(/이벤트 클립은 7일 후 자동 삭제/)).toBeInTheDocument();

@@ -14,6 +14,7 @@ from .agent_lifecycle import (
     start_agent_components,
     stop_agent_components,
 )
+from .agent_config import load_runtime_config
 from .api import build_dashboard_summary, install_api
 from .camera_service import CameraService, build_camera_service
 from .config import load_config
@@ -34,6 +35,7 @@ async def lifespan(application: FastAPI):
     application.state.mqtt_endpoint = None
     application.state.agent_config_path = None
     application.state.jetson_config_path = None
+    application.state.sites_origin = None
     configure_database(config.database_url)
     clock = SystemRuleClock()
     ingress = RuleIngress(clock)
@@ -106,6 +108,7 @@ async def lifespan(application: FastAPI):
                 raise ValueError("Jetson config path must be absolute")
             application.state.agent_config_path = config_path
             application.state.jetson_config_path = jetson_config_path
+            application.state.sites_origin = load_runtime_config(config_path).origin
             agent_components = build_agent_components(config_path, tools_path, session_factory)
             application.state.agent_components = agent_components
 

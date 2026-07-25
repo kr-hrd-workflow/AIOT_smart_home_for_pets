@@ -15,6 +15,7 @@ from app.setup import install_setup
 
 
 ORIGIN = "http://127.0.0.1:8000"
+SITES_ORIGIN = "https://pets.example"
 MQTT_PASSWORD = "mqtt-secret-sentinel"
 
 
@@ -23,6 +24,8 @@ def make_client(
     agent_config_path: Path | None = None,
     jetson_config_path: Path | None = None,
     pico_provisioner=None,
+    pico_diagnoser=None,
+    sites_origin: str | None = SITES_ORIGIN,
 ) -> TestClient:
     application = FastAPI()
     application.state.config = SimpleNamespace(
@@ -33,8 +36,11 @@ def make_client(
     application.state.mqtt_endpoint = MqttEndpoint("192.168.0.20", 18883)
     application.state.agent_config_path = agent_config_path
     application.state.jetson_config_path = jetson_config_path
+    application.state.sites_origin = sites_origin
     if pico_provisioner is not None:
         application.state.pico_provisioner = pico_provisioner
+    if pico_diagnoser is not None:
+        application.state.pico_diagnoser = pico_diagnoser
     install_api(application)
     install_setup(application)
     return TestClient(application, base_url=ORIGIN)
@@ -59,6 +65,11 @@ def test_setup_is_loopback_session_only() -> None:
     assert "/setup/api/pico/" in response.text
     assert "/setup/api/bootstrap" not in response.text
     assert "requestPort" not in response.text
+    status_poll = response.text.split(
+        "const code = result?.error?.code;",
+        maxsplit=1,
+    )[1].split("throw new SetupError", maxsplit=1)[0]
+    assert '"pico_wrong_product",' in status_poll
     assert "Home Agent가 USB로 연결된 Pico를 자동으로 찾습니다." in response.text
     pagehide_handler = response.text.split(
         'window.addEventListener("pagehide"',
@@ -115,6 +126,90 @@ def test_pico_provisioning_is_web_driven_and_returns_no_secret(caplog) -> None:
     assert MQTT_PASSWORD not in response.text
     assert "test-password" not in caplog.text
     assert MQTT_PASSWORD not in caplog.text
+    assert_security_headers(response)
+
+
+def test_sites_page_can_provision_pico_through_exact_loopback_cors(caplog) -> None:
+    calls: list[dict[str, object]] = []
+
+    def provision(**kwargs) -> None:
+        calls.append(kwargs)
+
+    with make_client(pico_provisioner=provision) as client:
+        preflight = client.options(
+            "/api/pico/entrance-01/provision",
+            headers={
+                "origin": SITES_ORIGIN,
+                "access-control-request-method": "POST",
+                "access-control-request-headers": "content-type",
+                "access-control-request-private-network": "true",
+            },
+        )
+        response = client.post(
+            "/api/pico/entrance-01/provision",
+            json={"wifi_ssid": "home-network", "wifi_password": "home-password"},
+            headers={"origin": SITES_ORIGIN},
+        )
+        foreign = client.post(
+            "/api/pico/entrance-01/provision",
+            json={"wifi_ssid": "home-network", "wifi_password": "home-password"},
+            headers={"origin": "https://example.invalid"},
+        )
+
+    assert preflight.status_code == 204
+    assert preflight.headers["access-control-allow-origin"] == SITES_ORIGIN
+    assert preflight.headers["access-control-allow-private-network"] == "true"
+    assert preflight.headers["access-control-allow-methods"] == "POST"
+    assert preflight.headers["access-control-allow-headers"] == "Content-Type"
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == SITES_ORIGIN
+    assert response.json() == {"status": "provisioned", "product": "entrance-01"}
+    assert foreign.status_code == 403
+    assert calls == [
+        {
+            "product": "entrance-01",
+            "wifi_ssid": "home-network",
+            "wifi_password": "home-password",
+            "mqtt_host": "192.168.0.20",
+            "mqtt_port": 18883,
+            "mqtt_username": "petcare",
+            "mqtt_password": MQTT_PASSWORD,
+        }
+    ]
+    assert "home-password" not in response.text
+    assert MQTT_PASSWORD not in response.text
+    assert "home-password" not in caplog.text
+    assert MQTT_PASSWORD not in caplog.text
+
+
+def test_pico_runtime_status_is_reported_to_setup_page() -> None:
+    calls: list[str] = []
+
+    def diagnose(*, product: str) -> dict[str, object]:
+        calls.append(product)
+        return {
+            "status": "online",
+            "error": "none",
+            "wifi_link_status": 3,
+            "watchdog_reboot": False,
+        }
+
+    with make_client(pico_diagnoser=diagnose) as client:
+        assert client.get("/setup").status_code == 200
+        response = client.post(
+            "/setup/api/pico/entrance-01/status",
+            headers={"origin": ORIGIN},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "product": "entrance-01",
+        "status": "online",
+        "error": "none",
+        "wifi_link_status": 3,
+        "watchdog_reboot": False,
+    }
+    assert calls == ["entrance-01"]
     assert_security_headers(response)
 
 

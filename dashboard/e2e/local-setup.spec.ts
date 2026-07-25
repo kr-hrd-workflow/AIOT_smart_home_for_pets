@@ -30,6 +30,12 @@ app.state.config = SimpleNamespace(
 )
 app.state.mqtt_endpoint = MqttEndpoint("192.168.0.20", 18883)
 app.state.pico_provisioner = lambda **_kwargs: None
+app.state.pico_diagnoser = lambda **_kwargs: {
+    "status": "online",
+    "error": "none",
+    "wifi_link_status": 3,
+    "watchdog_reboot": False,
+}
 install_api(app)
 install_setup(app)
 uvicorn.run(app, host="127.0.0.1", port=8000, log_level="error", access_log=False)
@@ -102,7 +108,10 @@ test.afterAll(async () => {
 test("provisions both fixed Pico products through the Home Agent API", async ({ page }) => {
   const requests: Array<{ url: string; body: string | null }> = [];
   page.on("request", (request) => {
-    if (request.url().includes("/setup/api/pico/")) {
+    if (
+      request.url().includes("/setup/api/pico/")
+      && !request.url().endsWith("/status")
+    ) {
       requests.push({ url: request.url(), body: request.postData() });
     }
   });
@@ -151,6 +160,39 @@ test("keeps the first step active when the server detects the other Pico", async
   await expect(page.getByTestId("entrance-status")).toContainText("다른 Pico");
   await expect(page.getByRole("button", { name: "현관 Pico 연결" })).toBeEnabled();
   await expect(page.getByRole("button", { name: "생활공간 Pico 연결" })).toBeEnabled();
+});
+
+test("retries while the configured Pico re-enumerates beside the other product", async ({ page }) => {
+  let statusCalls = 0;
+  await page.route("**/setup/api/pico/entrance-01/status", async (route) => {
+    statusCalls += 1;
+    await route.fulfill({
+      status: statusCalls === 1 ? 409 : 200,
+      contentType: "application/json",
+      json: statusCalls === 1
+        ? {
+            error: {
+              code: "pico_wrong_product",
+              message: "Setup request was rejected",
+            },
+          }
+        : {
+            product: "entrance-01",
+            status: "online",
+            error: "none",
+            wifi_link_status: 3,
+            watchdog_reboot: false,
+          },
+    });
+  });
+  await page.goto(setupUrl);
+  await page.locator("#wifi-ssid").fill("test-network");
+  await page.locator("#wifi-password").fill("password-for-test");
+
+  await page.locator("[data-product='entrance-01']").click();
+
+  await expect(page.getByTestId("entrance-status")).toHaveText("연결 완료");
+  expect(statusCalls).toBe(2);
 });
 
 test("permits retry when the Home Agent cannot find a connected Pico", async ({ page }) => {

@@ -208,11 +208,14 @@ int main() {
     petcare::SensorSchedule petzone{DeviceProfile::petzone_01, fake.source()};
     petzone.start(0);
     petcare::ScheduledOutput output{};
+    std::array<petcare::ScheduledOutput, 512> outputs{};
+    const auto initial_count = drain(petzone, 0, outputs);
+    assert(initial_count == 9);
+    assert(!petzone.sensor_read_failed());
     assert(!petzone.next_due(999, output));
 
-    std::array<petcare::ScheduledOutput, 512> outputs{};
     const auto count = drain(petzone, 30'000, outputs);
-    assert(count == 215);
+    assert(count == 10);
     constexpr std::array<std::string_view, 10> shared_order{{
         "temperature", "humidity", "presence_moving", "presence_stationary",
         "food_weight", "water_weight", "bed_pressure_left", "bed_pressure_center",
@@ -226,6 +229,7 @@ int main() {
         }
     }
     assert(shared_index == shared_order.size());
+    assert(!petzone.sensor_read_failed());
     assert(fake.call_count >= 7);
     assert((std::string_view{fake.calls.data() + fake.call_count - 7, 7} == "SPFWLCR"));
 
@@ -233,6 +237,7 @@ int main() {
     petcare::SensorSchedule entrance{DeviceProfile::entrance_01, entrance_fake.source()};
     entrance.start(0);
     const auto entrance_count = drain(entrance, 30'000, outputs);
+    assert(entrance_count == 5);
     std::size_t entrance_shared = 0;
     constexpr std::array<std::string_view, 5> entrance_order{{
         "temperature", "humidity", "presence_moving", "presence_stationary", "status",
@@ -263,12 +268,26 @@ int main() {
     invalid_schedule.start(0);
     const auto invalid_count = drain(invalid_schedule, 1'000, outputs);
     assert(invalid_count == 1);
+    assert(invalid_schedule.sensor_read_failed());
     assert(outputs[0].sensor_type == "water_weight");
     assert(outputs[0].value.number_value == 0.0);
+    invalid.presence_valid = true;
+    invalid.food = 80.0;
+    invalid.fsr_valid = {{true, true, true}};
+    invalid.fsr[1] = 222;
+    drain(invalid_schedule, 2'000, outputs);
+    assert(invalid_schedule.sensor_read_failed());
+    invalid.sht_valid = true;
+    drain(invalid_schedule, 31'000, outputs);
+    assert(!invalid_schedule.sensor_read_failed());
 
     FakeSensors rollover_fake;
     petcare::SensorSchedule rollover{DeviceProfile::entrance_01, rollover_fake.source()};
     rollover.start(std::numeric_limits<std::uint32_t>::max() - 500);
+    assert(drain(
+               rollover,
+               std::numeric_limits<std::uint32_t>::max() - 500,
+               outputs) == 4);
     assert(!rollover.next_due(498, output));
     assert(rollover.next_due(499, output));
     assert(output.due_ms == 499);

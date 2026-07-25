@@ -52,6 +52,9 @@ public:
 
     void start(std::uint32_t now_ms);
     bool next_due(std::uint32_t now_ms, ScheduledOutput& output);
+    bool sensor_read_failed() const {
+        return sht_read_failed_ || fast_read_failed_;
+    }
 
 private:
     void prepare(std::uint32_t due_ms, bool sht_due, bool fast_due, bool status_due);
@@ -66,6 +69,8 @@ private:
     std::uint32_t next_fast_ms_ = 0;
     std::uint32_t next_status_ms_ = 0;
     bool started_ = false;
+    bool sht_read_failed_ = false;
+    bool fast_read_failed_ = false;
 };
 
 #ifdef PICO_ON_DEVICE

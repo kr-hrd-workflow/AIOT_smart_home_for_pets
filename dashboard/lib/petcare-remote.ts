@@ -15,6 +15,11 @@ export type PetCareStatus = {
 };
 
 export type Enrollment = { code: string; expiresAt: string };
+export type PicoProduct = "entrance-01" | "petzone-01";
+export type PicoProvisioned = {
+  status: "provisioned";
+  product: PicoProduct;
+};
 
 export type PetCareClip = {
   id: string;
@@ -27,6 +32,10 @@ export type PetCareClip = {
 
 export interface PetCareRemoteClient {
   enroll(): Promise<Enrollment>;
+  provisionPico(
+    product: PicoProduct,
+    wifi: { ssid: string; password: string },
+  ): Promise<PicoProvisioned>;
   getStatus(signal?: AbortSignal): Promise<PetCareStatus>;
   getClips(): Promise<PetCareClip[]>;
   deleteClip(id: string): Promise<void>;
@@ -47,6 +56,7 @@ export interface PetCareAccountClient {
 
 type JsonObject = Record<string, unknown>;
 type Guard<T> = (value: unknown) => value is T;
+const LOCAL_HOME_AGENT = "http://127.0.0.1:8000";
 
 function isObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -58,6 +68,14 @@ function hasExactKeys(
 ): value is JsonObject {
   if (!isObject(value) || Object.keys(value).length !== keys.length) return false;
   return keys.every((key) => Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function isPicoProvisioned(value: unknown): value is PicoProvisioned {
+  return (
+    hasExactKeys(value, ["status", "product"]) &&
+    value.status === "provisioned" &&
+    (value.product === "entrance-01" || value.product === "petzone-01")
+  );
 }
 
 function isNumber(value: unknown): value is number {
@@ -436,6 +454,35 @@ async function requestEmpty(
   if (response.status !== status) return rejectResponse(response);
 }
 
+async function provisionPico(
+  product: PicoProduct,
+  wifi: { ssid: string; password: string },
+): Promise<PicoProvisioned> {
+  const response = await fetch(
+    `${LOCAL_HOME_AGENT}/api/pico/${product}/provision`,
+    {
+      method: "POST",
+      mode: "cors",
+      credentials: "omit",
+      referrerPolicy: "no-referrer",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        wifi_ssid: wifi.ssid,
+        wifi_password: wifi.password,
+      }),
+    },
+  );
+  if (response.status !== 200) return rejectResponse(response);
+  const body: unknown = await response.json().catch(() => undefined);
+  if (!isPicoProvisioned(body) || body.product !== product) {
+    throw new PetCareRemoteError(response.status);
+  }
+  return body;
+}
+
 export function createPetCareRemoteClient(): PetCareRemoteClient {
   return {
     enroll: () =>
@@ -444,6 +491,7 @@ export function createPetCareRemoteClient(): PetCareRemoteClient {
       }),
     getStatus: (signal) =>
       requestJson("/api/petcare/status", 200, isStatus, { signal }, true),
+    provisionPico,
     getClips: async () =>
       (await requestJson("/api/petcare/clips", 200, isClipList)).clips,
     deleteClip: (id) =>

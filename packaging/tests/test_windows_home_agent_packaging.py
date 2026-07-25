@@ -34,6 +34,7 @@ def test_windows_installer_preserves_exact_service_commands_and_status_cli() -> 
     assert start in source
     assert source.index(install) < source.index(failure) < source.index(failure_flag) < source.index(start)
     assert "app.agent_runtime status --config $storedConfig --tools $storedTools --jetson-config $storedJetson" in source
+    assert "app.agent_runtime status --config $storedConfig --tools $storedTools" in source
     assert "http://" not in source and "https://" not in source
 
 
@@ -46,6 +47,14 @@ def test_pairing_precedes_registry_service_and_bundle_removal_follows_verified_i
     assert "Get-FileIdentity" in source
     assert "pairing bundle identity changed" in source
     assert "Assert-OwnerOnlyAcl $PairingBundle" in source
+    assert "if (-not [string]::IsNullOrWhiteSpace($PairingBundle))" in source
+
+
+def test_install_allows_pico_only_runtime_without_a_jetson_bundle() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "Home Agent Python package is unavailable" in source
+    assert "backend .venv is missing" not in source
+    assert "Test-Path -LiteralPath $storedJetson -PathType Leaf" in source
 
 
 def test_install_removes_known_stale_secrets_and_rejects_unknown_registry_values() -> None:

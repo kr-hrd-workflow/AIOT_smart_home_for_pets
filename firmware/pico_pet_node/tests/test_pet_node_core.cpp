@@ -82,11 +82,12 @@ int main() {
     assert(clock.timestamp(5'500, timestamp, timestamp_ms));
     assert((std::string_view{timestamp.data(), 24} == "2024-01-01T00:00:10.500Z"));
     clock.mark_published(timestamp_ms);
-    assert(!clock.synchronize(timestamp_ms - 1, 6'000));
-    assert(!clock.valid());
-    assert(!clock.timestamp(6'000, timestamp, timestamp_ms));
-    assert(!clock.synchronize(timestamp_ms, 6'100));
-    assert(clock.synchronize(timestamp_ms + 1, 6'200));
+    const auto last_published_ms = timestamp_ms;
+    assert(!clock.synchronize(last_published_ms - 1, 6'000));
+    assert(clock.valid());
+    assert(clock.timestamp(6'000, timestamp, timestamp_ms));
+    assert(!clock.synchronize(last_published_ms, 6'100));
+    assert(clock.synchronize(last_published_ms + 1, 6'200));
     assert(clock.valid());
     petcare::UtcClock rebooted_clock;
     assert(!rebooted_clock.valid());

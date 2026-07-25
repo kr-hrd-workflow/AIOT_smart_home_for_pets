@@ -140,6 +140,23 @@ describe("tenant-scoped live proxy", () => {
     expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
   });
 
+  it("does not report Jetson connected when the Home Agent camera is offline", async () => {
+    const offlineSummary = structuredClone(summary);
+    offlineSummary.camera = {
+      ...offlineSummary.camera,
+      state: "offline",
+      reason: "agent_unavailable",
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonUpstream(offlineSummary)));
+
+    const response = await proxyStatus(user, env, now);
+
+    expect(await response.json()).toMatchObject({
+      camera: null,
+      dashboard: { camera: { state: "offline" } },
+    });
+  });
+
   it("returns needs_enrollment without an upstream request", async () => {
     vi.mocked(PetCareRepository.prototype.getHomeConnection).mockResolvedValue({
       state: "needs_enrollment",

@@ -6,6 +6,7 @@ import struct
 import time
 import zlib
 from collections.abc import Callable, Iterable
+from ipaddress import AddressValueError, IPv4Address
 from typing import Any
 
 
@@ -16,6 +17,22 @@ _PICO_PNP_PREFIXES = (
     "USB\\VID_2E8A&PID_0009\\",
     "USB\\VID_2E8A&PID_0009&MI_00\\",
 )
+_RUNTIME_PHASES = {
+    0: "awaiting_provisioning",
+    1: "wifi_connecting",
+    2: "time_syncing",
+    3: "mqtt_connecting",
+    4: "online",
+    5: "backoff",
+}
+_RUNTIME_ERRORS = {
+    0: "none",
+    1: "wifi",
+    2: "time_sync",
+    3: "mqtt",
+    4: "publish",
+    5: "sensor",
+}
 
 
 class PicoProvisioningError(RuntimeError):
@@ -97,6 +114,25 @@ def _verify_ack(
         raise PicoProvisioningError("ack")
 
 
+def _verify_diagnostics(frame: bytes | bytearray) -> dict[str, object]:
+    kind, payload = _parse_frame(frame)
+    if (
+        kind != 5
+        or len(payload) != 5
+        or payload[0] != 1
+        or payload[1] not in _RUNTIME_PHASES
+        or payload[2] not in _RUNTIME_ERRORS
+        or payload[4] not in (0, 1)
+    ):
+        raise PicoProvisioningError("protocol")
+    return {
+        "status": _RUNTIME_PHASES[payload[1]],
+        "error": _RUNTIME_ERRORS[payload[2]],
+        "wifi_link_status": struct.unpack_from("<b", payload, 3)[0],
+        "watchdog_reboot": bool(payload[4]),
+    }
+
+
 def _config_frame(
     *,
     product: str,
@@ -109,13 +145,17 @@ def _config_frame(
 ) -> tuple[bytearray, int]:
     if product not in PRODUCTS or not 1 <= mqtt_port <= 65535:
         raise PicoProvisioningError("validation")
+    try:
+        IPv4Address(mqtt_host)
+    except AddressValueError as error:
+        raise PicoProvisioningError("validation") from error
     payload = bytearray(
         b"".join(
             (
                 _field(product, 1, 11),
                 _field(wifi_ssid, 1, 32),
                 _field(wifi_password, 8, 63),
-                _field(mqtt_host, 1, 253),
+                _field(mqtt_host, 1, 15),
                 _field(mqtt_username, 1, 64),
                 _field(mqtt_password, 1, 128),
                 struct.pack("<H", mqtt_port),
@@ -309,6 +349,54 @@ def provision_pico(
     finally:
         hello[:] = b"\0" * len(hello)
         config[:] = b"\0" * len(config)
+
+    if saw_other_product:
+        raise PicoProvisioningError("wrong_product")
+    if last_error is not None:
+        raise last_error
+    raise PicoProvisioningError("unavailable")
+
+
+def diagnose_pico(
+    *,
+    product: str,
+    ports: Iterable[str] | None = None,
+    open_port: Callable[[str], Any] = _SerialPort,
+) -> dict[str, object]:
+    if product not in PRODUCTS:
+        raise PicoProvisioningError("validation")
+    hello, _checksum = _frame(1)
+    request, _checksum = _frame(5)
+    candidates = list(_pico_ports() if ports is None else ports)
+    if not candidates:
+        raise PicoProvisioningError("unavailable")
+
+    saw_other_product = False
+    last_error: PicoProvisioningError | None = None
+    try:
+        for port_name in candidates:
+            serial_port = None
+            matched_product = False
+            try:
+                serial_port = open_port(port_name)
+                actual_product = _verify_hello(serial_port.exchange(hello))
+                if actual_product != product:
+                    saw_other_product = True
+                    continue
+                matched_product = True
+                return _verify_diagnostics(serial_port.exchange(request))
+            except PicoProvisioningError as error:
+                if matched_product:
+                    raise
+                last_error = error
+            except OSError:
+                continue
+            finally:
+                if serial_port is not None:
+                    serial_port.close()
+    finally:
+        hello[:] = b"\0" * len(hello)
+        request[:] = b"\0" * len(request)
 
     if saw_other_product:
         raise PicoProvisioningError("wrong_product")

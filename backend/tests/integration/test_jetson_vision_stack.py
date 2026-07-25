@@ -11,6 +11,7 @@ import threading
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -614,6 +615,11 @@ async def test_deployed_lifespan_starts_jetson_camera_worker(monkeypatch: pytest
     monkeypatch.setenv("PETCARE_AGENT_TOOLS", str(ROOT / ".runtime" / "agent-tools.json"))
     monkeypatch.setattr(
         main_module,
+        "load_runtime_config",
+        lambda _path: SimpleNamespace(origin="https://petcare.example"),
+    )
+    monkeypatch.setattr(
+        main_module,
         "build_agent_components",
         lambda *_args: calls.append("agent:build") or components,
         raising=False,
@@ -725,6 +731,11 @@ async def test_lifespan_runs_required_shutdown_order_and_preserves_first_excepti
     monkeypatch.setattr(main_module, "RuleWorker", Worker)
     monkeypatch.setenv("PETCARE_AGENT_CONFIG", str(ROOT / ".runtime" / "agent.json"))
     monkeypatch.setenv("PETCARE_AGENT_TOOLS", str(ROOT / ".runtime" / "agent-tools.json"))
+    monkeypatch.setattr(
+        main_module,
+        "load_runtime_config",
+        lambda _path: SimpleNamespace(origin="https://petcare.example"),
+    )
     monkeypatch.setattr(main_module, "build_agent_components", lambda *_args: components)
     monkeypatch.setattr(main_module, "start_agent_components", lambda _components: calls.append("agent:start"))
 

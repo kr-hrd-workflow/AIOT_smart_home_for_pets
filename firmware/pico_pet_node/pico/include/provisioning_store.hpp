@@ -9,6 +9,7 @@ namespace petcare {
 bool load_provisioning(ProvisioningConfig& output);
 ProvisioningError poll_usb_provisioning(
     std::string_view device_id,
-    ProvisioningConfig& output);
+    ProvisioningConfig& output,
+    const RuntimeDiagnostics& diagnostics);
 
 }

@@ -32,6 +32,8 @@ void petcare_sntp_set_system_time_us(uint32_t seconds, uint32_t microseconds);
 #define LWIP_DHCP 1
 #define LWIP_DNS 1
 #define LWIP_MQTT 1
+#define MQTT_REQ_MAX_IN_FLIGHT 16
+#define MQTT_OUTPUT_RINGBUF_SIZE 2048
 #define LWIP_SNTP 1
 #define SNTP_SERVER_DNS 1
 #define SNTP_MAX_SERVERS 2

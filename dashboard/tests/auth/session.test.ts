@@ -7,6 +7,10 @@ const mocks = vi.hoisted(() => ({
   createServerClient: vi.fn(),
   getClaims: vi.fn(),
   exchangeCodeForSession: vi.fn(),
+  signInWithPassword: vi.fn(),
+  signUp: vi.fn(),
+  resetPasswordForEmail: vi.fn(),
+  updateUser: vi.fn(),
   signOut: vi.fn(),
   requireAuth: vi.fn(),
   ensureHome: vi.fn(),
@@ -42,7 +46,11 @@ vi.mock("../../lib/tenancy/repository", () => ({
 }));
 
 import { GET } from "../../app/auth/callback/route";
+import { POST as forgotPassword } from "../../app/auth/forgot-password/route";
+import { POST as login } from "../../app/auth/login/route";
 import { POST } from "../../app/auth/logout/route";
+import { POST as resetPassword } from "../../app/auth/reset-password/route";
+import { POST as signup } from "../../app/auth/signup/route";
 import { AuthError } from "../../lib/auth/require-auth";
 import { proxy } from "../../proxy";
 
@@ -75,6 +83,10 @@ beforeEach(() => {
         auth: {
           getClaims: mocks.getClaims,
           exchangeCodeForSession: mocks.exchangeCodeForSession,
+          signInWithPassword: mocks.signInWithPassword,
+          signUp: mocks.signUp,
+          resetPasswordForEmail: mocks.resetPasswordForEmail,
+          updateUser: mocks.updateUser,
           signOut: mocks.signOut,
         },
       };
@@ -83,6 +95,10 @@ beforeEach(() => {
   mocks.getClaims.mockResolvedValue({ data: { claims: validClaims }, error: null });
   mocks.requireAuth.mockResolvedValue({ sub: "user-a", email: "a@example.com" });
   mocks.exchangeCodeForSession.mockResolvedValue({ data: {}, error: null });
+  mocks.signInWithPassword.mockResolvedValue({ data: {}, error: null });
+  mocks.signUp.mockResolvedValue({ data: {}, error: null });
+  mocks.resetPasswordForEmail.mockResolvedValue({ data: {}, error: null });
+  mocks.updateUser.mockResolvedValue({ data: {}, error: null });
   mocks.signOut.mockResolvedValue({ error: null });
   mocks.ensureHome.mockResolvedValue({ id: "home-a" });
 });
@@ -352,4 +368,139 @@ it("maps provider logout failures without exposing details", async () => {
   );
   expect(response.status).toBe(503);
   await expect(response.json()).resolves.toEqual({ error: "logout_failed" });
+});
+
+function authPost(
+  pathname: string,
+  fields: Record<string, string> = {},
+): NextRequest {
+  return new NextRequest(`https://app.test${pathname}`, {
+    method: "POST",
+    headers: { origin: "https://app.test" },
+    body: new URLSearchParams(fields),
+  });
+}
+
+it("keeps every auth action usable when runtime configuration is absent", async () => {
+  runtimeEnv.SUPABASE_URL = undefined;
+  runtimeEnv.SUPABASE_PUBLISHABLE_KEY = undefined;
+
+  const cases = [
+    [
+      login(
+        authPost("/auth/login", {
+          email: "a@example.com",
+          password: "password-for-test",
+        }),
+      ),
+      "/login?error=unavailable",
+    ],
+    [
+      signup(
+        authPost("/auth/signup", {
+          email: "a@example.com",
+          password: "password-for-test",
+        }),
+      ),
+      "/signup?error=unavailable",
+    ],
+    [
+      forgotPassword(
+        authPost("/auth/forgot-password", { email: "a@example.com" }),
+      ),
+      "/forgot-password?error=unavailable",
+    ],
+    [
+      resetPassword(
+        authPost("/auth/reset-password", {
+          password: "password-for-test",
+        }),
+      ),
+      "/reset-password?error=unavailable",
+    ],
+    [
+      GET(
+        new NextRequest(
+          "https://app.test/auth/callback?code=provider-code",
+        ),
+      ),
+      "/login?error=unavailable",
+    ],
+  ] as const;
+
+  for (const [pending, destination] of cases) {
+    const response = await pending;
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      `https://app.test${destination}`,
+    );
+  }
+  const logout = await POST(authPost("/auth/logout"));
+  expect(logout.status).toBe(503);
+  await expect(logout.json()).resolves.toEqual({ error: "logout_failed" });
+});
+
+it("maps thrown provider failures without exposing provider details", async () => {
+  const providerFailure = new Error("provider detail must stay private");
+  mocks.signInWithPassword.mockRejectedValue(providerFailure);
+  mocks.signUp.mockRejectedValue(providerFailure);
+  mocks.resetPasswordForEmail.mockRejectedValue(providerFailure);
+  mocks.updateUser.mockRejectedValue(providerFailure);
+  mocks.exchangeCodeForSession.mockRejectedValue(providerFailure);
+  mocks.signOut.mockRejectedValue(providerFailure);
+
+  const cases = [
+    [
+      login(
+        authPost("/auth/login", {
+          email: "a@example.com",
+          password: "password-for-test",
+        }),
+      ),
+      "/login?error=unavailable",
+    ],
+    [
+      signup(
+        authPost("/auth/signup", {
+          email: "a@example.com",
+          password: "password-for-test",
+        }),
+      ),
+      "/signup?error=unavailable",
+    ],
+    [
+      forgotPassword(
+        authPost("/auth/forgot-password", { email: "a@example.com" }),
+      ),
+      "/forgot-password?error=unavailable",
+    ],
+    [
+      resetPassword(
+        authPost("/auth/reset-password", {
+          password: "password-for-test",
+        }),
+      ),
+      "/reset-password?error=unavailable",
+    ],
+    [
+      GET(
+        new NextRequest(
+          "https://app.test/auth/callback?code=provider-code",
+        ),
+      ),
+      "/login?error=unavailable",
+    ],
+  ] as const;
+
+  for (const [pending, destination] of cases) {
+    const response = await pending;
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      `https://app.test${destination}`,
+    );
+    expect(await response.text()).not.toContain("provider detail");
+  }
+  const logout = await POST(authPost("/auth/logout"));
+  expect(logout.status).toBe(503);
+  expect(await logout.text()).not.toContain("provider detail");
 });

@@ -111,9 +111,11 @@ ProvisioningError process_frame(
     const std::uint8_t* data,
     std::size_t size,
     std::string_view device_id,
-    ProvisioningConfig& output) {
+    ProvisioningConfig& output,
+    const RuntimeDiagnostics& diagnostics) {
     const auto kind = static_cast<ProvisioningKind>(data[5]);
-    if (kind == ProvisioningKind::hello) {
+    if (kind == ProvisioningKind::hello ||
+        kind == ProvisioningKind::diagnostics) {
         if (size != frame_header_bytes + frame_crc_bytes ||
             read_u16(data + 6) != 0) {
             return ProvisioningError::bad_length;
@@ -121,6 +123,16 @@ ProvisioningError process_frame(
         if (crc32(data, frame_header_bytes) !=
             read_u32(data + frame_header_bytes)) {
             return ProvisioningError::bad_crc;
+        }
+        if (kind == ProvisioningKind::diagnostics) {
+            std::array<std::uint8_t, max_provisioning_frame_bytes> response{};
+            const auto response_size = encode_diagnostics_frame(
+                diagnostics, response.data(), response.size());
+            for (std::size_t index = 0; index < response_size; ++index) {
+                putchar_raw(response[index]);
+            }
+            stdio_flush();
+            return ProvisioningError::none;
         }
         if (device_id != "entrance-01" && device_id != "petzone-01") {
             return ProvisioningError::wrong_product;
@@ -155,7 +167,9 @@ ProvisioningError process_frame(
     }
     stdio_flush();
     watchdog_reboot(0, 0, 50);
-    return ProvisioningError::none;
+    for (;;) {
+        tight_loop_contents();
+    }
 }
 
 }
@@ -173,7 +187,8 @@ bool load_provisioning(ProvisioningConfig& output) {
 
 ProvisioningError poll_usb_provisioning(
     std::string_view device_id,
-    ProvisioningConfig& output) {
+    ProvisioningConfig& output,
+    const RuntimeDiagnostics& diagnostics) {
     static std::array<std::uint8_t, max_provisioning_frame_bytes> frame{};
     static std::size_t frame_size = 0;
     static std::uint64_t last_byte_ms = 0;
@@ -208,7 +223,9 @@ ProvisioningError poll_usb_provisioning(
             header_error = ProvisioningError::bad_version;
         } else if (
             frame[5] != static_cast<std::uint8_t>(ProvisioningKind::hello) &&
-            frame[5] != static_cast<std::uint8_t>(ProvisioningKind::config)) {
+            frame[5] != static_cast<std::uint8_t>(ProvisioningKind::config) &&
+            frame[5] != static_cast<std::uint8_t>(
+                ProvisioningKind::diagnostics)) {
             header_error = ProvisioningError::bad_kind;
         }
         if (header_error != ProvisioningError::none) {
@@ -237,7 +254,8 @@ ProvisioningError poll_usb_provisioning(
         }
 
         const auto result =
-            process_frame(frame.data(), frame_size, device_id, output);
+            process_frame(
+                frame.data(), frame_size, device_id, output, diagnostics);
         std::fill_n(frame.begin(), frame_size, 0);
         frame_size = 0;
         last_byte_ms = 0;

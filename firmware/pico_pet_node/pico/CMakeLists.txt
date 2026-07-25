@@ -20,7 +20,11 @@ function(add_petcare_node target profile_definition)
         ../src/provisioning.cpp
     )
     target_include_directories(${target} PRIVATE include ../include)
-    target_compile_definitions(${target} PRIVATE PICO_ON_DEVICE=1 ${profile_definition}=1)
+    target_compile_definitions(${target} PRIVATE
+        PICO_ON_DEVICE=1
+        PICO_STACK_SIZE=0x2000
+        ${profile_definition}=1
+    )
     target_link_libraries(${target} PRIVATE
         pico_stdlib
         pico_cyw43_arch_lwip_threadsafe_background

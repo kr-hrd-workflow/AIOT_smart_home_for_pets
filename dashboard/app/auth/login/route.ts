@@ -25,12 +25,22 @@ export async function POST(request: NextRequest) {
   ) {
     return Response.json({ error: "invalid_form" }, { status: 400 });
   }
-  const authEnv = runtimeAuthEnv();
-  const session = createSupabaseSession(request, authEnv);
-  const { error } = await session.supabase.auth.signInWithPassword({
-    email: email.trim(),
-    password,
-  });
+  let authEnv;
+  let session;
+  let error;
+  try {
+    authEnv = runtimeAuthEnv();
+    session = createSupabaseSession(request, authEnv);
+    ({ error } = await session.supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    }));
+  } catch {
+    return NextResponse.redirect(
+      new URL("/login?error=unavailable", request.url),
+      303,
+    );
+  }
   if (error?.status === 429) {
     return session.applySessionCookies(
       NextResponse.json({ error: "rate_limited" }, { status: 429 }),

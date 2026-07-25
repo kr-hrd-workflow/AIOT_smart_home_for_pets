@@ -13,6 +13,7 @@ The public `/` route always starts with the approved Higgsfield scroll-world lan
 ## Reused Contracts
 
 - Keep the existing Supabase session and tenant ownership model.
+- PetCare operates the single Supabase project. Customers only create or sign in to a PetCare account; they never supply a Supabase URL, publishable key, secret key, or JWKS URL.
 - Keep the existing ten-minute Home Agent enrollment code and Ed25519 enrollment request.
 - Keep the fixed Pico products `entrance-01` and `petzone-01`; users do not select or rename firmware profiles.
 - Keep Pico operational traffic on Wi-Fi/MQTT only. USB is used only for first setup and recovery.
@@ -26,23 +27,24 @@ No temporary access point, captive portal, BLE provisioning, mobile browser supp
 
 1. The visitor sees the approved Higgsfield landing at `/`, then signs in.
 2. `/dashboard` shows a progress checklist instead of the standalone `10분 코드 만들기` card.
-3. If no Home Agent is enrolled, the first step reuses the current ten-minute code and gives the Windows installer command.
-4. When the agent is online, the page opens the local Home Agent setup page at `http://127.0.0.1:8000/setup`.
-5. The local page asks for Wi-Fi SSID/password, then uses Web Serial to configure the pre-labelled `entrance-01` Pico.
-6. The same page repeats the operation for the pre-labelled `petzone-01` Pico.
+3. If no Home Agent is enrolled, the first step gives the verified Windows installer before reusing the current ten-minute code. The installer receives only the public Sites origin and the one-time enrollment code; it never receives a Supabase key.
+4. When the agent is online, the authenticated dashboard asks for the Wi-Fi SSID/password and sends it directly from the browser to the loopback Home Agent.
+5. The Home Agent configures the pre-labelled `entrance-01` Pico over USB and confirms its Wi-Fi/MQTT runtime status.
+6. The same flow repeats for the pre-labelled `petzone-01` Pico. The local `http://127.0.0.1:8000/setup` page remains available for offline recovery.
 7. The Home Agent confirms both MQTT status topics. `/dashboard` shows `현관 연결됨` and `생활공간 연결됨`; this is the Pico completion gate.
 8. Jetson setup is an optional final step. A consumer can finish with Pico-only sensing and add the camera later.
 
-The local page and Sites dashboard share wording and visual tokens, but secrets never cross between their origins.
+The local page and Sites dashboard share wording and visual tokens. Wi-Fi secrets travel directly from the authenticated browser to loopback and never pass through a Sites Worker or Supabase.
 
 ## Local Setup Boundary
 
 The Home Agent serves the setup page and its API on loopback only. It does not add a public route or tunnel alias.
 
 - Opening `/setup` requires a local user gesture and creates a ten-minute `HttpOnly`, `SameSite=Strict` setup session.
-- The page has no third-party scripts, analytics, external fonts, or CORS.
+- The page has no third-party scripts, analytics, or external fonts.
+- The two fixed Pico provisioning routes accept CORS only from the exact enrolled HTTPS Sites origin. Private Network Access preflight is answered only for `POST` with `Content-Type`; wildcard origins, credentials, and extra headers are rejected.
 - It reads the existing Home Agent MQTT endpoint and credential from the validated local runtime config.
-- The Wi-Fi password exists only in the local page's memory and the serial write buffer.
+- The Wi-Fi password exists only in the browser form memory, the loopback request buffer, and the USB provisioning write buffer.
 - Closing, expiry, successful setup, or navigation clears the setup session and in-memory form values.
 - Unsupported browsers show a direct Windows Chrome/Edge requirement; there is no compatibility shim.
 
@@ -90,8 +92,8 @@ Consumer setup defaults to a Private RFC1918 LAN and the existing exact-address/
 ## Verification
 
 - Firmware host tests cover packet bounds, CRC, fixed profile handshake, interrupted A/B writes, recovery, and secret-free ACKs.
-- Browser component tests mock Web Serial permission, handshake, progress, disconnect, retry, and unsupported browsers.
-- Home Agent tests prove loopback-only setup, ten-minute expiry, strict session cookie, no CORS, no secret logging, and reuse of validated MQTT config.
+- Browser component tests cover the two fixed products, loopback-only request target, response validation, password clearing, retry, and error state.
+- Home Agent tests prove loopback-only setup, ten-minute expiry, strict session cookie, exact-origin CORS and Private Network Access preflight, no secret logging, and reuse of validated MQTT config.
 - Remote dashboard tests prove landing-first routing, Home Agent checklist state, each Pico online state, Pico-only completion, optional Jetson, and no demo/live substitution.
-- Physical acceptance uses the two connected Pico 2 W boards: configure through Web Serial, unplug USB, and prove fresh MQTT status/sensors through the authenticated dashboard.
+- Physical acceptance uses the two connected Pico 2 W boards: configure through the Home Agent's bounded USB serial bridge, unplug USB, and prove fresh MQTT status/sensors through the authenticated dashboard.
 - Jetson acceptance is separate and does not block the Pico-only product gate.

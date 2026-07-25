@@ -22,14 +22,23 @@ export async function POST(request: NextRequest) {
   ) {
     return Response.json({ error: "invalid_form" }, { status: 400 });
   }
-  const session = createSupabaseSession(request, runtimeAuthEnv());
-  const { error } = await session.supabase.auth.signUp({
-    email: email.trim(),
-    password,
-    options: {
-      emailRedirectTo: new URL("/auth/callback", request.url).toString(),
-    },
-  });
+  let session;
+  let error;
+  try {
+    session = createSupabaseSession(request, runtimeAuthEnv());
+    ({ error } = await session.supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: {
+        emailRedirectTo: new URL("/auth/callback", request.url).toString(),
+      },
+    }));
+  } catch {
+    return NextResponse.redirect(
+      new URL("/signup?error=unavailable", request.url),
+      303,
+    );
+  }
   if (error?.status === 429) {
     return session.applySessionCookies(
       NextResponse.json({ error: "rate_limited" }, { status: 429 }),

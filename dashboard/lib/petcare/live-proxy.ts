@@ -298,7 +298,10 @@ export async function proxyStatus(
       {
         home: { id: resolved.home.id, state: "ready" },
         agent: { id: route.agentId, state: "online", last_seen_at: seenAt },
-        camera: { id: route.cameraId, state: "online", last_seen_at: seenAt },
+        camera:
+          dashboard.camera.state === "online"
+            ? { id: route.cameraId, state: "online", last_seen_at: seenAt }
+            : null,
         dashboard,
       },
       { headers: PRIVATE_HEADERS },

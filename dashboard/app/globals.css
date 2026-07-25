@@ -941,6 +941,8 @@ a:focus-visible {
 
 .landing-header nav a,
 .landing-actions a,
+.landing-install-cta,
+.landing-install-download,
 .landing-final a {
   display: inline-flex;
   min-height: 44px;
@@ -955,11 +957,14 @@ a:focus-visible {
 
 .landing-header nav a:active,
 .landing-actions a:active,
+.landing-install-cta:active,
+.landing-install-download:active,
 .landing-final a:active {
   transform: translateY(1px);
 }
 
 .landing-header nav > a:first-child,
+.landing-install-download,
 .landing-secondary {
   color: var(--landing-text);
   border-color: var(--landing-line);
@@ -967,6 +972,7 @@ a:focus-visible {
 }
 
 .landing-header-cta,
+.landing-install-cta,
 .landing-primary {
   color: #101619;
   background: var(--landing-cyan);
@@ -974,6 +980,8 @@ a:focus-visible {
 
 .landing-header a:focus-visible,
 .landing-actions a:focus-visible,
+.landing-install-cta:focus-visible,
+.landing-install-download:focus-visible,
 .landing-final a:focus-visible,
 .landing-wordmark:focus-visible {
   outline: 2px solid var(--landing-cyan);
@@ -999,6 +1007,14 @@ a:focus-visible {
   width: min(100%, 620px);
   padding: clamp(28px, 5vw, 64px) 0;
   text-shadow: 0 2px 24px rgba(5, 7, 8, 0.62);
+}
+
+.landing-installer-note {
+  max-width: 58ch;
+  margin: 12px 0 0;
+  color: rgba(245, 247, 249, 0.78);
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .landing-hero-copy > * {
@@ -1052,7 +1068,15 @@ a:focus-visible {
 }
 
 .landing-actions {
+  flex-wrap: wrap;
   margin-top: 30px;
+}
+
+.landing-install-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 28px;
 }
 
 .landing-chapters {
@@ -1665,6 +1689,132 @@ a:focus-visible {
   color: var(--muted);
 }
 
+.connection-checklist small {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.connection-enrollment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.connection-enrollment-actions a,
+.connection-enrollment-actions button {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
+  border: 1px solid var(--border-control);
+  border-radius: 6px;
+  font: inherit;
+  font-weight: 750;
+}
+
+.connection-enrollment-actions a {
+  color: var(--surface);
+  background: var(--primary);
+  text-decoration: none;
+}
+
+.connection-enrollment-actions button {
+  color: var(--text);
+  background: transparent;
+}
+
+.connection-enrollment-actions a:focus-visible,
+.connection-enrollment-actions button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.pico-cloud-setup {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(320px, 1.2fr);
+  gap: 24px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-decorative);
+}
+
+.pico-cloud-setup h2,
+.pico-cloud-setup p {
+  margin-top: 0;
+}
+
+.pico-cloud-setup > div > p:last-child,
+.pico-cloud-setup form > p {
+  color: var(--muted);
+}
+
+.pico-cloud-setup form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.pico-cloud-setup label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.pico-cloud-setup input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border-control);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--surface);
+  font: inherit;
+}
+
+.pico-cloud-actions,
+.pico-cloud-setup form > p {
+  grid-column: 1 / -1;
+}
+
+.pico-cloud-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pico-cloud-actions button,
+.pico-cloud-actions a {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--border-control);
+  border-radius: 6px;
+  font: inherit;
+  font-weight: 700;
+}
+
+.pico-cloud-actions button {
+  color: var(--surface);
+  background: var(--primary);
+}
+
+.pico-cloud-actions button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.pico-cloud-actions a {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text);
+  text-decoration: none;
+}
+
 .connection-checklist a,
 .connection-checklist button {
   min-height: 44px;
@@ -1798,6 +1948,11 @@ video:focus-visible {
   .clip-list,
   .clip-list li,
   .connection-checklist {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pico-cloud-setup,
+  .pico-cloud-setup form {
     grid-template-columns: minmax(0, 1fr);
   }
 }

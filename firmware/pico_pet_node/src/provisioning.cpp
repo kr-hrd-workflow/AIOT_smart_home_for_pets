@@ -38,6 +38,35 @@ bool fixed_product(std::string_view value) {
     return value == "entrance-01" || value == "petzone-01";
 }
 
+bool valid_ipv4(std::string_view value) {
+    std::size_t start = 0;
+    int octets = 0;
+    for (std::size_t index = 0; index <= value.size(); ++index) {
+        if (index != value.size() && value[index] != '.') {
+            continue;
+        }
+        const auto size = index - start;
+        if (size == 0 || size > 3 ||
+            (size > 1 && value[start] == '0')) {
+            return false;
+        }
+        unsigned octet = 0;
+        for (std::size_t digit = start; digit < index; ++digit) {
+            if (value[digit] < '0' || value[digit] > '9') {
+                return false;
+            }
+            octet = octet * 10U +
+                    static_cast<unsigned>(value[digit] - '0');
+        }
+        if (octet > 255U) {
+            return false;
+        }
+        ++octets;
+        start = index + 1;
+    }
+    return octets == 4;
+}
+
 ProvisioningError validate_utf8(const std::uint8_t* data, std::size_t size) {
     for (std::size_t i = 0; i < size;) {
         const auto first = data[i];
@@ -123,7 +152,9 @@ bool config_sizes_valid(const ProvisioningConfig& config) {
            config.wifi_password_size >= 8 &&
            config.wifi_password_size <= max_wifi_password_bytes &&
            config.mqtt_host_size >= 1 &&
-           config.mqtt_host_size <= max_mqtt_host_bytes &&
+           config.mqtt_host_size <= max_mqtt_ipv4_bytes &&
+           valid_ipv4({
+               config.mqtt_host.data(), config.mqtt_host_size}) &&
            config.mqtt_username_size >= 1 &&
            config.mqtt_username_size <= max_mqtt_username_bytes &&
            config.mqtt_password_size >= 1 &&
@@ -286,6 +317,12 @@ ProvisioningResult parse_provisioning_frame(
             cursor, end, result.config.mqtt_host.data(),
             result.config.mqtt_host_size, 1, max_mqtt_host_bytes);
     }
+    if (error == ProvisioningError::none &&
+        !valid_ipv4({
+            result.config.mqtt_host.data(),
+            result.config.mqtt_host_size})) {
+        error = ProvisioningError::invalid_field_length;
+    }
     if (error == ProvisioningError::none) {
         error = read_string(
             cursor, end, result.config.mqtt_username.data(),
@@ -332,7 +369,8 @@ std::size_t encode_provisioning_frame(
     }
     const auto kind_value = static_cast<std::uint8_t>(kind);
     const auto frame_size = header_bytes + payload_size + checksum_bytes;
-    if (kind_value < 1 || kind_value > 4 ||
+    if (kind_value < 1 ||
+        kind_value > static_cast<std::uint8_t>(ProvisioningKind::diagnostics) ||
         (payload == nullptr && payload_size != 0) ||
         output == nullptr ||
         frame_size > max_provisioning_frame_bytes ||
@@ -371,6 +409,25 @@ std::size_t encode_ack_frame(
         ProvisioningKind::ack,
         payload.data(),
         1 + product_id.size() + 4,
+        output,
+        output_capacity);
+}
+
+std::size_t encode_diagnostics_frame(
+    const RuntimeDiagnostics& diagnostics,
+    std::uint8_t* output,
+    std::size_t output_capacity) {
+    const std::array<std::uint8_t, 5> payload{{
+        1,
+        static_cast<std::uint8_t>(diagnostics.phase),
+        static_cast<std::uint8_t>(diagnostics.error),
+        static_cast<std::uint8_t>(diagnostics.wifi_link_status),
+        static_cast<std::uint8_t>(diagnostics.watchdog_reboot),
+    }};
+    return encode_provisioning_frame(
+        ProvisioningKind::diagnostics,
+        payload.data(),
+        payload.size(),
         output,
         output_capacity);
 }

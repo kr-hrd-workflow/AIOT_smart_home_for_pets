@@ -84,6 +84,66 @@ describe("createPetCareRemote", () => {
     );
   });
 
+  it("sends Pico Wi-Fi only to the local Home Agent and rejects a mismatched product", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: "provisioned",
+            product: "entrance-01",
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: "provisioned",
+            product: "petzone-01",
+          }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createPetCareRemoteClient();
+
+    await expect(
+      client.provisionPico("entrance-01", {
+        ssid: "test-network",
+        password: "password-for-test",
+      }),
+    ).resolves.toEqual({
+      status: "provisioned",
+      product: "entrance-01",
+    });
+    await expect(
+      client.provisionPico("entrance-01", {
+        ssid: "test-network",
+        password: "password-for-test",
+      }),
+    ).rejects.toMatchObject({ status: 200 });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "http://127.0.0.1:8000/api/pico/entrance-01/provision",
+      {
+        method: "POST",
+        mode: "cors",
+        credentials: "omit",
+        referrerPolicy: "no-referrer",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          wifi_ssid: "test-network",
+          wifi_password: "password-for-test",
+        }),
+      },
+    );
+  });
+
   it("maps BFF agent_offline to structured error", async () => {
     vi.stubGlobal(
       "fetch",

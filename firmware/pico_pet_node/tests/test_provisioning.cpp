@@ -120,6 +120,35 @@ void test_crc_and_little_endian_encoder() {
                output.size()) == 0);
 }
 
+void test_diagnostics_frame_encodes_runtime_state() {
+    const petcare::RuntimeDiagnostics diagnostics{
+        petcare::RuntimePhase::mqtt_connecting,
+        petcare::RuntimeError::mqtt,
+        -2,
+        true,
+    };
+    std::array<std::uint8_t, petcare::max_provisioning_frame_bytes> output{};
+    const auto size = petcare::encode_diagnostics_frame(
+        diagnostics, output.data(), output.size());
+
+    assert(size == 17);
+    assert(output[5] == static_cast<std::uint8_t>(
+                            petcare::ProvisioningKind::diagnostics));
+    assert(output[6] == 5 && output[7] == 0);
+    assert(output[8] == 1);
+    assert(output[9] == static_cast<std::uint8_t>(
+                            petcare::RuntimePhase::mqtt_connecting));
+    assert(output[10] == static_cast<std::uint8_t>(
+                             petcare::RuntimeError::mqtt));
+    assert(output[11] == static_cast<std::uint8_t>(-2));
+    assert(output[12] == 1);
+    const auto checksum = petcare::crc32(output.data(), 13);
+    assert(output[13] == static_cast<std::uint8_t>(checksum));
+    assert(output[14] == static_cast<std::uint8_t>(checksum >> 8U));
+    assert(output[15] == static_cast<std::uint8_t>(checksum >> 16U));
+    assert(output[16] == static_cast<std::uint8_t>(checksum >> 24U));
+}
+
 void test_idle_partial_frame_expiry_zeroes_and_resets() {
     std::array<std::uint8_t, 64> buffered{};
     std::fill(buffered.begin(), buffered.end(), 0xA5U);
@@ -249,15 +278,19 @@ void test_reject_invalid_field_bounds_and_port() {
     assert(petcare::parse_provisioning_frame(input.data(), input.size(), "entrance-01").error ==
            petcare::ProvisioningError::invalid_field_length);
 
-    input = frame("entrance-01", "x", "12345678", "host", "", "password");
+    input = frame(
+        "entrance-01", "x", "12345678", "192.0.2.1", "", "password");
     assert(petcare::parse_provisioning_frame(input.data(), input.size(), "entrance-01").error ==
            petcare::ProvisioningError::invalid_field_length);
 
-    input = frame("entrance-01", "x", "12345678", "host", "user", "");
+    input = frame(
+        "entrance-01", "x", "12345678", "192.0.2.1", "user", "");
     assert(petcare::parse_provisioning_frame(input.data(), input.size(), "entrance-01").error ==
            petcare::ProvisioningError::invalid_field_length);
 
-    input = frame("entrance-01", "x", "12345678", "host", "user", "password", 0);
+    input = frame(
+        "entrance-01", "x", "12345678", "192.0.2.1", "user",
+        "password", 0);
     assert(petcare::parse_provisioning_frame(input.data(), input.size(), "entrance-01").error ==
            petcare::ProvisioningError::invalid_port);
 }
@@ -265,7 +298,7 @@ void test_reject_invalid_field_bounds_and_port() {
 void test_accept_maximums_and_reject_each_oversize_field() {
     const std::string ssid(32, 's');
     const std::string wifi_password(63, 'w');
-    const std::string mqtt_host(253, 'h');
+    const std::string mqtt_host = "255.255.255.255";
     const std::string mqtt_username(64, 'u');
     const std::string mqtt_password(128, 'm');
     auto input = frame(
@@ -287,15 +320,23 @@ void test_accept_maximums_and_reject_each_oversize_field() {
     input = frame("entrance-01", "x", std::string(64, 'w'));
     assert(petcare::parse_provisioning_frame(input.data(), input.size(), "entrance-01").error ==
            petcare::ProvisioningError::invalid_field_length);
-    input = frame("entrance-01", "x", "12345678", std::string(254, 'h'));
+    input = frame(
+        "entrance-01", "x", "12345678", "123.123.123.1234");
+    assert(petcare::parse_provisioning_frame(input.data(), input.size(), "entrance-01").error ==
+           petcare::ProvisioningError::invalid_field_length);
+    input = frame("entrance-01", "x", "12345678", "mqtt.local");
+    assert(petcare::parse_provisioning_frame(input.data(), input.size(), "entrance-01").error ==
+           petcare::ProvisioningError::invalid_field_length);
+    input = frame("entrance-01", "x", "12345678", "192.168.001.20");
     assert(petcare::parse_provisioning_frame(input.data(), input.size(), "entrance-01").error ==
            petcare::ProvisioningError::invalid_field_length);
     input = frame(
-        "entrance-01", "x", "12345678", "host", std::string(65, 'u'));
+        "entrance-01", "x", "12345678", "192.0.2.1",
+        std::string(65, 'u'));
     assert(petcare::parse_provisioning_frame(input.data(), input.size(), "entrance-01").error ==
            petcare::ProvisioningError::invalid_field_length);
     input = frame(
-        "entrance-01", "x", "12345678", "host", "user",
+        "entrance-01", "x", "12345678", "192.0.2.1", "user",
         std::string(129, 'm'));
     assert(petcare::parse_provisioning_frame(input.data(), input.size(), "entrance-01").error ==
            petcare::ProvisioningError::invalid_field_length);
@@ -518,6 +559,7 @@ int main() {
     static_assert(petcare::ProvisioningConfig{}.mqtt_password.size() ==
                   petcare::max_mqtt_password_bytes + 1);
     test_crc_and_little_endian_encoder();
+    test_diagnostics_frame_encodes_runtime_state();
     test_idle_partial_frame_expiry_zeroes_and_resets();
     test_parse_valid_config_without_allocating();
     test_reject_wrong_profile_crc_and_oversize();

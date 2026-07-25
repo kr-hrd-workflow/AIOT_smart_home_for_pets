@@ -25,8 +25,18 @@ export function LandingOverlay() {
           </p>
           <div className="landing-actions">
             <Link className="landing-primary" href="/dashboard">로그인</Link>
+            <Link
+              className="landing-secondary"
+              href="/dashboard"
+            >
+              로그인 후 Home Agent 설치
+            </Link>
             <Link className="landing-secondary" href="/demo">데모 보기</Link>
           </div>
+          <p className="landing-installer-note">
+            베타 설치 파일은 아직 디지털 서명이 없어 Windows SmartScreen에
+            ‘알 수 없는 게시자’ 경고가 표시될 수 있습니다.
+          </p>
         </div>
       </section>
 
@@ -41,6 +51,25 @@ export function LandingOverlay() {
             <div className="landing-chapter-copy">
               <h2 id={`${chapter.id}-title`}>{chapter.title}</h2>
               <p>{chapter.body}</p>
+              {chapter.id === "connect" && (
+                <>
+                  <div className="landing-install-actions">
+                    <Link className="landing-install-cta" href="/dashboard">
+                      로그인하고 연결
+                    </Link>
+                    <Link
+                      className="landing-install-download"
+                      href="/dashboard"
+                    >
+                      로그인 후 Windows 베타 설치
+                    </Link>
+                  </div>
+                  <p className="landing-installer-note">
+                    베타 설치 파일은 아직 디지털 서명이 없어 Windows SmartScreen에
+                    ‘알 수 없는 게시자’ 경고가 표시될 수 있습니다.
+                  </p>
+                </>
+              )}
             </div>
           </section>
         ))}

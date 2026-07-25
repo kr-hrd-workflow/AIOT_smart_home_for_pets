@@ -7,6 +7,7 @@ import threading
 import time
 from collections.abc import Mapping
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
@@ -15,7 +16,7 @@ from starlette.datastructures import Headers, MutableHeaders
 
 from .agent_runtime import _write_private_file, pair_jetson
 from .mqtt_ingest import MqttEndpoint
-from .pico_provision import PicoProvisioningError, provision_pico
+from .pico_provision import PicoProvisioningError, diagnose_pico, provision_pico
 
 
 COOKIE_NAME = "petcare_setup"
@@ -483,6 +484,85 @@ SETUP_HTML = """<!doctype html>
         return "Pico 연결 중 문제가 발생했습니다. USB 케이블을 확인하고 다시 시도하세요.";
       }
 
+      async function waitForProductOnline(product) {
+        const deadline = Date.now() + 70000;
+        const phaseMessages = {
+          awaiting_provisioning: "Pico가 저장된 설정을 확인하고 있습니다…",
+          wifi_connecting: "Pico를 Wi-Fi에 연결하고 있습니다…",
+          time_syncing: "Pico가 인터넷 시간을 확인하고 있습니다…",
+          mqtt_connecting: "Pico를 Home Agent에 연결하고 있습니다…",
+          online: "연결 완료",
+          backoff: "Pico가 연결을 다시 시도하고 있습니다…",
+        };
+        const errorMessages = {
+          wifi: "Wi-Fi 연결에 실패했습니다. 이름과 비밀번호를 확인해 주세요.",
+          time_sync: "인터넷 시간 동기화에 실패했습니다. 인터넷 연결을 확인해 주세요.",
+          mqtt: "Home Agent MQTT 연결에 실패했습니다.",
+          publish: "Pico 센서 전송에 실패했습니다.",
+          sensor: "Pico 센서를 초기화하지 못했습니다.",
+        };
+
+        while (Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          const response = await fetch(`/setup/api/pico/${product}/status`, {
+            method: "POST",
+            credentials: "same-origin",
+          });
+          let result;
+          try {
+            result = await response.json();
+          } catch {
+            throw new SetupError(
+              "protocol",
+              "Pico 상태 응답을 확인할 수 없습니다.",
+            );
+          }
+          if (!response.ok) {
+            const code = result?.error?.code;
+            if ([
+              "pico_busy",
+              "pico_timeout",
+              "pico_unavailable",
+              "pico_wrong_product",
+            ].includes(code)) {
+              continue;
+            }
+            throw new SetupError(
+              code || "pico",
+              "Pico 실행 상태를 확인하지 못했습니다.",
+            );
+          }
+          if (
+            result?.product !== product
+            || !(result.status in phaseMessages)
+            || !(result.error in {none: true, ...errorMessages})
+          ) {
+            throw new SetupError(
+              "protocol",
+              "Pico 실행 상태 응답이 올바르지 않습니다.",
+            );
+          }
+          setStatus(product, phaseMessages[result.status], "working");
+          if (result.status === "online" && result.error === "none") return;
+          if (result.status === "online" && result.error !== "none") {
+            throw new SetupError(
+              `pico_${result.error}`,
+              errorMessages[result.error] || "Pico 센서 상태를 확인하지 못했습니다.",
+            );
+          }
+          if (result.status === "backoff" && result.error !== "none") {
+            throw new SetupError(
+              `pico_${result.error}`,
+              errorMessages[result.error] || "Pico 연결에 실패했습니다.",
+            );
+          }
+        }
+        throw new SetupError(
+          "pico_online_timeout",
+          "설정은 저장됐지만 Pico의 온라인 연결을 확인하지 못했습니다. USB를 유지한 채 다시 시도해 주세요.",
+        );
+      }
+
       async function connectProduct(product, button) {
         const ssid = ssidInput.value;
         const wifiPassword = wifiPasswordInput.value;
@@ -536,6 +616,7 @@ SETUP_HTML = """<!doctype html>
             );
           }
           setStatus(product, "Wi-Fi 설정을 안전하게 저장하고 있습니다…", "working");
+          await waitForProductOnline(product);
 
           completed.add(product);
           setStatus(product, "연결 완료", "success");
@@ -663,46 +744,44 @@ def install_setup(application: FastAPI) -> None:
         prune_sessions(now)
         return digest, None
 
-    @router.get("/setup", response_model=None)
-    async def setup_page(request: Request) -> Response:
-        if _host(request) is None:
-            return _error(403, "host_forbidden")
-        now = time.monotonic()
-        prune_sessions(now)
-        previous = request.cookies.get(COOKIE_NAME)
-        if previous:
-            sessions.pop(hashlib.sha256(previous.encode("utf-8")).digest(), None)
-        if len(sessions) >= SESSION_LIMIT:
-            oldest = min(sessions, key=sessions.get)
-            sessions.pop(oldest, None)
-        token = secrets.token_urlsafe(32)
-        digest = hashlib.sha256(token.encode("utf-8")).digest()
-        sessions[digest] = now + SESSION_SECONDS
-        nonce = secrets.token_urlsafe(18)
-        response = _response_headers(
-            HTMLResponse(SETUP_HTML.replace("__NONCE__", nonce))
-        )
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'none'; "
-            f"script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; "
-            "connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; "
-            "form-action 'self'"
-        )
-        response.set_cookie(
-            COOKIE_NAME,
-            token,
-            max_age=SESSION_SECONDS,
-            path="/setup",
-            httponly=True,
-            samesite="strict",
-        )
-        return response
+    def sites_origin() -> str | None:
+        origin = getattr(application.state, "sites_origin", None)
+        if not isinstance(origin, str):
+            return None
+        parsed = urlsplit(origin)
+        if (
+            parsed.scheme != "https"
+            or not parsed.netloc
+            or parsed.username
+            or parsed.password
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+        ):
+            return None
+        return origin.rstrip("/")
 
-    @router.post("/setup/api/pico/{product}", response_model=None)
-    async def configure_pico(product: str, request: Request) -> Response:
-        _digest, error = require_session(request)
-        if error is not None:
-            return error
+    def sites_cors(
+        response: Response,
+        origin: str,
+        *,
+        private_network: bool = False,
+        preflight: bool = False,
+    ) -> Response:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Vary"] = "Origin"
+        if preflight:
+            response.headers["Access-Control-Allow-Methods"] = "POST"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+            response.headers["Access-Control-Max-Age"] = "600"
+            if private_network:
+                response.headers["Access-Control-Allow-Private-Network"] = "true"
+                response.headers["Vary"] = (
+                    "Origin, Access-Control-Request-Private-Network"
+                )
+        return _response_headers(response)
+
+    async def provision_from_request(product: str, request: Request) -> Response:
         if product not in PICO_PRODUCTS:
             return _error(404, "product_not_found")
         media_type = request.headers.get("content-type", "").partition(";")[0].strip().lower()
@@ -794,6 +873,120 @@ def install_setup(application: FastAPI) -> None:
             )
         finally:
             body[:] = b"\0" * len(body)
+
+    @router.get("/setup", response_model=None)
+    async def setup_page(request: Request) -> Response:
+        if _host(request) is None:
+            return _error(403, "host_forbidden")
+        now = time.monotonic()
+        prune_sessions(now)
+        previous = request.cookies.get(COOKIE_NAME)
+        if previous:
+            sessions.pop(hashlib.sha256(previous.encode("utf-8")).digest(), None)
+        if len(sessions) >= SESSION_LIMIT:
+            oldest = min(sessions, key=sessions.get)
+            sessions.pop(oldest, None)
+        token = secrets.token_urlsafe(32)
+        digest = hashlib.sha256(token.encode("utf-8")).digest()
+        sessions[digest] = now + SESSION_SECONDS
+        nonce = secrets.token_urlsafe(18)
+        response = _response_headers(
+            HTMLResponse(SETUP_HTML.replace("__NONCE__", nonce))
+        )
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'none'; "
+            f"script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; "
+            "connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; "
+            "form-action 'self'"
+        )
+        response.set_cookie(
+            COOKIE_NAME,
+            token,
+            max_age=SESSION_SECONDS,
+            path="/setup",
+            httponly=True,
+            samesite="strict",
+        )
+        return response
+
+    @router.post("/setup/api/pico/{product}", response_model=None)
+    async def configure_pico(product: str, request: Request) -> Response:
+        _digest, error = require_session(request)
+        if error is not None:
+            return error
+        return await provision_from_request(product, request)
+
+    @router.options("/api/pico/{product}/provision", response_model=None)
+    async def prepare_pico_from_sites(product: str, request: Request) -> Response:
+        origin = sites_origin()
+        if (
+            product not in PICO_PRODUCTS
+            or origin is None
+            or request.headers.get("origin") != origin
+            or request.headers.get("access-control-request-method") != "POST"
+        ):
+            return _error(403, "origin_forbidden")
+        requested_headers = {
+            value.strip().lower()
+            for value in request.headers.get(
+                "access-control-request-headers", ""
+            ).split(",")
+            if value.strip()
+        }
+        if requested_headers - {"content-type"}:
+            return _error(403, "headers_forbidden")
+        return sites_cors(
+            Response(status_code=204),
+            origin,
+            private_network=request.headers.get(
+                "access-control-request-private-network"
+            )
+            == "true",
+            preflight=True,
+        )
+
+    @router.post("/api/pico/{product}/provision", response_model=None)
+    async def configure_pico_from_sites(product: str, request: Request) -> Response:
+        origin = sites_origin()
+        if origin is None or request.headers.get("origin") != origin:
+            return _error(403, "origin_forbidden")
+        response = await provision_from_request(product, request)
+        return sites_cors(response, origin)
+
+    @router.post("/setup/api/pico/{product}/status", response_model=None)
+    async def pico_status(product: str, request: Request) -> Response:
+        _digest, error = require_session(request)
+        if error is not None:
+            return error
+        if product not in PICO_PRODUCTS:
+            return _error(404, "product_not_found")
+        if not pico_lock.acquire(blocking=False):
+            return _error(409, "pico_busy")
+
+        diagnoser = getattr(
+            request.app.state, "pico_diagnoser", diagnose_pico)
+        try:
+            diagnostics = await run_in_threadpool(
+                lambda: diagnoser(product=product))
+        except PicoProvisioningError as diagnostic_error:
+            status_by_code = {
+                "validation": 400,
+                "wrong_product": 409,
+                "unavailable": 503,
+                "disconnect": 503,
+                "timeout": 504,
+            }
+            return _error(
+                status_by_code.get(diagnostic_error.code, 502),
+                f"pico_{diagnostic_error.code}",
+            )
+        except (OSError, RuntimeError, ValueError):
+            return _error(503, "pico_unavailable")
+        finally:
+            pico_lock.release()
+        return _response_headers(
+            JSONResponse({"product": product, **diagnostics})
+        )
 
     @router.delete("/setup/api/session", response_model=None)
     async def delete_session(request: Request) -> Response:

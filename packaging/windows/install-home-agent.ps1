@@ -151,29 +151,31 @@ if ($Action -eq 'Fixture') {
 if ($Action -eq 'Install') {
     Assert-Elevated
     Assert-AbsoluteFile $ConfigPath 'ConfigPath'
-    Assert-AbsoluteFile $PairingBundle 'PairingBundle'
     if ([string]::IsNullOrWhiteSpace($JetsonConfigPath) -or -not [System.IO.Path]::IsPathRooted($JetsonConfigPath)) {
         throw 'JetsonConfigPath must be absolute'
     }
     Assert-OwnerOnlyAcl $ConfigPath
-    Assert-OwnerOnlyAcl $PairingBundle
-    $bundleIdentity = Get-FileIdentity $PairingBundle
     $tools = Read-AgentTools $ToolsPath
     $Python = [string]$tools.paths.python_path
     Assert-AbsoluteFile $Python 'manifest Python'
-    $BackendVenv = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'backend\.venv'
-    if (-not (Test-Path -LiteralPath $BackendVenv -PathType Container)) { throw 'backend .venv is missing' }
+    & $Python -c 'import app.agent_runtime, app.windows_service'
+    if ($LASTEXITCODE -ne 0) { throw 'Home Agent Python package is unavailable' }
 
-    & $Python -m app.agent_runtime pair-jetson --config $ConfigPath --bundle $PairingBundle --jetson-config $JetsonConfigPath
-    if ($LASTEXITCODE -ne 0) { throw 'Jetson pairing failed' }
-    if (-not (Test-Path -LiteralPath $PairingBundle -PathType Leaf)) {
-        throw 'pairing bundle disappeared before verified deletion'
+    if (-not [string]::IsNullOrWhiteSpace($PairingBundle)) {
+        Assert-AbsoluteFile $PairingBundle 'PairingBundle'
+        Assert-OwnerOnlyAcl $PairingBundle
+        $bundleIdentity = Get-FileIdentity $PairingBundle
+        & $Python -m app.agent_runtime pair-jetson --config $ConfigPath --bundle $PairingBundle --jetson-config $JetsonConfigPath
+        if ($LASTEXITCODE -ne 0) { throw 'Jetson pairing failed' }
+        if (-not (Test-Path -LiteralPath $PairingBundle -PathType Leaf)) {
+            throw 'pairing bundle disappeared before verified deletion'
+        }
+        Assert-OwnerOnlyAcl $PairingBundle
+        if ((Get-FileIdentity $PairingBundle) -cne $bundleIdentity) {
+            throw 'pairing bundle identity changed before verified deletion'
+        }
+        Remove-Item -LiteralPath $PairingBundle
     }
-    Assert-OwnerOnlyAcl $PairingBundle
-    if ((Get-FileIdentity $PairingBundle) -cne $bundleIdentity) {
-        throw 'pairing bundle identity changed before verified deletion'
-    }
-    Remove-Item -LiteralPath $PairingBundle
 
     New-Item -Path $RegistryPath -Force | Out-Null
     Repair-RegistrySurface
@@ -196,7 +198,12 @@ $Python = [string]$tools.paths.python_path
 
 if ($Action -eq 'Status') {
     & "$env:SystemRoot\System32\sc.exe" query PetCareHomeAgent
-    & $Python -m app.agent_runtime status --config $storedConfig --tools $storedTools --jetson-config $storedJetson
+    if (Test-Path -LiteralPath $storedJetson -PathType Leaf) {
+        & $Python -m app.agent_runtime status --config $storedConfig --tools $storedTools --jetson-config $storedJetson
+    }
+    else {
+        & $Python -m app.agent_runtime status --config $storedConfig --tools $storedTools
+    }
     exit $LASTEXITCODE
 }
 

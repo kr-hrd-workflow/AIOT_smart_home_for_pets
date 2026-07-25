@@ -38,6 +38,10 @@ afterEach(() => {
 function mockRemote(overrides: Partial<PetCareRemoteClient> = {}) {
   const client: PetCareRemoteClient = {
     enroll: vi.fn(),
+    provisionPico: vi.fn().mockResolvedValue({
+      status: "provisioned",
+      product: "entrance-01",
+    }),
     getStatus: vi.fn().mockResolvedValue({
       home: { id: "home-1", state: "ready" },
       agent: {
@@ -193,6 +197,15 @@ it("prevents duplicate enrollment, reports failure, and permits retry", async ()
   expect(steps[3]).toHaveTextContent("Jetson 카메라선택");
   const button = await screen.findByRole("button", { name: "10분 코드 만들기" });
   expect(steps[0]).toContainElement(button);
+  const installer = screen.getByRole("link", {
+    name: "Windows Home Agent 베타 설치",
+  });
+  expect(steps[0]).toContainElement(installer);
+  expect(installer).toHaveAttribute(
+    "href",
+    "/downloads/PetCare-Home-Agent-Setup.exe",
+  );
+  expect(installer).toHaveAttribute("download");
   button.click();
   button.click();
   await waitFor(() => expect(enroll).toHaveBeenCalledTimes(1));
@@ -227,10 +240,59 @@ it("keeps the setup checklist visible when optional runtime data is absent", asy
   const checklist = await screen.findByRole("list", { name: "우리 집 연결" });
   expect(within(checklist).getAllByRole("listitem")).toHaveLength(4);
   expect(
-    screen.getByRole("link", { name: "Pico Wi-Fi 설정 열기" }),
+    screen.getByRole("link", { name: "오프라인 복구 설정 열기" }),
   ).toHaveAttribute("href", "http://127.0.0.1:8000/setup");
+  expect(
+    screen.getByRole("heading", { name: "Pico Wi-Fi 설정" }),
+  ).toBeInTheDocument();
   expect(screen.queryByText("필수 연결 완료")).not.toBeInTheDocument();
   expect(screen.getByText("Jetson 카메라는 선택 사항입니다.")).toBeInTheDocument();
+});
+
+it("provisions each Pico from the authenticated dashboard and clears the password", async () => {
+  const provisionPico = vi
+    .fn()
+    .mockResolvedValue({ status: "provisioned", product: "entrance-01" });
+  const { client, media, accountClient } = mockRemote({
+    provisionPico,
+    getStatus: vi.fn().mockResolvedValue({
+      home: { id: "home-1", state: "ready" },
+      agent: {
+        id: "agent-1",
+        state: "online",
+        last_seen_at: "2026-07-20T01:00:00Z",
+      },
+      camera: null,
+      dashboard: null,
+    }),
+  });
+  const user = userEvent.setup();
+  render(
+    <RemoteDashboardView
+      client={client}
+      media={media}
+      accountClient={accountClient}
+    />,
+  );
+
+  await user.type(
+    await screen.findByRole("textbox", { name: "Wi-Fi 이름 (SSID)" }),
+    "test-network",
+  );
+  const password = screen.getByLabelText("Wi-Fi 비밀번호");
+  await user.type(password, "password-for-test");
+  await user.click(screen.getByRole("button", { name: "현관 Pico 설정" }));
+
+  await waitFor(() =>
+    expect(provisionPico).toHaveBeenCalledWith("entrance-01", {
+      ssid: "test-network",
+      password: "password-for-test",
+    }),
+  );
+  expect(
+    await screen.findByText(/현관 Pico 설정을 전달했습니다/),
+  ).toBeInTheDocument();
+  expect(password).toHaveValue("");
 });
 
 it("marks fixed Pico IDs independently and completes without a Jetson camera", async () => {
@@ -462,9 +524,14 @@ it("keeps enrollment and destructive controls in keyboard order", async () => {
     />,
   );
 
-  const enrollment = await screen.findByRole("button", {
+  const installer = await screen.findByRole("link", {
+    name: "Windows Home Agent 베타 설치",
+  });
+  const enrollment = screen.getByRole("button", {
     name: "10분 코드 만들기",
   });
+  await user.tab();
+  expect(installer).toHaveFocus();
   await user.tab();
   expect(enrollment).toHaveFocus();
   await user.tab();

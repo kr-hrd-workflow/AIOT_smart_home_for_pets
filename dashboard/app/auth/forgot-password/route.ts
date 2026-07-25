@@ -16,16 +16,25 @@ export async function POST(request: NextRequest) {
   if (typeof email !== "string" || !email.trim()) {
     return Response.json({ error: "invalid_form" }, { status: 400 });
   }
-  const session = createSupabaseSession(request, runtimeAuthEnv());
-  const { error } = await session.supabase.auth.resetPasswordForEmail(
-    email.trim(),
-    {
-      redirectTo: new URL(
-        "/auth/callback?next=/reset-password",
-        request.url,
-      ).toString(),
-    },
-  );
+  let session;
+  let error;
+  try {
+    session = createSupabaseSession(request, runtimeAuthEnv());
+    ({ error } = await session.supabase.auth.resetPasswordForEmail(
+      email.trim(),
+      {
+        redirectTo: new URL(
+          "/auth/callback?next=/reset-password",
+          request.url,
+        ).toString(),
+      },
+    ));
+  } catch {
+    return NextResponse.redirect(
+      new URL("/forgot-password?error=unavailable", request.url),
+      303,
+    );
+  }
   if (error?.status === 429) {
     return session.applySessionCookies(
       NextResponse.json({ error: "rate_limited" }, { status: 429 }),
