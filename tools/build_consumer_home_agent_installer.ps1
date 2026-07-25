@@ -7,12 +7,15 @@ param(
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
 if (-not $OutputDirectory) {
-    $OutputDirectory = Join-Path $Root 'dashboard\public\downloads'
+    $OutputDirectory = Join-Path $Root 'packaging\windows\release'
 }
 $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
-$ExpectedOutputRoot = [IO.Path]::GetFullPath((Join-Path $Root 'dashboard\public')).TrimEnd('\')
-if (-not $OutputDirectory.StartsWith($ExpectedOutputRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
-    throw 'installer output must stay under dashboard\public'
+$ExpectedOutputRoot = [IO.Path]::GetFullPath((Join-Path $Root 'packaging\windows\release')).TrimEnd('\')
+if (
+    -not $OutputDirectory.Equals($ExpectedOutputRoot, [StringComparison]::OrdinalIgnoreCase) -and
+    -not $OutputDirectory.StartsWith($ExpectedOutputRoot + '\', [StringComparison]::OrdinalIgnoreCase)
+) {
+    throw 'installer output must stay under packaging\windows\release'
 }
 
 $uri = [Uri]$SiteOrigin

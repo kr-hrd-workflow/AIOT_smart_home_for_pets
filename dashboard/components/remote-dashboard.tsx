@@ -22,7 +22,7 @@ import type {
 import type { DashboardData, DashboardSummary } from "../lib/types";
 
 const LOCAL_SETUP_URL = "http://127.0.0.1:8000/setup";
-const HOME_AGENT_INSTALLER_URL = "/downloads/PetCare-Home-Agent-Setup.exe";
+const HOME_AGENT_INSTALLER_URL = "/api/petcare/installer";
 
 function operationalData(summary: DashboardSummary): DashboardData {
   return {

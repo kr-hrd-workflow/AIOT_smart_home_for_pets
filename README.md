@@ -11,7 +11,7 @@ PetCare는 두 대의 Raspberry Pi Pico 2 W, Windows Home Agent, Jetson 카메�
 | Pico 2 W C++ 펌웨어와 MQTT 계약 | 구현·호스트/펌웨어 테스트됨 |
 | FastAPI, PostgreSQL, MQTT, 행동 규칙 | 구현·로컬 통합 테스트됨 |
 | 공개 랜딩, `/demo`, 로그인 후 대시보드 | 구현·테스트됨 |
-| Supabase 고객 가입·로그인과 tenant 분리 | 구현됨 |
+| Supabase 고객 가입·로그인과 tenant 분리 | 구현·운영 콜백 설정됨 |
 | Windows Home Agent 설치 파일 | 로그인 후 제공하는 코드서명 전 설치 파일 |
 | Sites 공개 배포 | exact-SHA 검증 후 위 공개 URL에 배포 |
 | 실제 Jetson 비전 서비스·USB 카메라·서명 프리뷰 | 실기기 통과 (JetPack 4.6.6, L4T 32.7.6, TensorRT 8.2.1) |
@@ -63,18 +63,19 @@ Pico는 FSR의 `0..4095` ADC 원값만 발행합니다. 침대 baseline, polarit
 | `/demo` | 공개 | 외부 API·WebSocket을 호출하지 않는 fixture 데모 |
 | `/login`, `/signup`, 비밀번호 복구 화면 | 공개 | Supabase 고객 인증 |
 | `/dashboard` | 로그인 필요 | 등록 코드, Home Agent 설치, 기기 상태와 가정 데이터 |
-| `/downloads/*` | 로그인 필요 | Windows Home Agent 설치 파일 |
+| `/api/petcare/installer` | 로그인 필요 | R2의 버전 고정 Windows Home Agent 설치 파일 |
 | `/api/petcare/**`와 실데이터 경로 | 로그인·tenant 검증 필요 | 등록, 상태, 카메라, 클립, 계정 작업 |
 
 루트가 랜딩보다 먼저 설정 코드 화면으로 바뀌지 않습니다. 10분 코드는 로그인한 대시보드에서 고객이 명시적으로 만들 때만 표시됩니다.
 
 ## 보안과 비밀정보
 
-- PetCare 운영자가 Sites runtime에 `SUPABASE_URL`과 공개 가능한 `SUPABASE_PUBLISHABLE_KEY`만 한 번 설정합니다.
+- 정상 운영 중에는 PetCare 운영자가 Sites runtime에 `SUPABASE_URL`과 공개 가능한 `SUPABASE_PUBLISHABLE_KEY`만 둡니다. 설치 파일을 R2에 올릴 때만 일회성 업로드 secret을 설정하고, 업로드 직후 제거한 상태로 다시 배포합니다.
 - Supabase secret/service-role key와 JWKS URL은 Sites runtime, 설치 파일, Git, 문서, 로그에 넣지 않습니다.
 - 고객의 Wi-Fi 비밀번호는 브라우저에서 `127.0.0.1:8000`의 Home Agent로 직접 전달되며 Sites Worker나 Supabase를 통과하지 않습니다.
 - Home Agent의 DB/MQTT/connector 자격 증명은 owner/SYSTEM 전용 runtime 파일에 저장합니다.
 - 로컬 PostgreSQL과 FastAPI는 loopback에만 바인딩하고, Pico MQTT는 Windows의 Private LAN과 LocalSubnet으로 제한합니다.
+- 설치 파일은 공개 정적 asset에 두지 않고, 정확한 크기와 SHA-256을 확인한 R2 객체만 로그인 세션에 내려줍니다.
 
 자세한 경계는 [docs/privacy.md](docs/privacy.md)를 확인하세요.
 

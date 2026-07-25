@@ -87,4 +87,4 @@ API 문서는 외부 OpenAPI route를 노출하지 않으며 `/docs`, `/redoc`, 
 
 Sites source는 후보 commit의 `dashboard` subtree를 split하고 tree equality를 확인한 뒤, 짧은 source credential을 단일 Git process 환경에서만 사용해 전용 `main`에 push합니다. 같은 source SHA로 vinext build와 Sites archive를 만들고 saved version ID를 public deployment로 배포한 뒤 exact project/version/deployment ID로 `succeeded`를 확인합니다. `dashboard/.openai/hosting.json`의 D1/R2 binding과 opaque project ID를 재사용하며 runtime에는 공개 가능한 Supabase URL과 publishable key만 설정합니다.
 
-익명 세션으로 `/`와 `/demo`가 렌더링되고, `/dashboard`, `/api/petcare/**`, 설치 파일은 인증 없이는 접근할 수 없는지 확인합니다. `/demo`는 fixture-only이며 실제 카메라·센서·등록·클립 데이터를 제공하지 않습니다.
+익명 세션으로 `/`와 `/demo`가 렌더링되고, `/dashboard`, `/api/petcare/**`, R2 설치 파일은 인증 없이는 접근할 수 없는지 확인합니다. 기존 `/downloads/PetCare-Home-Agent-Setup.exe`가 더 이상 정적 배포물에 없고, 익명 `/api/petcare/installer`가 401을 반환하는지도 확인합니다. `/demo`는 fixture-only이며 실제 카메라·센서·등록·클립 데이터를 제공하지 않습니다.

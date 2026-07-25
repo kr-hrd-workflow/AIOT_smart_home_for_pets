@@ -203,7 +203,7 @@ it("prevents duplicate enrollment, reports failure, and permits retry", async ()
   expect(steps[0]).toContainElement(installer);
   expect(installer).toHaveAttribute(
     "href",
-    "/downloads/PetCare-Home-Agent-Setup.exe",
+    "/api/petcare/installer",
   );
   expect(installer).toHaveAttribute("download");
   button.click();

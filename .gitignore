@@ -36,6 +36,7 @@
 
 # Executables
 *.exe
+!packaging/windows/release/*.exe
 *.out
 *.app
 

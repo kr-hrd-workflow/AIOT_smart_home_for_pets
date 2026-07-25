@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "tools" / "install_consumer_home_agent.ps1"
-DOWNLOADS = ROOT / "dashboard" / "public" / "downloads"
+RELEASE = ROOT / "packaging" / "windows" / "release"
 
 
 def test_consumer_installer_keeps_cloud_and_household_secrets_out_of_arguments() -> None:
@@ -136,9 +136,9 @@ def test_consumer_installer_fixture_is_non_mutating_and_jetson_optional(tmp_path
     }
 
 
-def test_public_installer_is_self_contained_and_hashed() -> None:
-    setup = DOWNLOADS / "PetCare-Home-Agent-Setup.exe"
-    checksums = DOWNLOADS / "PetCare-Home-Agent-Setup.sha256"
+def test_private_release_installer_is_self_contained_and_hashed() -> None:
+    setup = RELEASE / "PetCare-Home-Agent-Setup.exe"
+    checksums = RELEASE / "PetCare-Home-Agent-Setup.sha256"
     build_source = (ROOT / "tools" / "build_consumer_home_agent_installer.ps1").read_text(
         encoding="utf-8"
     )
@@ -151,7 +151,9 @@ def test_public_installer_is_self_contained_and_hashed() -> None:
         for line in checksums.read_text(encoding="utf-8").splitlines()
     }
     assert expected == {setup.name: hashlib.sha256(setup.read_bytes()).hexdigest().upper()}
-    assert not list(DOWNLOADS.glob("PetCare-Home-Agent-Bundle*.zip"))
+    assert not list(RELEASE.glob("PetCare-Home-Agent-Bundle*.zip"))
+    assert not (ROOT / "dashboard" / "public" / "downloads" / setup.name).exists()
+    assert "packaging\\windows\\release" in build_source
     assert "[Convert]::ToBase64String" in build_source
     assert "Convert.FromBase64String(BundleBase64)" in build_source
     assert "WebClient" not in build_source

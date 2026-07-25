@@ -1,6 +1,6 @@
 # PetCare Dashboard
 
-PetCare 웹은 React 19와 [vinext](https://github.com/cloudflare/vinext)로 동작합니다. 공개 Sites 랜딩과 fixture 전용 데모, Supabase 고객 인증, tenant별 원격 대시보드, Windows Home Agent 등록·다운로드 화면을 한 앱에서 제공합니다. D1은 tenant·기기·클립 메타데이터를, R2는 승인된 이벤트 클립을 저장합니다.
+PetCare 웹은 React 19와 [vinext](https://github.com/cloudflare/vinext)로 동작합니다. 공개 Sites 랜딩과 fixture 전용 데모, Supabase 고객 인증, tenant별 원격 대시보드, Windows Home Agent 등록·다운로드 화면을 한 앱에서 제공합니다. D1은 tenant·기기·클립 메타데이터를, R2는 승인된 이벤트 클립과 버전 고정 설치 파일을 저장합니다.
 
 공개 URL은 [kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site](https://kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site)입니다. 배포 시 검증된 `dashboard` subtree와 공개 URL의 커밋 SHA를 함께 확인합니다.
 
@@ -12,7 +12,7 @@ PetCare 웹은 React 19와 [vinext](https://github.com/cloudflare/vinext)로 동
 | `/demo` | 공개 | 같은 origin의 정적 asset만 사용하는 fixture 화면 |
 | `/login`, `/signup`, `/forgot-password`, `/reset-password` | 공개 | Supabase 고객 인증 |
 | `/dashboard` | 로그인 필요 | Home Agent 등록, Pico/Jetson 상태, tenant 데이터 |
-| `/downloads/*` | 로그인 필요 | Windows Home Agent 코드서명 전 설치 파일 |
+| `/api/petcare/installer` | 로그인 필요 | R2의 Windows Home Agent 코드서명 전 설치 파일 |
 | `/api/petcare/**` | 로그인·tenant 검증 필요 | 등록, 상태, 카메라, 클립, 계정 삭제 |
 
 `/`는 인증 상태와 관계없이 랜딩을 유지합니다. 10분 등록 코드는 로그인한 `/dashboard`에서 사용자가 요청할 때만 발급됩니다. `/demo`는 Home Agent, PetCare API, WebSocket, localhost, cross-origin image를 호출하지 않습니다.
@@ -33,6 +33,7 @@ PetCare 웹은 React 19와 [vinext](https://github.com/cloudflare/vinext)로 동
 - secret/service-role key는 Sites runtime, 브라우저, 설치 파일, Git에 넣지 않습니다.
 - Wi-Fi 비밀번호는 로그인한 대시보드에서 고객 PC의 loopback Home Agent로 직접 전달되며 Sites나 Supabase에 저장하지 않습니다.
 - Home Agent 설치 파일은 아직 코드서명 전이므로 SmartScreen 확인이 나타날 수 있습니다.
+- 설치 파일은 공개 정적 asset이 아니며, 서버가 R2 객체의 고정 크기와 SHA-256 메타데이터를 확인한 뒤 로그인 세션에만 반환합니다.
 - 실제 클립·센서·카메라 경로는 인증과 tenant scope 없이 접근할 수 없습니다.
 
 ## 구조
@@ -92,6 +93,8 @@ Playwright Chromium은 `dashboard/node_modules/playwright/cli.js install chromiu
 
 ## 배포와 검수 상태
 
-Sites는 공개로 배포하되, runtime에는 `SUPABASE_URL`과 `SUPABASE_PUBLISHABLE_KEY`만 설정합니다. `.openai/hosting.json`의 기존 opaque project ID와 `DB`/`CLIPS` binding을 재사용합니다.
+Sites는 공개로 배포하되, 정상 운영 runtime에는 `SUPABASE_URL`과 `SUPABASE_PUBLISHABLE_KEY`만 설정합니다. `.openai/hosting.json`의 기존 opaque project ID와 `DB`/`CLIPS` binding을 재사용합니다.
+
+설치 파일 릴리스는 `packaging/windows/release`의 고정 EXE와 SHA-256 sidecar를 사용합니다. 운영 배포 시에만 임시 업로드 토큰을 Sites secret으로 설정해 고정 R2 키에 업로드하고, 업로드 직후 secret을 제거한 같은 버전을 다시 배포합니다. 정상 운영 runtime에는 이 임시 토큰이 남지 않습니다.
 
 Jetson 비전 서비스는 JetPack 4.6.6/L4T 32.7.6/TensorRT 8.2.1 실기기에서 USB 카메라와 서명 프리뷰까지 통과했습니다. 실제 Pico·센서 설치와 깨끗한 Windows PC에서의 Home Agent 전체 설치는 아직 `NOT RUN`입니다.

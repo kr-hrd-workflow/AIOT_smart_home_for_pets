@@ -8,11 +8,13 @@ const calls = vi.hoisted(() => ({
   agentEnroll: vi.fn(),
   clipUpload: vi.fn(),
   deleteClip: vi.fn(),
+  downloadInstaller: vi.fn(),
   listClips: vi.fn(),
   mjpeg: vi.fn(),
   readClip: vi.fn(),
   session: vi.fn(),
   status: vi.fn(),
+  uploadInstaller: vi.fn(),
 }));
 
 vi.mock("../lib/auth/session", async (importOriginal) => {
@@ -37,6 +39,10 @@ vi.mock("../lib/petcare/live-proxy", () => ({
   proxyMjpeg: calls.mjpeg,
   proxyStatus: calls.status,
 }));
+vi.mock("../lib/petcare/installer", () => ({
+  downloadInstaller: calls.downloadInstaller,
+  uploadInstaller: calls.uploadInstaller,
+}));
 
 vi.mock("cloudflare:workers", () => ({ env: {} }));
 
@@ -54,7 +60,12 @@ const ctx = { waitUntil: vi.fn() };
 function request(path: string, method = "GET", origin = true) {
   return new Request(`https://pets.example${path}`, {
     method,
-    headers: origin ? { Origin: "https://pets.example" } : undefined,
+    headers: origin
+      ? {
+          Cookie: "sb-project-auth-token=encoded",
+          Origin: "https://pets.example",
+        }
+      : undefined,
   });
 }
 
@@ -66,10 +77,12 @@ beforeEach(() => {
     calls.agentEnroll,
     calls.clipUpload,
     calls.deleteClip,
+    calls.downloadInstaller,
     calls.listClips,
     calls.mjpeg,
     calls.readClip,
     calls.status,
+    calls.uploadInstaller,
   ]) {
     handler.mockImplementation(ok);
   }
@@ -112,6 +125,17 @@ describe("routePetCare", () => {
     expect(calls.session).not.toHaveBeenCalled();
   });
 
+  it("keeps the temporary operator upload route outside browser auth", async () => {
+    const response = await routePetCare(
+      request("/api/petcare/operator/installer", "PUT"),
+      env,
+      ctx,
+    );
+    expect(response?.status).toBe(200);
+    expect(calls.uploadInstaller).toHaveBeenCalledOnce();
+    expect(calls.session).not.toHaveBeenCalled();
+  });
+
   it("authenticates a browser route once and propagates refreshed cookies", async () => {
     const raw = request("/api/petcare/status");
     const response = await routePetCare(raw, env, ctx);
@@ -133,6 +157,32 @@ describe("routePetCare", () => {
     expect(calls.session).toHaveBeenCalledOnce();
     expect(handler).toHaveBeenCalledOnce();
     expect(handler.mock.calls[0]).toContain(user);
+  });
+
+  it("authenticates the private installer download before R2 access", async () => {
+    const response = await routePetCare(
+      request("/api/petcare/installer"),
+      env,
+      ctx,
+    );
+    expect(response?.status).toBe(200);
+    expect(calls.session).toHaveBeenCalledOnce();
+    expect(calls.downloadInstaller).toHaveBeenCalledWith(env);
+  });
+
+  it("rejects an anonymous installer download before reading runtime auth config", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const response = await routePetCare(
+      new Request("https://pets.example/api/petcare/installer"),
+      {} as PetCareEnv,
+      ctx,
+    );
+
+    expect(response?.status).toBe(401);
+    await expect(response?.json()).resolves.toEqual({ error: "unauthorized" });
+    expect(calls.session).not.toHaveBeenCalled();
+    expect(calls.downloadInstaller).not.toHaveBeenCalled();
+    expect(JSON.stringify(log.mock.calls)).not.toContain("Authentication required");
   });
 
   it("rejects cross-origin mutation before JWT validation", async () => {
@@ -178,6 +228,8 @@ describe("routePetCare", () => {
     ["/api/petcare/clips", "POST", "GET"],
     ["/api/petcare/account", "GET", "DELETE"],
     ["/api/petcare/agent/enroll", "GET", "POST"],
+    ["/api/petcare/installer", "POST", "GET"],
+    ["/api/petcare/operator/installer", "POST", "PUT"],
   ])("closes method %s %s", async (path, method, allow) => {
     const response = await routePetCare(request(path, method), env, ctx);
     expect(response?.status).toBe(405);

@@ -329,15 +329,20 @@ test.describe("real /demo route", () => {
     expect(crossOriginImages).toEqual([]);
   });
 
-  test("runs the worker before serving the authenticated installer asset", async ({
+  test("never serves installer bytes to an anonymous request", async ({
     request,
   }) => {
-    const response = await request.get(
+    const response = await request.get("/api/petcare/installer", {
+      maxRedirects: 0,
+    });
+    expect(response.status()).toBe(401);
+    expect(await response.json()).toEqual({ error: "unauthorized" });
+
+    const legacy = await request.get(
       "/downloads/PetCare-Home-Agent-Setup.exe",
       { maxRedirects: 0 },
     );
-    expect([302, 303, 307, 308]).toContain(response.status());
-    expect(response.headers().location).toMatch(/\/login(?:\?|$)/);
+    expect(legacy.status()).not.toBe(200);
   });
 
   test("renders the full state without overflow or overlap at every target viewport", async ({ page }) => {
