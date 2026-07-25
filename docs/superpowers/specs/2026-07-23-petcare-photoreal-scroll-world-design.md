@@ -21,18 +21,22 @@ responsive seeking:
 - video: `dashboard/public/landing/scroll-world/desktop/scene-01-arrival.mp4`
 - poster: `dashboard/public/landing/scroll-world/source/scene-01-arrival.png`
 
-This release deliberately uses one continuous eight-second clip. Additional
-stills, dive clips, connectors, portrait generations, Higgsfield CLI work, and
-Remotion substitutes are out of scope unless the user explicitly reopens
-multi-clip generation.
+The release uses the user's selected first Higgsfield journey: one continuous
+entrance-to-living-room camera flight. Its duration and direct scroll-to-time
+interaction follow the current Outpost reference without adding cuts, synthetic
+camera motion, or unrelated generated scenes.
 
 ## Experience
 
 - `/` presents the public landing.
 - `/dashboard` presents the authenticated live Home dashboard.
 - `/demo` remains fixture-only.
-- Scroll progress maps directly to video time for a visible entrance-to-home
-  camera move.
+- Native browser scroll progress maps directly to video time in both directions.
+- Wheel input is never intercepted or converted into chapter jumps.
+- Media remains paused between scroll events; no elapsed-time playback, idle
+  drift, synthetic shake, crop animation, or decorative parallax is allowed.
+- The scroll track is long enough for deliberate frame-level control, following
+  the reference's continuous full-screen flight rather than a slide deck.
 - Semantic copy and calls to action remain crawlable HTML.
 - The video is decorative and contains no text or private data.
 - Reduced motion, data saver, playback failure, and decode failure use the
@@ -49,7 +53,7 @@ multi-clip generation.
 
 ## Runtime
 
-- A single typed `journey` segment supplies the video and poster.
+- A single typed journey segment supplies the selected video and poster.
 - Page progress is clamped and translated into the clip duration.
 - Seeking is coalesced to avoid redundant work.
 - Media listeners and transient resources are cleaned up on unmount.
@@ -60,12 +64,13 @@ multi-clip generation.
 - Focused runtime and route-contract tests.
 - Lint and production build.
 - Desktop, tablet, and mobile browser E2E.
-- Reduced-motion and poster-fallback behavior.
-- Exact-candidate CI followed by a private Sites deployment.
+- Reduced-motion, data-saver, and poster-fallback behavior.
+- Browser proof that 0%, 50%, and 100% page progress reaches the corresponding
+  encoded video time while the video remains paused at rest.
+- Exact-candidate CI followed by a public Sites deployment.
 
 ## Non-Goals
 
-- No new Higgsfield generation for this release.
 - No public live camera or sensor data.
 - No real-time photoreal 3D apartment simulation.
 - No replacement authentication system.

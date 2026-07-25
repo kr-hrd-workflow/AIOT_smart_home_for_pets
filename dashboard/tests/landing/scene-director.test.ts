@@ -5,7 +5,6 @@ import {
   buildScrollWorldSegments,
   getLandingCopyLayers,
   getLandingCopyScene,
-  getLandingMotionFrame,
   getRootScrollProgress,
   mapScrollWorldProgress,
   mountScrollWorld,
@@ -108,19 +107,6 @@ it("crossfades adjacent copy scenes from scroll progress instead of elapsed time
   expect(feeding?.translateY).toBeGreaterThan(0);
 });
 
-it("moves through distinct camera crops without discontinuities", () => {
-  const hero = getLandingMotionFrame(0);
-  const feeding = getLandingMotionFrame(0.2);
-  const between = getLandingMotionFrame(0.1);
-
-  expect(feeding.scale).toBeGreaterThan(hero.scale);
-  expect(feeding.x).toBeLessThan(hero.x);
-  expect(between.scale).toBeGreaterThan(hero.scale);
-  expect(between.scale).toBeLessThan(feeding.scale);
-  expect(getLandingMotionFrame(-1)).toEqual(hero);
-  expect(getLandingMotionFrame(2)).toEqual(getLandingMotionFrame(1));
-});
-
 it("does not load video assets in data saver mode", () => {
   const fetchSpy = vi.spyOn(globalThis, "fetch");
   const root = document.createElement("main");
@@ -148,16 +134,14 @@ it("does not load video assets in data saver mode", () => {
   expect(stage.childElementCount).toBe(0);
 });
 
-it("keeps the scroll-controlled video available in reduced-motion mode", async () => {
+it("keeps reduced-motion mode on static posters", () => {
   const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
-  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
   const root = document.createElement("main");
   const stage = document.createElement("div");
-  let top = 0;
   Object.defineProperty(root, "scrollHeight", { value: 6000 });
-  vi.spyOn(root, "getBoundingClientRect").mockImplementation(
-    () => ({ top }) as DOMRect,
-  );
+  vi.spyOn(root, "getBoundingClientRect").mockReturnValue({
+    top: 0,
+  } as DOMRect);
   Object.defineProperty(navigator, "connection", {
     configurable: true,
     value: { saveData: false },
@@ -171,19 +155,12 @@ it("keeps the scroll-controlled video available in reduced-motion mode", async (
     mobile: false,
   });
 
-  expect(stage.querySelectorAll("video")).toHaveLength(2);
-  const video = stage.querySelector("video");
-  Object.defineProperty(video, "duration", { value: 8 });
-  video?.dispatchEvent(new Event("loadedmetadata"));
-  top = -1000;
-  window.dispatchEvent(new Event("scroll"));
-  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  expect(stage.querySelector("video")).toBeNull();
   expect(play).not.toHaveBeenCalled();
-  expect(video?.currentTime).toBeGreaterThan(0);
   cleanup();
 });
 
-it("turns one desktop wheel gesture into one smooth story chapter", () => {
+it("leaves wheel scrolling native instead of snapping story chapters", () => {
   const root = document.createElement("main");
   const stage = document.createElement("div");
   const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
@@ -210,16 +187,7 @@ it("turns one desktop wheel gesture into one smooth story chapter", () => {
     new WheelEvent("wheel", { cancelable: true, deltaY: 120 }),
   );
 
-  expect(scrollTo).toHaveBeenCalledWith(
-    expect.objectContaining({
-      behavior: "smooth",
-      top: expect.any(Number),
-    }),
-  );
-  expect(scrollTo.mock.calls[0][0]).toMatchObject({
-    top: expect.any(Number),
-  });
-  expect(scrollTo).toHaveBeenCalledTimes(1);
+  expect(scrollTo).not.toHaveBeenCalled();
   cleanup();
 });
 
@@ -277,12 +245,20 @@ it("streams nearby clips directly, keeps posters until the requested frame paint
   await new Promise((resolve) => window.setTimeout(resolve, 100));
   expect(firstScene).toHaveClass("has-video-frame");
   expect(firstVideo?.paused).toBe(true);
+  top = -5;
+  window.dispatchEvent(new Event("scroll"));
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  expect(firstVideo?.currentTime).toBeGreaterThan(0.008);
+  expect(firstVideo?.currentTime).toBeLessThan(0.04);
+  firstVideo?.dispatchEvent(new Event("seeked"));
+  await new Promise((resolve) => window.setTimeout(resolve, 100));
+  expect(firstScene).toHaveClass("has-video-frame");
   top = -1000;
   window.dispatchEvent(new Event("scroll"));
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   expect(root.dataset.landingScene).toBe("feeding");
-  expect(playSpy).toHaveBeenCalled();
-  expect(firstVideo?.playbackRate).toBe(0.72);
+  expect(playSpy).not.toHaveBeenCalled();
+  expect(firstVideo?.currentTime).toBeGreaterThan(0);
   expect(firstScene).toHaveClass("has-video-frame");
   top = -((root.scrollHeight - window.innerHeight) * 0.16);
   window.dispatchEvent(new Event("scroll"));

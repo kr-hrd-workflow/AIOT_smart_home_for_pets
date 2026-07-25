@@ -44,7 +44,12 @@ export async function POST(request: NextRequest) {
       NextResponse.json({ error: "rate_limited" }, { status: 429 }),
     );
   }
-  const destination = error ? "/signup?error=signup" : "/signup?sent=1";
+  const destination =
+    error?.code === "weak_password"
+      ? "/signup?error=weak_password"
+      : error
+        ? "/signup?error=signup"
+        : "/signup?sent=1";
   return session.applySessionCookies(
     NextResponse.redirect(new URL(destination, request.url), 303),
   );

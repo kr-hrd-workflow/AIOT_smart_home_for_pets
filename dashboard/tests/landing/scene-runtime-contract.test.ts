@@ -81,7 +81,7 @@ it("scrubs one continuous photoreal journey instead of stitching scene fragments
   );
   expect(globals).toContain('[data-landing-scene="hero"]');
   expect(globals).toContain("--landing-copy-hero-opacity");
-  expect(globals).toContain("--landing-media-scale");
+  expect(globals).not.toContain("--landing-media-scale");
   expect(overlay).toContain('className="landing-progress"');
   expect(overlay).toContain("landing-sensor-signal");
   expect(overlay).toContain("landing-event-sequence");
@@ -105,7 +105,7 @@ it("keeps Korean landing copy on word boundaries", () => {
   );
 });
 
-it("moves only after scroll input and keeps reduced-motion playback user-controlled", () => {
+it("maps native scroll directly while reduced motion stays static and focus-safe", () => {
   const styles = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
   const director = readLandingSource("scene-director.ts");
 
@@ -113,12 +113,18 @@ it("moves only after scroll input and keeps reduced-motion playback user-control
   expect(styles).not.toContain("@keyframes landing-entry-rise");
   expect(styles).not.toContain("@keyframes landing-lens-breathe");
   expect(styles).not.toContain("@keyframes landing-sensor-pulse");
-  expect(director).toContain("video.play(");
-  expect(director).toContain("SCROLL_PLAYBACK_RATE = 0.72");
-  expect(director).toContain("REVERSE_SEEK_DURATION_MS = 2200");
-  expect(director).toContain('window.addEventListener("wheel", scrollToChapter');
-  expect(director).toContain("pauseAtTarget(runtime)");
+  expect(director).not.toContain("video.play(");
+  expect(director).not.toContain('window.addEventListener("wheel"');
+  expect(director).toContain("video.pause()");
+  expect(director).toContain("video.currentTime = targetTime(runtime)");
+  expect(director).toContain("const staticMode = saveData || reducedMotion");
   expect(director).not.toContain("pointermove");
+  expect(styles).toMatch(
+    /\.landing-progress\s*\{[^}]*visibility:\s*hidden;/s,
+  );
+  expect(styles).toMatch(
+    /\.landing-page\[data-scroll-world-active="true"\] \.landing-progress\s*\{[^}]*visibility:\s*visible;/s,
+  );
   expect(styles).toContain("animation-timeline: view()");
   expect(styles).toMatch(
     /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.pet-home-experience[\s\S]*animation:\s*none !important;/,

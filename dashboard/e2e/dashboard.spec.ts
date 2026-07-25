@@ -458,21 +458,20 @@ test.describe("animated public landing", () => {
     };
 
     const topTime = await video.evaluate((element) => element.currentTime);
-    await page.mouse.wheel(0, 420);
+    await scrollLandingTo(0.2);
     await expect(landing).toHaveAttribute("data-landing-scene", "feeding");
     await expect.poll(() => video.evaluate((element) => element.currentTime)).toBeGreaterThan(
       topTime,
     );
-    const wheelTime = await video.evaluate((element) => element.currentTime);
+    const earlyTime = await video.evaluate((element) => element.currentTime);
     await page.waitForTimeout(600);
-    await expect.poll(() => video.evaluate((element) => element.currentTime)).toBeGreaterThan(
-      wheelTime,
-    );
+    const idleEarlyTime = await video.evaluate((element) => element.currentTime);
+    expect(Math.abs(idleEarlyTime - earlyTime)).toBeLessThan(0.04);
 
     await scrollLandingTo(0.5);
     await expect(landing).toHaveAttribute("data-landing-scene", "events");
     await expect.poll(() => video.evaluate((element) => element.currentTime)).toBeGreaterThan(
-      wheelTime,
+      earlyTime,
     );
     const middleTime = await video.evaluate((element) => element.currentTime);
     await expect(scene).toHaveClass(/has-video-frame/);
@@ -493,11 +492,9 @@ test.describe("animated public landing", () => {
     const reverseEarly = await video.evaluate((element) => element.currentTime);
     await page.waitForTimeout(600);
     const reverseLater = await video.evaluate((element) => element.currentTime);
-    expect(reverseLater).toBeLessThan(reverseEarly);
-    expect(reverseLater).toBeGreaterThan(4.1);
-    await expect.poll(() => video.evaluate((element) => element.currentTime), {
-      timeout: 5_000,
-    }).toBeLessThan(4.2);
+    expect(Math.abs(reverseLater - reverseEarly)).toBeLessThan(0.04);
+    expect(reverseLater).toBeGreaterThan(3.8);
+    expect(reverseLater).toBeLessThan(4.2);
   });
 });
 

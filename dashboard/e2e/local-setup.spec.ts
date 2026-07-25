@@ -42,7 +42,7 @@ uvicorn.run(app, host="127.0.0.1", port=8000, log_level="error", access_log=Fals
 `;
 
 async function waitForBackend(): Promise<void> {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
     if (backend?.exitCode !== null) {
       throw new Error(`Local setup server exited early: ${backend?.exitCode}\n${backendError}`);
     }

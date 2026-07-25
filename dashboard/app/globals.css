@@ -886,15 +886,7 @@ a:focus-visible {
 }
 
 .scroll-world-layer {
-  transform: translate3d(
-      var(--landing-media-x, 0%),
-      var(--landing-media-y, 0%),
-      0
-    )
-    scale(var(--landing-media-scale, 1.025));
-  transform-origin: center;
-  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
-  will-change: transform;
+  transform: none;
 }
 
 .scroll-world-scene {
@@ -935,12 +927,14 @@ a:focus-visible {
   opacity: 0;
   pointer-events: none;
   transform: translateY(-50%);
+  visibility: hidden;
   transition: opacity 180ms ease;
 }
 
 .landing-page[data-scroll-world-active="true"] .landing-progress {
   opacity: 1;
   pointer-events: auto;
+  visibility: visible;
 }
 
 .landing-progress a {
@@ -1377,7 +1371,7 @@ a:focus-visible {
 }
 
 .landing-page[data-scroll-world-active="true"] .landing-copy-track {
-  min-height: 600dvh;
+  min-height: 1200dvh;
 }
 
 .landing-page[data-scroll-world-active="true"] .landing-header {
