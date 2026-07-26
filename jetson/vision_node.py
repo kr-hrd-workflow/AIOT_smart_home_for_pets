@@ -184,6 +184,7 @@ class OpenCvCamera(object):
         )
         self.capture.set(self.cv2.CAP_PROP_FRAME_WIDTH, 640)
         self.capture.set(self.cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        self.capture.set(self.cv2.CAP_PROP_FPS, 30)
         if not self.capture.isOpened():
             self.capture.release()
             raise RuntimeError("camera_unavailable")
@@ -254,14 +255,22 @@ class VisionNode(object):
         self._admission_lock = threading.Lock()
         self._latest_observation = None
         self._latest_jpeg = None
+        self._latest_live_sequence = 0
+        self._latest_live_jpeg = None
+        self._latest_raw_sequence = 0
+        self._latest_raw_frame = None
+        self._latest_raw_observed_at = None
+        self._latest_detections = []
         self._camera_online = False
         self._last_preview = None
         self._last_status = None
         self._put_admission = True
         self._stop = threading.Event()
         self._capture_thread = None
+        self._inference_thread = None
         self._sampler_thread = None
         self._last_capture_error = None
+        self._last_inference_error = None
         self._closed = False
 
     def start(self):
@@ -270,8 +279,10 @@ class VisionNode(object):
         if self._capture_thread is not None:
             return
         self._capture_thread = threading.Thread(target=self._capture_loop, name="petcare-vision-capture")
+        self._inference_thread = threading.Thread(target=self._inference_loop, name="petcare-vision-inference")
         self._sampler_thread = threading.Thread(target=self._sampler_loop, name="petcare-vision-sampler")
         self._capture_thread.start()
+        self._inference_thread.start()
         self._sampler_thread.start()
 
     def set_camera_state(self, online):
@@ -422,30 +433,24 @@ class VisionNode(object):
 
     def _capture_loop(self):
         sequence = 0
-        first_monotonic = None
         while not self._stop.is_set():
-            started = self.monotonic_clock()
             try:
                 frame = self.camera.read()
                 observed_at = _utc(self.wall_clock())
-                detections = self.detector.infer(frame)
+                with self._condition:
+                    detections = self._latest_detections
                 jpeg = self.renderer(frame, detections)
-                ended = self.monotonic_clock()
-                if first_monotonic is None:
-                    first_monotonic = ended
+                if type(jpeg) is not bytes or not 0 < len(jpeg) <= MAX_PREVIEW_BYTES:
+                    raise RuntimeError("camera_unavailable")
                 sequence += 1
-                elapsed = max(ended - first_monotonic, 0.000001)
-                observation = OrderedDict((
-                    ("boot_id", self.boot_id),
-                    ("sequence", sequence),
-                    ("observed_at", observed_at),
-                    ("width", 640),
-                    ("height", 480),
-                    ("fps", float(sequence / elapsed)),
-                    ("inference_ms", float(max(0.0, ended - started) * 1000.0)),
-                    ("detections", detections),
-                ))
-                self.publish(observation, jpeg)
+                with self._condition:
+                    self._latest_live_sequence = sequence
+                    self._latest_live_jpeg = jpeg
+                    self._latest_raw_sequence = sequence
+                    self._latest_raw_frame = frame
+                    self._latest_raw_observed_at = observed_at
+                    self._camera_online = True
+                    self._condition.notify_all()
                 self._last_capture_error = None
             except BaseException as error:
                 error_code = "{}:{}".format(type(error).__name__, str(error))[:200]
@@ -456,6 +461,51 @@ class VisionNode(object):
                 self.set_camera_state(False)
                 self._stop.wait(0.25)
 
+    def _inference_loop(self):
+        last_sequence = 0
+        inference_count = 0
+        first_monotonic = None
+        while not self._stop.is_set():
+            with self._condition:
+                while not self._stop.is_set() and self._latest_raw_sequence <= last_sequence:
+                    self._condition.wait()
+                if self._stop.is_set():
+                    return
+                sequence = self._latest_raw_sequence
+                frame = self._latest_raw_frame
+                observed_at = self._latest_raw_observed_at
+            last_sequence = sequence
+            started = self.monotonic_clock()
+            try:
+                detections = self.detector.infer(frame)
+                ended = self.monotonic_clock()
+                jpeg = self.renderer(frame, detections)
+                inference_count += 1
+                if first_monotonic is None:
+                    first_monotonic = started
+                elapsed = max(ended - first_monotonic, 0.000001)
+                observation = OrderedDict((
+                    ("boot_id", self.boot_id),
+                    ("sequence", sequence),
+                    ("observed_at", observed_at),
+                    ("width", 640),
+                    ("height", 480),
+                    ("fps", float(inference_count / elapsed)),
+                    ("inference_ms", float(max(0.0, ended - started) * 1000.0)),
+                    ("detections", detections),
+                ))
+                self.publish(observation, jpeg)
+                with self._condition:
+                    self._latest_detections = detections
+                self._last_inference_error = None
+            except BaseException as error:
+                error_code = "{}:{}".format(type(error).__name__, str(error))[:200]
+                if error_code != self._last_inference_error:
+                    sys.stderr.write("inference_loop_error={}\n".format(error_code))
+                    sys.stderr.flush()
+                    self._last_inference_error = error_code
+                self._stop.wait(0.25)
+
     def _sampler_loop(self):
         last_bucket = None
         while not self._stop.is_set():
@@ -463,7 +513,7 @@ class VisionNode(object):
             bucket = now_ns // 100000000
             self.clock_guard.sample(self.wall_clock(), now_ns / 1000000000.0)
             with self._condition:
-                jpeg = self._latest_jpeg if self._camera_online else None
+                jpeg = self._latest_live_jpeg if self._camera_online else None
             if jpeg is not None and bucket != last_bucket:
                 try:
                     self.clip_writer.push(bucket, jpeg)
@@ -496,24 +546,28 @@ class VisionNode(object):
             self.clip_writer.shutdown(remaining())
         except BaseException as error:
             first_error = error
-        if self._sampler_thread is not None:
-            self._sampler_thread.join(remaining())
-            if self._sampler_thread.is_alive():
-                first_error = first_error or RuntimeError("sampler_shutdown_timeout")
         if self.camera is not None:
             try:
                 self.camera.close()
+            except BaseException as error:
+                first_error = first_error or error
+        if self.detector is not None:
+            try:
+                self.detector.close()
             except BaseException as error:
                 first_error = first_error or error
         if self._capture_thread is not None:
             self._capture_thread.join(remaining())
             if self._capture_thread.is_alive():
                 first_error = first_error or RuntimeError("camera_shutdown_timeout")
-        if self.detector is not None:
-            try:
-                self.detector.close()
-            except BaseException as error:
-                first_error = first_error or error
+        if self._inference_thread is not None:
+            self._inference_thread.join(remaining())
+            if self._inference_thread.is_alive():
+                first_error = first_error or RuntimeError("inference_shutdown_timeout")
+        if self._sampler_thread is not None:
+            self._sampler_thread.join(remaining())
+            if self._sampler_thread.is_alive():
+                first_error = first_error or RuntimeError("sampler_shutdown_timeout")
         self._closed = True
         if first_error is not None:
             raise RuntimeError("internal_error")

@@ -113,6 +113,7 @@ class FakeWriter(object):
         self.media_path = media_path
         self.receipts = {}
         self.put_calls = []
+        self.push_calls = []
         self.state = "idle"
         self.shutdown_calls = []
 
@@ -168,7 +169,8 @@ class FakeWriter(object):
         digest, receipt, unused = self.receipts[command_id]
         self.receipts[command_id] = (digest, receipt, True)
 
-    def push(self, unused_bucket, unused_jpeg):
+    def push(self, bucket, jpeg):
+        self.push_calls.append((bucket, jpeg))
         return None
 
     def shutdown(self, timeout):
@@ -373,6 +375,155 @@ class VisionNodeHttpsTests(unittest.TestCase):
 
 
 class CameraRecoveryTests(unittest.TestCase):
+    def test_capture_overwrites_raw_slot_and_keeps_preview_matched(self):
+        class Camera(object):
+            def __init__(self):
+                self.read_count = 0
+                self._lock = threading.Lock()
+
+            def read(self):
+                with self._lock:
+                    self.read_count += 1
+                    frame = self.read_count
+                time.sleep(0.01)
+                return frame
+
+            def close(self):
+                return None
+
+        class Detector(object):
+            def __init__(self):
+                self.frames = []
+                self.started = threading.Event()
+                self.release = threading.Event()
+                self.second_started = threading.Event()
+                self.close_requested = threading.Event()
+
+            def infer(self, frame):
+                self.frames.append(frame)
+                if len(self.frames) == 1:
+                    self.started.set()
+                    self.release.wait(1)
+                else:
+                    self.second_started.set()
+                    self.close_requested.wait(1)
+                return []
+
+            def close(self):
+                self.release.set()
+                self.close_requested.set()
+
+        camera = Camera()
+        detector = Detector()
+        node = VisionNode(
+            SECRET,
+            BOOT_ID,
+            FakeWriter(""),
+            FakeProbe(),
+            camera=camera,
+            detector=detector,
+            renderer=lambda frame, unused_detections: b"frame-" + str(frame).encode("ascii"),
+        )
+        node.start()
+        try:
+            self.assertTrue(detector.started.wait(1))
+            deadline = time.monotonic() + 1
+            while camera.read_count < 4 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            captured_before_release = camera.read_count
+            self.assertGreaterEqual(captured_before_release, 4)
+            detector.release.set()
+            self.assertTrue(detector.second_started.wait(1))
+            self.assertGreaterEqual(detector.frames[1], captured_before_release - 1)
+            observation = node.observation(-1, 1000)
+            preview_observation, jpeg = node.preview()
+            self.assertEqual(preview_observation, observation)
+            self.assertEqual(jpeg, b"frame-1")
+        finally:
+            node.shutdown(timeout=1)
+        for thread in (node._capture_thread, node._inference_thread, node._sampler_thread):
+            self.assertFalse(thread.is_alive())
+
+    def test_clip_sampler_uses_live_jpeg_per_100ms_bucket(self):
+        class SamplerClock(object):
+            def __init__(self):
+                self.now_ns = 1000000000
+                self.lock = threading.Lock()
+
+            def monotonic(self):
+                with self.lock:
+                    return self.now_ns / 1000000000.0
+
+            def monotonic_ns(self):
+                with self.lock:
+                    return self.now_ns
+
+            def time(self):
+                return 1784520000.0
+
+            def advance_bucket(self):
+                with self.lock:
+                    self.now_ns += 100000000
+
+        class Camera(object):
+            def __init__(self):
+                self.frame = 0
+
+            def read(self):
+                self.frame += 1
+                time.sleep(0.01)
+                return self.frame
+
+            def close(self):
+                return None
+
+        class Detector(object):
+            def __init__(self):
+                self.started = threading.Event()
+                self.release = threading.Event()
+
+            def infer(self, unused_frame):
+                self.started.set()
+                self.release.wait(1)
+                return []
+
+            def close(self):
+                self.release.set()
+
+        clock = SamplerClock()
+        writer = FakeWriter("")
+        detector = Detector()
+        node = VisionNode(
+            SECRET,
+            BOOT_ID,
+            writer,
+            FakeProbe(),
+            wall_clock=clock.time,
+            monotonic_clock=clock.monotonic,
+            monotonic_ns=clock.monotonic_ns,
+            camera=Camera(),
+            detector=detector,
+            renderer=lambda frame, unused_detections: b"live-" + str(frame).encode("ascii"),
+        )
+        node.start()
+        try:
+            self.assertTrue(detector.started.wait(1))
+            deadline = time.monotonic() + 1
+            while not writer.push_calls and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(writer.push_calls)
+            self.assertEqual(writer.push_calls[0][0], 10)
+            self.assertTrue(writer.push_calls[0][1].startswith(b"live-"))
+            clock.advance_bucket()
+            deadline = time.monotonic() + 1
+            while len(writer.push_calls) < 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertGreaterEqual(len(writer.push_calls), 2)
+            self.assertEqual(writer.push_calls[1][0], 11)
+        finally:
+            detector.release.set()
+            node.shutdown(timeout=1)
+
     def test_failed_read_reopens_the_same_webcam_for_unplug_replug(self):
         captures = []
 
@@ -402,6 +553,7 @@ class CameraRecoveryTests(unittest.TestCase):
             CAP_PROP_FOURCC = 0
             CAP_PROP_FRAME_WIDTH = 1
             CAP_PROP_FRAME_HEIGHT = 2
+            CAP_PROP_FPS = 3
 
             @staticmethod
             def VideoWriter_fourcc(*values):
@@ -428,6 +580,7 @@ class CameraRecoveryTests(unittest.TestCase):
                 (Cv2.CAP_PROP_FOURCC, ("M", "J", "P", "G")),
                 (Cv2.CAP_PROP_FRAME_WIDTH, 640),
                 (Cv2.CAP_PROP_FRAME_HEIGHT, 480),
+                (Cv2.CAP_PROP_FPS, 30),
             ]
             self.assertEqual(captures[0].settings, expected)
             self.assertEqual(captures[1].settings, expected)
