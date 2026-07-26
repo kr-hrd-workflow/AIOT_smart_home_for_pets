@@ -13,6 +13,7 @@ import signal
 import socket
 import ssl
 import stat
+import struct
 import subprocess
 import sys
 import threading
@@ -179,6 +180,7 @@ class OpenCvCamera(object):
         self._open()
 
     def _open(self):
+        _set_power_line_frequency_60hz(self.device)
         self.capture = self.cv2.VideoCapture(self.device, self.cv2.CAP_V4L2)
         self.capture.set(
             self.cv2.CAP_PROP_FOURCC,
@@ -208,6 +210,28 @@ class OpenCvCamera(object):
 
     def close(self):
         self.capture.release()
+
+
+def _set_power_line_frequency_60hz(device):
+    if os.name != "posix":
+        return
+    import fcntl
+
+    control_id = 0x00980918
+    fd = None
+    try:
+        fd = os.open(device, os.O_RDWR | os.O_NONBLOCK)
+        value = bytearray(struct.pack("=Ii", control_id, 2))
+        fcntl.ioctl(fd, 0xC008561C, value, True)
+        value = bytearray(struct.pack("=Ii", control_id, 0))
+        fcntl.ioctl(fd, 0xC008561B, value, True)
+        if struct.unpack("=Ii", value)[1] != 2:
+            raise RuntimeError("camera_unavailable")
+    except (OSError, struct.error, TypeError, ValueError) as error:
+        raise RuntimeError("camera_unavailable") from error
+    finally:
+        if fd is not None:
+            os.close(fd)
 
 
 def render_jpeg(frame, detections):

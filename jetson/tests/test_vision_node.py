@@ -6,12 +6,16 @@ import json
 import os
 import socket
 import ssl
+import struct
 import sys
 import tempfile
 import threading
 import time
+import types
 import unittest
+from unittest import mock
 
+from jetson import vision_node
 from jetson.clip_writer import (
     ClipBusy,
     ClipGone,
@@ -453,6 +457,86 @@ class VisionNodeHttpsTests(unittest.TestCase):
 
 
 class CameraRecoveryTests(unittest.TestCase):
+    def test_v4l2_power_line_frequency_is_set_to_60hz_and_verified(self):
+        self.assertTrue(hasattr(vision_node, "_set_power_line_frequency_60hz"))
+        calls = []
+        fake_fcntl = types.ModuleType("fcntl")
+
+        def ioctl(fd, request, control, mutate):
+            control_id, value = struct.unpack("=Ii", control)
+            calls.append((fd, request, control_id, value, mutate))
+            if request == 0xC008561B:
+                struct.pack_into("=Ii", control, 0, control_id, 2)
+
+        fake_fcntl.ioctl = ioctl
+        with mock.patch.dict(sys.modules, {"fcntl": fake_fcntl}):
+            with mock.patch.object(vision_node.os, "name", "posix"):
+                with mock.patch.object(vision_node.os, "O_NONBLOCK", 0x800, create=True):
+                    with mock.patch.object(vision_node.os, "open", return_value=7) as opener:
+                        with mock.patch.object(vision_node.os, "close") as closer:
+                            vision_node._set_power_line_frequency_60hz("/dev/video0")
+
+        opener.assert_called_once_with(
+            "/dev/video0", vision_node.os.O_RDWR | 0x800
+        )
+        closer.assert_called_once_with(7)
+        self.assertEqual(
+            calls,
+            [
+                (7, 0xC008561C, 0x00980918, 2, True),
+                (7, 0xC008561B, 0x00980918, 0, True),
+            ],
+        )
+
+    def test_camera_configures_power_line_before_opening_capture(self):
+        events = []
+
+        class Capture(object):
+            def set(self, unused_name, unused_value):
+                return True
+
+            def get(self, unused_name):
+                return 30.0
+
+            def isOpened(self):
+                return True
+
+            def release(self):
+                return None
+
+        class Cv2(object):
+            CAP_V4L2 = 200
+            CAP_PROP_FOURCC = 0
+            CAP_PROP_FRAME_WIDTH = 1
+            CAP_PROP_FRAME_HEIGHT = 2
+            CAP_PROP_FPS = 3
+
+            @staticmethod
+            def VideoWriter_fourcc(*values):
+                return values
+
+            @staticmethod
+            def VideoCapture(unused_device, unused_backend):
+                events.append("open")
+                return Capture()
+
+        previous = sys.modules.get("cv2")
+        sys.modules["cv2"] = Cv2
+        try:
+            with mock.patch.object(
+                vision_node,
+                "_set_power_line_frequency_60hz",
+                side_effect=lambda unused_device: events.append("60hz"),
+                create=True,
+            ):
+                OpenCvCamera("/dev/video0")
+        finally:
+            if previous is None:
+                del sys.modules["cv2"]
+            else:
+                sys.modules["cv2"] = previous
+        self.assertEqual(events, ["60hz", "open"])
+
     def test_camera_rejects_negotiated_fps_below_target(self):
         captures = []
 
