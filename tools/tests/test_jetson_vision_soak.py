@@ -857,21 +857,33 @@ def test_multipart_jpegs_rejects_tampered_live_digest() -> None:
 
 
 @pytest.mark.parametrize(
-    ("chunks", "maximum_frame_bytes"),
+    ("chunks", "maximum_frame_bytes", "message"),
     [
-        ((b"--frame\r\nContent-Type: image/jpeg\r\nContent-Type: image/jpeg\r\nContent-Length: 5\r\n\r\n\xff\xd8a\xff\xd9\r\n--frame--\r\n",), 10),
-        ((b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 5\r\nX-Test: 1\r\n\r\n\xff\xd8a\xff\xd9\r\n--frame--\r\n",), 10),
-        ((b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 05\r\n\r\n\xff\xd8a\xff\xd9\r\n--frame--\r\n",), 10),
-        ((b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 5\r\n\r\n\xff\xd8a\xff\xd9\r\n--frame--\r\n",), 4),
-        ((b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 5\r\n\r\n\xff\xd8a\xff\xd9\r\n--frame--\r",), 10),
-        ((b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 5\r\n\r\n\xff\xd8a\xff\xd9\r\n--frame--\r\ntrailing",), 10),
-        ((b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 5\r\n\r\n\x00\xd8a\xff\xd9\r\n--frame--\r\n",), 10),
-        ((b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 5\r\n\r\n\xff\xd8a\x00\x00\r\n--frame--\r\n",), 10),
-        ((b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 5\r\n\r\n\xff\xd8a\xff\xd9\r\n--frame--\r\n", "not bytes"), 10),
+        (
+            (_live_part(b"\xff\xd8a\xff\xd9").replace(
+                b"Content-Type: image/jpeg\r\n", b"Content-Type: image/jpeg\r\nContent-Type: image/jpeg\r\n", 1,
+            ) + b"--frame--\r\n",),
+            10,
+            "invalid multipart headers",
+        ),
+        (
+            (_live_part(b"\xff\xd8a\xff\xd9").replace(
+                b"\r\n\r\n", b"\r\nX-Test: 1\r\n\r\n", 1,
+            ) + b"--frame--\r\n",),
+            10,
+            "invalid multipart headers",
+        ),
+        ((_live_part(b"\xff\xd8a\xff\xd9").replace(b"Content-Length: 5", b"Content-Length: 05", 1) + b"--frame--\r\n",), 10, "invalid multipart length"),
+        ((_live_part(b"\xff\xd8a\xff\xd9") + b"--frame--\r\n",), 4, "invalid multipart length"),
+        ((_live_part(b"\xff\xd8a\xff\xd9"),), 10, "truncated multipart stream"),
+        ((_live_part(b"\xff\xd8a\xff\xd9") + b"--frame--\r\ntrailing",), 10, "trailing multipart data"),
+        ((_live_part(b"\x00\xd8a\xff\xd9") + b"--frame--\r\n",), 10, "invalid JPEG frame"),
+        ((_live_part(b"\xff\xd8a\x00\x00") + b"--frame--\r\n",), 10, "invalid JPEG frame"),
+        ((_live_part(b"\xff\xd8a\xff\xd9") + b"--frame--\r\n", "not bytes"), 10, "invalid multipart chunk"),
     ],
 )
 def test_multipart_jpegs_rejects_invalid_streams(
-    chunks: tuple[object, ...], maximum_frame_bytes: int,
+    chunks: tuple[object, ...], maximum_frame_bytes: int, message: str,
 ) -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=message):
         list(_multipart_jpegs(chunks, maximum_frame_bytes=maximum_frame_bytes))  # type: ignore[arg-type]
