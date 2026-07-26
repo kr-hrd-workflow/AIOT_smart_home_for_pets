@@ -70,6 +70,14 @@ void wait_with_usb(
 bool connect_wifi_with_usb(
     petcare::ProvisioningConfig& runtime,
     petcare::RuntimeDiagnostics& diagnostics) {
+    // A failed or just-powered CYW43 association can leave transient state
+    // behind. Both production boards reproduced CYW43_LINK_FAIL on a direct
+    // retry, while leave + a 2 s settle connected repeatedly. Reset the STA
+    // association on every outer retry; wait_with_usb also services the
+    // watchdog and USB provisioning during the settle period.
+    cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
+    wait_with_usb(runtime, diagnostics, 2'000);
+
     if (cyw43_arch_wifi_connect_async(
             runtime.ssid.data(),
             runtime.wifi_password.data(),
