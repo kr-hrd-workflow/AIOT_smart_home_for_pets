@@ -252,6 +252,98 @@ describe("tenant-scoped live proxy", () => {
         }),
     ],
     [
+      "fractional activity counter",
+      () =>
+        jsonUpstream({
+          ...summary,
+          activity: [
+            {
+              subject_id: "dog_001",
+              today_active_seconds: 1_260.5,
+              today_observed_seconds: 5_400,
+              current_state: "active",
+              last_observed_at: "2026-07-15T01:42:00Z",
+            },
+            {
+              subject_id: "cat_001",
+              today_active_seconds: 840,
+              today_observed_seconds: 4_980,
+              current_state: "still",
+              last_observed_at: "2026-07-15T01:41:00Z",
+            },
+          ],
+        }),
+    ],
+    [
+      "active activity without timestamp",
+      () =>
+        jsonUpstream({
+          ...summary,
+          activity: [
+            {
+              subject_id: "dog_001",
+              today_active_seconds: 1_260,
+              today_observed_seconds: 5_400,
+              current_state: "active",
+              last_observed_at: null,
+            },
+            {
+              subject_id: "cat_001",
+              today_active_seconds: 840,
+              today_observed_seconds: 4_980,
+              current_state: "still",
+              last_observed_at: "2026-07-15T01:41:00Z",
+            },
+          ],
+        }),
+    ],
+    [
+      "activity timestamp without timezone",
+      () =>
+        jsonUpstream({
+          ...summary,
+          activity: [
+            {
+              subject_id: "dog_001",
+              today_active_seconds: 1_260,
+              today_observed_seconds: 5_400,
+              current_state: "active",
+              last_observed_at: "2026-07-15T01:42:00",
+            },
+            {
+              subject_id: "cat_001",
+              today_active_seconds: 840,
+              today_observed_seconds: 4_980,
+              current_state: "still",
+              last_observed_at: "2026-07-15T01:41:00Z",
+            },
+          ],
+        }),
+    ],
+    [
+      "invalid activity timestamp",
+      () =>
+        jsonUpstream({
+          ...summary,
+          activity: [
+            {
+              subject_id: "dog_001",
+              today_active_seconds: 1_260,
+              today_observed_seconds: 5_400,
+              current_state: "active",
+              last_observed_at: "2026-99-99T01:42:00Z",
+            },
+            {
+              subject_id: "cat_001",
+              today_active_seconds: 840,
+              today_observed_seconds: 4_980,
+              current_state: "still",
+              last_observed_at: "2026-07-15T01:41:00Z",
+            },
+          ],
+        }),
+    ],
+    [
       "extra activity field",
       () =>
         jsonUpstream({

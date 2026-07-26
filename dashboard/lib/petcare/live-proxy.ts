@@ -34,6 +34,18 @@ function finite(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+function nonNegativeInteger(value: unknown): value is number {
+  return finite(value) && Number.isInteger(value) && value >= 0;
+}
+
+function timestamp(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value) &&
+    Number.isFinite(Date.parse(value))
+  );
+}
+
 function nullableString(value: unknown) {
   return value === null || typeof value === "string";
 }
@@ -174,13 +186,13 @@ function isActivity(value: unknown) {
       "last_observed_at",
     ]) &&
     oneOf(value.subject_id, ["dog_001", "cat_001"]) &&
-    finite(value.today_active_seconds) &&
-    value.today_active_seconds >= 0 &&
-    finite(value.today_observed_seconds) &&
-    value.today_observed_seconds >= 0 &&
+    nonNegativeInteger(value.today_active_seconds) &&
+    nonNegativeInteger(value.today_observed_seconds) &&
     value.today_active_seconds <= value.today_observed_seconds &&
     oneOf(value.current_state, ["active", "still", "unknown"]) &&
-    nullableString(value.last_observed_at)
+    (value.current_state === "unknown"
+      ? value.last_observed_at === null || timestamp(value.last_observed_at)
+      : timestamp(value.last_observed_at))
   );
 }
 
