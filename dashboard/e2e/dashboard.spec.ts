@@ -39,6 +39,7 @@ function summaryOf(data: DashboardData): DashboardSummary {
     bed: data.bed,
     behaviors: data.behaviors,
     anomalies: data.anomalies,
+    activity: data.activity,
   };
 }
 
