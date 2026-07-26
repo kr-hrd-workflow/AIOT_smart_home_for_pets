@@ -69,7 +69,9 @@ void wait_with_usb(
 
 bool connect_wifi_with_usb(
     petcare::ProvisioningConfig& runtime,
-    petcare::RuntimeDiagnostics& diagnostics) {
+    petcare::RuntimeDiagnostics& diagnostics,
+    bool& established_wifi_association) {
+    established_wifi_association = false;
     const auto link_status =
         cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
     diagnostics.wifi_link_status = static_cast<std::int8_t>(link_status);
@@ -100,6 +102,7 @@ bool connect_wifi_with_usb(
         diagnostics.wifi_link_status =
             static_cast<std::int8_t>(status);
         if (status == CYW43_LINK_UP) {
+            established_wifi_association = true;
             return true;
         }
         if (status == CYW43_LINK_NONET) {
@@ -212,7 +215,9 @@ int main() {
     for (;;) {
         diagnostics.phase = petcare::RuntimePhase::wifi_connecting;
         diagnostics.error = petcare::RuntimeError::none;
-        if (!connect_wifi_with_usb(runtime, diagnostics)) {
+        bool established_wifi_association = false;
+        if (!connect_wifi_with_usb(
+                runtime, diagnostics, established_wifi_association)) {
             diagnostics.phase = petcare::RuntimePhase::backoff;
             diagnostics.error = petcare::RuntimeError::wifi;
             wait_with_usb(
@@ -224,7 +229,9 @@ int main() {
         diagnostics.wifi_link_status = static_cast<std::int8_t>(
             cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA));
         wifi_backoff.reset();
-        start_sntp();
+        if (established_wifi_association) {
+            start_sntp();
+        }
 
         diagnostics.phase = petcare::RuntimePhase::time_syncing;
         diagnostics.error = petcare::RuntimeError::none;
