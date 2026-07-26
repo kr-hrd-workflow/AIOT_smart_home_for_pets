@@ -32,6 +32,10 @@ void petcare_sntp_set_system_time_us(uint32_t seconds, uint32_t microseconds);
 #define LWIP_DHCP 1
 #define LWIP_DNS 1
 #define LWIP_MQTT 1
+// lwIP reserves only its internal protocol timers by default. MQTT and SNTP
+// each allocate one additional sys_timeout; without both slots the Pico
+// panics with "MEMP_SYS_TIMEOUT is empty" when these clients start.
+#define MEMP_NUM_SYS_TIMEOUT (LWIP_NUM_SYS_TIMEOUT_INTERNAL + 2)
 #define MQTT_REQ_MAX_IN_FLIGHT 16
 #define MQTT_OUTPUT_RINGBUF_SIZE 2048
 #define LWIP_SNTP 1
