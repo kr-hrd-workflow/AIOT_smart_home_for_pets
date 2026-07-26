@@ -93,7 +93,7 @@ const clip: PetCareClip = {
 it("polls every two seconds and uses authenticated MJPEG", async () => {
   vi.useFakeTimers();
   const { client, media, accountClient } = mockRemote();
-  render(
+  const { container } = render(
     <RemoteDashboardView
       client={client}
       media={media}
@@ -104,6 +104,28 @@ it("polls every two seconds and uses authenticated MJPEG", async () => {
   await act(async () => Promise.resolve());
   expect(client.getStatus).toHaveBeenCalledTimes(1);
   expect(media.videoFeedUrl).toHaveBeenCalledWith("camera-1");
+  expect(
+    screen.getByRole("img", { name: "실시간 반려동물 카메라" }),
+  ).toHaveAttribute("src", "/api/petcare/cameras/camera-1/stream.mjpeg");
+
+  const summary = container.querySelector('[data-dashboard-section="summary"]')!;
+  expect(within(summary).getByText("오늘 활동 추정")).toBeInTheDocument();
+  expect(within(summary).getByText("35분")).toBeInTheDocument();
+  expect(
+    within(summary).getByText("카메라 관측 173분 기준"),
+  ).toBeInTheDocument();
+
+  const restPanel = container.querySelector(
+    '[data-dashboard-section="confirmed-rest"]',
+  )!;
+  const activityRows = within(restPanel).getAllByRole("listitem");
+  expect(activityRows).toHaveLength(2);
+  expect(activityRows.map((row) => row.textContent)).toEqual(
+    expect.arrayContaining([
+      expect.stringContaining("dog_001"),
+      expect.stringContaining("cat_001"),
+    ]),
+  );
   await act(async () => vi.advanceTimersByTimeAsync(2_000));
   expect(client.getStatus).toHaveBeenCalledTimes(2);
 });
