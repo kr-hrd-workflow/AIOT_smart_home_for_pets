@@ -99,6 +99,20 @@ export type TenantCleanupRecord = {
   status: "cleanup_pending";
 };
 
+export type SnapshotAgent = {
+  homeId: string;
+  agentId: string;
+  cameraId: string;
+  publicKey: string;
+};
+
+export type OwnerSnapshot = {
+  agentId: string;
+  cameraId: string;
+  body: string;
+  receivedAt: string;
+};
+
 export type ActivityCleanupCommand = {
   commandId: string;
   homeId: string;
@@ -1211,6 +1225,86 @@ export class PetCareRepository {
       `)
       .bind(now, code, ownerSub, homeId)
       .run();
+  }
+
+  async requireOutboundAgent(agentId: string): Promise<SnapshotAgent> {
+    const row = await this.db
+      .prepare(`
+        SELECT a.home_id, a.id AS agent_id, c.id AS camera_id, a.public_key
+        FROM agents a
+        JOIN homes h ON h.id = a.home_id AND h.deleted_at IS NULL
+        JOIN cameras c ON c.home_id = a.home_id AND c.agent_id = a.id AND c.disabled_at IS NULL
+        LEFT JOIN tenant_cleanup tc ON tc.home_id = a.home_id
+        WHERE a.id = ? AND a.connection_mode = 'outbound'
+          AND a.revoked_at IS NULL AND tc.home_id IS NULL
+        LIMIT 1
+      `)
+      .bind(agentId)
+      .first<{ home_id: string; agent_id: string; camera_id: string; public_key: string }>();
+    if (!row) throw new PetCareError(401, "invalid_agent_signature");
+    return {
+      homeId: row.home_id,
+      agentId: row.agent_id,
+      cameraId: row.camera_id,
+      publicKey: row.public_key,
+    };
+  }
+
+  async putAgentSnapshot(
+    agentId: string,
+    body: string,
+    generatedAt: string,
+    receivedAt: string,
+  ): Promise<void> {
+    const statements = [
+      this.db
+        .prepare(`
+          INSERT INTO agent_snapshots (home_id, agent_id, body, generated_at, received_at)
+          SELECT a.home_id, a.id, ?, ?, ?
+          FROM agents a
+          JOIN homes h ON h.id = a.home_id AND h.deleted_at IS NULL
+          JOIN cameras c ON c.home_id = a.home_id AND c.agent_id = a.id AND c.disabled_at IS NULL
+          LEFT JOIN tenant_cleanup tc ON tc.home_id = a.home_id
+          WHERE a.id = ? AND a.connection_mode = 'outbound'
+            AND a.revoked_at IS NULL AND tc.home_id IS NULL
+          ON CONFLICT(home_id) DO UPDATE SET
+            agent_id = excluded.agent_id,
+            body = excluded.body,
+            generated_at = excluded.generated_at,
+            received_at = excluded.received_at
+        `)
+        .bind(body, generatedAt, receivedAt, agentId),
+      this.db
+        .prepare(`
+          UPDATE agents SET last_seen_at = ?
+          WHERE id = ? AND connection_mode = 'outbound' AND revoked_at IS NULL
+        `)
+        .bind(receivedAt, agentId),
+    ];
+    const results = await this.db.batch(statements);
+    if (results[0]?.meta.changes !== 1 || results[1]?.meta.changes !== 1) {
+      throw new PetCareError(401, "invalid_agent_signature");
+    }
+  }
+
+  async getOwnerSnapshot(ownerSub: string): Promise<OwnerSnapshot | null> {
+    const row = await this.db
+      .prepare(`
+        SELECT s.agent_id, c.id AS camera_id, s.body, s.received_at
+        FROM homes h
+        JOIN agent_snapshots s ON s.home_id = h.id
+        JOIN agents a ON a.id = s.agent_id AND a.home_id = h.id
+          AND a.connection_mode = 'outbound' AND a.revoked_at IS NULL
+        JOIN cameras c ON c.home_id = h.id AND c.agent_id = a.id AND c.disabled_at IS NULL
+        LEFT JOIN tenant_cleanup tc ON tc.home_id = h.id
+        WHERE h.owner_sub = ? AND h.deleted_at IS NULL AND tc.home_id IS NULL
+        LIMIT 1
+      `)
+      .bind(ownerSub)
+      .first<{ agent_id: string; camera_id: string; body: string; received_at: string }>();
+    return row
+      ? { agentId: row.agent_id, cameraId: row.camera_id, body: row.body, receivedAt: row.received_at }
+      : null;
   }
 
   async requireActivityCleanupAgent(

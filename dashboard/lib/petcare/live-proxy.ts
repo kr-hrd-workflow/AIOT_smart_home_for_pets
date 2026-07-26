@@ -213,7 +213,7 @@ function isAnomaly(value: unknown) {
   );
 }
 
-function isDashboardSummary(value: unknown): value is DashboardSummary {
+export function isDashboardSummary(value: unknown): value is DashboardSummary {
   return (
     exact(value, ["generated_at", "health", "devices", "latest_sensors", "camera", "bed", "behaviors", "anomalies", "activity"]) &&
     typeof value.generated_at === "string" &&
@@ -293,6 +293,39 @@ export async function proxyStatus(
   now: Date,
 ): Promise<Response> {
   const resolved = await connection(user, env);
+  const stored = await resolved.petcare.getOwnerSnapshot(user.sub);
+  if (stored) {
+    const receivedAt = Date.parse(stored.receivedAt);
+    if (!Number.isFinite(receivedAt) || now.getTime() - receivedAt > 5_000) {
+      return offline({
+        agentId: stored.agentId,
+        cameraId: stored.cameraId,
+        lastSeenAt: stored.receivedAt,
+      } as ActiveRoute);
+    }
+    try {
+      const dashboard: unknown = JSON.parse(stored.body);
+      if (!isDashboardSummary(dashboard)) throw new Error("invalid_snapshot");
+      return Response.json(
+        {
+          home: { id: resolved.home.id, state: "ready" },
+          agent: { id: stored.agentId, state: "online", last_seen_at: stored.receivedAt },
+          camera:
+            dashboard.camera.state === "online"
+              ? { id: stored.cameraId, state: "online", last_seen_at: stored.receivedAt }
+              : null,
+          dashboard,
+        },
+        { headers: PRIVATE_HEADERS },
+      );
+    } catch {
+      return offline({
+        agentId: stored.agentId,
+        cameraId: stored.cameraId,
+        lastSeenAt: stored.receivedAt,
+      } as ActiveRoute);
+    }
+  }
   if (resolved.state.state === "needs_enrollment") {
     return Response.json(
       {

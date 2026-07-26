@@ -77,6 +77,7 @@ describe("tenant-scoped live proxy", () => {
       "requireActivationRoute",
     ).mockResolvedValue(route);
     vi.spyOn(PetCareRepository.prototype, "markAgentSeen").mockResolvedValue();
+    vi.spyOn(PetCareRepository.prototype, "getOwnerSnapshot").mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -155,6 +156,29 @@ describe("tenant-scoped live proxy", () => {
     expect(await response.json()).toMatchObject({
       camera: null,
       dashboard: { camera: { state: "offline" } },
+    });
+  });
+
+  it("reads a fresh outbound owner's D1 snapshot without a tunnel or CF credentials", async () => {
+    const outboundRoute = { ...route, tunnelOrigin: "", connectionMode: "outbound" as const };
+    vi.mocked(PetCareRepository.prototype.getHomeConnection).mockResolvedValue(ready(outboundRoute));
+    vi.mocked(PetCareRepository.prototype.getOwnerSnapshot).mockResolvedValue({
+      agentId: "agent-a",
+      cameraId: "camera-a",
+      body: JSON.stringify(summary),
+      receivedAt: "2026-07-20T00:59:58.000Z",
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await proxyStatus(user, { DB: {} as never, CLIPS: {} as never } as never, now);
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await response.json()).toMatchObject({
+      agent: { id: "agent-a", state: "online", last_seen_at: "2026-07-20T00:59:58.000Z" },
+      camera: { id: "camera-a", state: "online", last_seen_at: "2026-07-20T00:59:58.000Z" },
+      dashboard: summary,
     });
   });
 
