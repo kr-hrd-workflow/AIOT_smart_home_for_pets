@@ -303,6 +303,40 @@ def test_live_stream_closes_response_on_downstream_cancellation(tmp_path: Path) 
     assert response.is_closed
 
 
+def test_live_stream_rejects_a_second_active_connection_and_recovers_after_close(tmp_path: Path) -> None:
+    class Body(httpx.SyncByteStream):
+        def __init__(self, chunk: bytes) -> None:
+            self.chunk = chunk
+
+        def __iter__(self):
+            yield self.chunk
+            yield b"later"
+
+    first = httpx.Response(200, headers=FIXTURE["live"]["headers"], stream=Body(b"first"))
+    second = httpx.Response(200, headers=FIXTURE["live"]["headers"], stream=Body(b"reconnected"))
+    responses = iter((first, second))
+    live_requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/status":
+            return httpx.Response(200, json=FIXTURE["status"])
+        live_requests.append(request)
+        return next(responses)
+
+    client = JetsonVisionClient(config(tmp_path), clients=clients(handler), now=lambda: NOW)
+    client.status()
+    stream = client.live_stream()
+    assert next(stream) == b"first"
+    with pytest.raises(JetsonClientError, match="live_stream_active"):
+        next(client.live_stream())
+    assert len(live_requests) == 1
+    stream.close()
+    reconnected = client.live_stream()
+    assert next(reconnected) == b"reconnected"
+    reconnected.close()
+    assert first.is_closed and second.is_closed
+
+
 def test_live_stream_closes_response_after_upstream_read_error(tmp_path: Path) -> None:
     class Body(httpx.SyncByteStream):
         def __iter__(self):
@@ -484,7 +518,7 @@ def test_every_first_put_calibrates_on_isolated_admission_pool(tmp_path: Path) -
     assert requests == [("GET", "/v1/status"), ("PUT", "/v1/clips/fedcba9876543210fedcba9876543210")]
 
 
-def test_close_closes_all_three_clients(tmp_path: Path) -> None:
+def test_close_closes_all_four_clients(tmp_path: Path) -> None:
     closed: list[int] = []
 
     class Client:

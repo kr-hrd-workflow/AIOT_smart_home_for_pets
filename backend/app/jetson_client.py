@@ -359,6 +359,8 @@ class JetsonVisionClient:
                     self._status()
         assert self._boot_id is not None
         with self._locks[3]:
+            if self._live_response is not None:
+                raise JetsonClientError("live_stream_active")
             response = self._send(self._live, "GET", "/v1/live.mjpeg")
             expected = {
                 "content-type", "cache-control", "x-petcare-jetson-boot-id",
