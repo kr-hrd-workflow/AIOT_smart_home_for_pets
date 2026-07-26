@@ -577,8 +577,13 @@ class CameraRecoveryTests(unittest.TestCase):
         previous = sys.modules.get("cv2")
         sys.modules["cv2"] = Cv2
         try:
-            with self.assertRaisesRegex(RuntimeError, "camera_unavailable"):
-                OpenCvCamera("/dev/video0")
+            with mock.patch.object(
+                vision_node,
+                "_set_power_line_frequency_60hz",
+            ) as configure_power_line:
+                with self.assertRaisesRegex(RuntimeError, "camera_unavailable"):
+                    OpenCvCamera("/dev/video0")
+            configure_power_line.assert_called_once_with("/dev/video0")
             self.assertTrue(captures[0].released)
         finally:
             if previous is None:
@@ -785,21 +790,29 @@ class CameraRecoveryTests(unittest.TestCase):
         previous = sys.modules.get("cv2")
         sys.modules["cv2"] = Cv2
         try:
-            camera = OpenCvCamera("/dev/video0")
-            with self.assertRaisesRegex(RuntimeError, "camera_unavailable"):
-                camera.read()
-            frame = camera.read()
-            self.assertEqual(frame.shape, (480, 640, 3))
-            self.assertEqual(len(captures), 2)
-            self.assertTrue(captures[0].released)
-            expected = [
-                (Cv2.CAP_PROP_FOURCC, ("M", "J", "P", "G")),
-                (Cv2.CAP_PROP_FRAME_WIDTH, 640),
-                (Cv2.CAP_PROP_FRAME_HEIGHT, 480),
-                (Cv2.CAP_PROP_FPS, 30),
-            ]
-            self.assertEqual(captures[0].settings, expected)
-            self.assertEqual(captures[1].settings, expected)
+            with mock.patch.object(
+                vision_node,
+                "_set_power_line_frequency_60hz",
+            ) as configure_power_line:
+                camera = OpenCvCamera("/dev/video0")
+                with self.assertRaisesRegex(RuntimeError, "camera_unavailable"):
+                    camera.read()
+                frame = camera.read()
+                self.assertEqual(frame.shape, (480, 640, 3))
+                self.assertEqual(len(captures), 2)
+                self.assertTrue(captures[0].released)
+                expected = [
+                    (Cv2.CAP_PROP_FOURCC, ("M", "J", "P", "G")),
+                    (Cv2.CAP_PROP_FRAME_WIDTH, 640),
+                    (Cv2.CAP_PROP_FRAME_HEIGHT, 480),
+                    (Cv2.CAP_PROP_FPS, 30),
+                ]
+                self.assertEqual(captures[0].settings, expected)
+                self.assertEqual(captures[1].settings, expected)
+            self.assertEqual(
+                configure_power_line.call_args_list,
+                [mock.call("/dev/video0"), mock.call("/dev/video0")],
+            )
         finally:
             if previous is None:
                 del sys.modules["cv2"]
@@ -936,6 +949,7 @@ class ConfigurationTests(unittest.TestCase):
             path = os.path.join(directory, "config.json")
             with open(path, "w", encoding="utf-8") as handle:
                 json.dump(value, handle)
+            os.chmod(path, 0o600)
             self.assertEqual(_configuration(path)["bind_ip"], "100.64.0.10")
 
     def test_runtime_configuration_rejects_non_rfc1918_bind(self):
@@ -956,6 +970,7 @@ class ConfigurationTests(unittest.TestCase):
             path = os.path.join(directory, "config.json")
             with open(path, "w", encoding="utf-8") as handle:
                 json.dump(value, handle)
+            os.chmod(path, 0o600)
             with self.assertRaisesRegex(ValueError, "invalid_configuration"):
                 _configuration(path)
 
