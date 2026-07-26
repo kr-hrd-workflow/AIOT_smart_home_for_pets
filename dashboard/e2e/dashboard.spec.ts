@@ -350,7 +350,7 @@ test.describe("real /demo route", () => {
       await page.setViewportSize(viewport);
       await page.goto("/demo", { waitUntil: "networkidle" });
 
-      await expect(page.getByText("현재 휴식")).toBeVisible();
+      await expect(page.getByText("오늘 활동 추정")).toBeVisible();
       await expect(page.getByText("오늘 휴식 추정")).toBeVisible();
       await expect(page.getByText("야간 침대 이탈")).toBeVisible();
       await expect(page.getByText("42분", { exact: true }).first()).toBeVisible();
