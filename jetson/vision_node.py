@@ -190,6 +190,13 @@ class OpenCvCamera(object):
         if not self.capture.isOpened():
             self.capture.release()
             raise RuntimeError("camera_unavailable")
+        try:
+            fps = float(self.capture.get(self.cv2.CAP_PROP_FPS))
+        except (TypeError, ValueError):
+            fps = 0.0
+        if not math.isfinite(fps) or abs(fps - 30.0) > 0.5:
+            self.capture.release()
+            raise RuntimeError("camera_unavailable")
 
     def read(self):
         ok, frame = self.capture.read()
@@ -581,11 +588,6 @@ class VisionNode(object):
                 self.camera.close()
             except BaseException as error:
                 first_error = first_error or error
-        if self.detector is not None:
-            try:
-                self.detector.close()
-            except BaseException as error:
-                first_error = first_error or error
         if self._capture_thread is not None:
             self._capture_thread.join(remaining())
             if self._capture_thread.is_alive():
@@ -594,6 +596,11 @@ class VisionNode(object):
             self._inference_thread.join(remaining())
             if self._inference_thread.is_alive():
                 first_error = first_error or RuntimeError("inference_shutdown_timeout")
+        if self.detector is not None and (self._inference_thread is None or not self._inference_thread.is_alive()):
+            try:
+                self.detector.close()
+            except BaseException as error:
+                first_error = first_error or error
         if self._sampler_thread is not None:
             self._sampler_thread.join(remaining())
             if self._sampler_thread.is_alive():

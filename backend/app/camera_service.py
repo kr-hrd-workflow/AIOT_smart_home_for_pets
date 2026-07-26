@@ -43,7 +43,9 @@ def build_camera_service(
         session.close()
     if config.camera_source == "jetson":
         assert config.jetson_config is not None
-        return CameraService(None, ingress, session_factory, JetsonVisionClient(config.jetson_config), zones)
+        return CameraService(
+            None, ingress, session_factory, JetsonVisionClient(config.jetson_config), zones, owns_jetson_client=True,
+        )
     source = (
         FileFrameSource(config.camera_file_path)
         if config.camera_source == "file"
@@ -62,9 +64,11 @@ class CameraService:
         jetson_client: JetsonVisionClient | None = None,
         zones: dict[str, tuple[int, int, int, int]] | None = None,
         now: Callable[[], datetime] | None = None,
+        owns_jetson_client: bool = False,
     ) -> None:
         self.pipeline = pipeline
         self._jetson_client = jetson_client
+        self._owns_jetson_client = owns_jetson_client
         self._zones = dict(zones or (pipeline.zones if pipeline is not None else {}))
         self._now = now or (lambda: datetime.now(UTC))
         self._ingress = ingress
@@ -354,10 +358,11 @@ class CameraService:
 
     def shutdown(self) -> None:
         self._stop.set()
+        worker_stopped = True
         if self._worker is not None:
             self._worker.join(16.0 if self._jetson_client is not None else None)
             if self._worker.is_alive():
-                raise RuntimeError("camera worker did not stop")
+                worker_stopped = False
         if self.pipeline is not None and self.pipeline.source is not None:
             close = getattr(self.pipeline.source, "close", None)
             if close is not None:
@@ -365,3 +370,10 @@ class CameraService:
                     close()
                 except Exception:
                     pass
+        if self._owns_jetson_client and self._jetson_client is not None:
+            try:
+                self._jetson_client.close()
+            except Exception:
+                pass
+        if not worker_stopped:
+            raise RuntimeError("camera worker did not stop")

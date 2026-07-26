@@ -552,6 +552,25 @@ def test_jetson_camera_uses_remote_frame_without_local_yolo_and_keeps_persistenc
     assert "remote-close" not in calls
 
 
+def test_shutdown_closes_owned_jetson_client_and_releases_live_admission() -> None:
+    class Remote:
+        active_live_admission = True
+        closed = 0
+
+        def close(self) -> None:
+            self.closed += 1
+            self.active_live_admission = False
+
+    remote = Remote()
+    service = CameraService(None, None, None, remote)
+    service._owns_jetson_client = True
+
+    service.shutdown()
+
+    assert remote.closed == 1
+    assert remote.active_live_admission is False
+
+
 def test_jetson_mjpeg_stream_passes_raw_chunks_once_and_closes_upstream() -> None:
     raw_chunks = (
         b"--frame\r\nContent-Type: image/jpeg\r\n\r\nfirst\r\n",

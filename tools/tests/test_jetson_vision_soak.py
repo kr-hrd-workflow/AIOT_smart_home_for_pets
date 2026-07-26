@@ -745,15 +745,69 @@ def test_persistent_live_sample_discards_partial_attempt_before_reconnect() -> N
     jetson = FakeJetson(clock, live_attempts=[10])
     state = {"stream": None, "parser": None, "opened": 0, "closed": 0, "reconnects": 0}
 
-    sample = _collect_live_sample(jetson, clock.monotonic, state)
+    sample = _collect_live_sample(jetson, state)
     _close_live_stream(state)
 
-    assert sample["duration_seconds"] == pytest.approx(1.0)
+    assert sample["duration_seconds"] == pytest.approx(1.0, abs=3e-6)
     assert sample["total_frames"] == 30 and sample["unique_frames"] == 30
     assert state == {"stream": None, "parser": None, "opened": 2, "closed": 2, "reconnects": 1}
     assert all(stream.closed for stream in jetson.live_streams)
     assert jetson.active_live_streams == 0
     assert jetson.remote_live_admitted is False
+
+
+def test_live_sample_uses_part_metadata_instead_of_buffer_drain_speed() -> None:
+    class BufferedStream:
+        closed = False
+
+        def __iter__(self):
+            started = datetime(2026, 7, 20, 4, tzinfo=UTC)
+            for sequence in range(1, 31):
+                observed_at = _utc_text(started + timedelta(seconds=(sequence - 1) / 24))
+                yield _live_part(b"\xff\xd8" + bytes([sequence]) + b"\xff\xd9", sequence=sequence, observed_at=observed_at)
+
+        def close(self) -> None:
+            self.closed = True
+
+    class Jetson:
+        def __init__(self) -> None:
+            self.stream = BufferedStream()
+
+        def live_stream(self) -> BufferedStream:
+            return self.stream
+
+    jetson = Jetson()
+    stream = jetson.stream
+    state = {"stream": None, "parser": None, "opened": 0, "closed": 0, "reconnects": 0}
+
+    with pytest.raises(ValueError, match="live sample duration"):
+        _collect_live_sample(jetson, state)
+
+    assert stream.closed is True
+
+
+def test_live_sample_rejects_nonmonotonic_part_sequence() -> None:
+    class Stream:
+        closed = False
+
+        def __iter__(self):
+            started = datetime(2026, 7, 20, 4, tzinfo=UTC)
+            for position in range(30):
+                sequence = 1 if position == 1 else position + 1
+                observed_at = _utc_text(started + timedelta(seconds=position / 30))
+                yield _live_part(b"\xff\xd8" + bytes([position]) + b"\xff\xd9", sequence=sequence, observed_at=observed_at)
+
+        def close(self) -> None:
+            self.closed = True
+
+    stream = Stream()
+    jetson = type("Jetson", (), {"live_stream": lambda self: stream})()
+    state = {"stream": None, "parser": None, "opened": 0, "closed": 0, "reconnects": 0}
+
+    with pytest.raises(ValueError, match="live sample metadata"):
+        _collect_live_sample(jetson, state)
+
+    assert stream.closed is True
 
 
 def test_persistent_live_sample_closes_both_failed_attempts() -> None:
@@ -762,7 +816,7 @@ def test_persistent_live_sample_closes_both_failed_attempts() -> None:
     state = {"stream": None, "parser": None, "opened": 0, "closed": 0, "reconnects": 0}
 
     with pytest.raises(RuntimeError, match="live stream reconnect failed"):
-        _collect_live_sample(jetson, clock.monotonic, state)
+        _collect_live_sample(jetson, state)
 
     assert state == {"stream": None, "parser": None, "opened": 2, "closed": 2, "reconnects": 1}
     assert all(stream.closed for stream in jetson.live_streams)
@@ -777,7 +831,7 @@ def test_post_close_live_admissions_prove_remote_single_admission_released() -> 
     jetson = FakeJetson(clock, live_attempts=[None])
     state = {"stream": None, "parser": None, "opened": 0, "closed": 0, "reconnects": 0}
 
-    _collect_live_sample(jetson, clock.monotonic, state)
+    _collect_live_sample(jetson, state)
     _close_live_stream(state)
 
     assert _post_close_live_admissions(jetson) == 2
@@ -791,7 +845,7 @@ def test_post_close_live_admissions_rejects_occupied_remote_admission() -> None:
     jetson = FakeJetson(clock, live_attempts=[None], stick_remote_after_close=1)
     state = {"stream": None, "parser": None, "opened": 0, "closed": 0, "reconnects": 0}
 
-    _collect_live_sample(jetson, clock.monotonic, state)
+    _collect_live_sample(jetson, state)
     _close_live_stream(state)
 
     assert _post_close_live_admissions(jetson) == 0

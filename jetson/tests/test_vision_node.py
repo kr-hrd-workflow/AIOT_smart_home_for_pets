@@ -453,6 +453,55 @@ class VisionNodeHttpsTests(unittest.TestCase):
 
 
 class CameraRecoveryTests(unittest.TestCase):
+    def test_camera_rejects_negotiated_fps_below_target(self):
+        captures = []
+
+        class Capture(object):
+            def __init__(self):
+                self.released = False
+
+            def set(self, unused_name, unused_value):
+                return True
+
+            def get(self, name):
+                assert name == Cv2.CAP_PROP_FPS
+                return 29.4
+
+            def isOpened(self):
+                return True
+
+            def release(self):
+                self.released = True
+
+        class Cv2(object):
+            CAP_V4L2 = 200
+            CAP_PROP_FOURCC = 0
+            CAP_PROP_FRAME_WIDTH = 1
+            CAP_PROP_FRAME_HEIGHT = 2
+            CAP_PROP_FPS = 3
+
+            @staticmethod
+            def VideoWriter_fourcc(*values):
+                return values
+
+            @staticmethod
+            def VideoCapture(unused_device, unused_backend):
+                capture = Capture()
+                captures.append(capture)
+                return capture
+
+        previous = sys.modules.get("cv2")
+        sys.modules["cv2"] = Cv2
+        try:
+            with self.assertRaisesRegex(RuntimeError, "camera_unavailable"):
+                OpenCvCamera("/dev/video0")
+            self.assertTrue(captures[0].released)
+        finally:
+            if previous is None:
+                del sys.modules["cv2"]
+            else:
+                sys.modules["cv2"] = previous
+
     def test_capture_overwrites_raw_slot_and_keeps_preview_matched(self):
         class Camera(object):
             def __init__(self):
@@ -518,6 +567,7 @@ class CameraRecoveryTests(unittest.TestCase):
             self.assertEqual(preview_observation, observation)
             self.assertEqual(jpeg, b"frame-1")
         finally:
+            detector.close_requested.set()
             node.shutdown(timeout=1)
         for thread in (node._capture_thread, node._inference_thread, node._sampler_thread):
             self.assertFalse(thread.is_alive())
@@ -615,6 +665,10 @@ class CameraRecoveryTests(unittest.TestCase):
                 self.settings.append((name, value))
                 return True
 
+            def get(self, name):
+                assert name == Cv2.CAP_PROP_FPS
+                return 30.0
+
             def isOpened(self):
                 return True
 
@@ -667,6 +721,72 @@ class CameraRecoveryTests(unittest.TestCase):
                 del sys.modules["cv2"]
             else:
                 sys.modules["cv2"] = previous
+
+    def test_shutdown_joins_inference_before_closing_detector(self):
+        calls = []
+        camera_closed = threading.Event()
+
+        class Camera(object):
+            reads = 0
+
+            def read(self):
+                self.reads += 1
+                if self.reads == 1:
+                    return object()
+                camera_closed.wait(1)
+                raise RuntimeError("camera_unavailable")
+
+            def close(self):
+                calls.append("camera-close")
+                camera_closed.set()
+
+        class Detector(object):
+            def __init__(self):
+                self.started = threading.Event()
+                self.ready_to_finish = threading.Event()
+                self.finish = threading.Event()
+
+            def infer(self, unused_frame):
+                self.started.set()
+                camera_closed.wait(1)
+                self.ready_to_finish.set()
+                self.finish.wait(1)
+                calls.append("inference-finished")
+                return []
+
+            def close(self):
+                calls.append("detector-close")
+
+        detector = Detector()
+        node = VisionNode(
+            SECRET,
+            BOOT_ID,
+            FakeWriter(""),
+            FakeProbe(),
+            camera=Camera(),
+            detector=detector,
+            renderer=lambda unused_frame, unused_detections: JPEG,
+        )
+        node.start()
+        self.assertTrue(detector.started.wait(1))
+        errors = []
+
+        def shutdown():
+            try:
+                node.shutdown(timeout=1)
+            except BaseException as error:
+                errors.append(error)
+
+        stopper = threading.Thread(target=shutdown)
+        stopper.start()
+        self.assertTrue(detector.ready_to_finish.wait(1))
+        detector.finish.set()
+        stopper.join(1)
+
+        self.assertFalse(stopper.is_alive())
+        self.assertEqual(errors, [])
+        self.assertLess(calls.index("camera-close"), calls.index("inference-finished"))
+        self.assertLess(calls.index("inference-finished"), calls.index("detector-close"))
 
     def test_observed_at_is_captured_before_slow_inference(self):
         clock = Clock()

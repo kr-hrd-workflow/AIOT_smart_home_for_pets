@@ -104,9 +104,9 @@ def _items(value: object, name: str) -> list[Mapping[str, object]]:
     return value  # type: ignore[return-value]
 
 
-def _multipart_jpegs(
+def _multipart_parts(
     chunks: Iterable[bytes], *, maximum_frame_bytes: int = 10 * 1024 * 1024,
-) -> Iterable[bytes]:
+) -> Iterable[tuple[int, datetime, bytes]]:
     if type(maximum_frame_bytes) is not int or maximum_frame_bytes < 0:
         raise ValueError("invalid maximum frame bytes")
     opening = b"--frame\r\n"
@@ -129,6 +129,8 @@ def _multipart_jpegs(
     reading_headers = False
     frame_length = 0
     frame_sha256 = ""
+    frame_sequence = 0
+    frame_observed_at: datetime | None = None
 
     for chunk in chunks:
         if type(chunk) is not bytes:
@@ -184,9 +186,10 @@ def _multipart_jpegs(
                 ):
                     raise ValueError("invalid multipart headers")
                 try:
-                    datetime.strptime(observed_text, "%Y-%m-%dT%H:%M:%S.%fZ")
+                    frame_observed_at = datetime.strptime(observed_text, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
                 except ValueError as error:
                     raise ValueError("invalid multipart headers") from error
+                frame_sequence = int(sequence_text)
                 del buffer[:headers_end + 4]
                 reading_headers = False
                 continue
@@ -202,7 +205,9 @@ def _multipart_jpegs(
                     raise ValueError("invalid JPEG frame")
                 if hashlib.sha256(frame).hexdigest() != frame_sha256:
                     raise ValueError("invalid multipart digest")
-                yield frame
+                if frame_observed_at is None:
+                    raise ValueError("invalid multipart headers")
+                yield frame_sequence, frame_observed_at, frame
                 continue
             if buffer.startswith(closing):
                 del buffer[:len(closing)]
@@ -219,6 +224,13 @@ def _multipart_jpegs(
 
     if not complete:
         raise ValueError("truncated multipart stream")
+
+
+def _multipart_jpegs(
+    chunks: Iterable[bytes], *, maximum_frame_bytes: int = 10 * 1024 * 1024,
+) -> Iterable[bytes]:
+    for _sequence, _observed_at, frame in _multipart_parts(chunks, maximum_frame_bytes=maximum_frame_bytes):
+        yield frame
 
 
 def _unique_jpeg_count(frames: Iterable[bytes]) -> int:
@@ -245,24 +257,23 @@ def _close_live_stream(state: dict[str, object]) -> None:
 
 
 def _collect_live_sample(
-    jetson: JetsonCollectorClient, monotonic: Callable[[], float], state: dict[str, object],
+    jetson: JetsonCollectorClient, state: dict[str, object],
 ) -> dict[str, object]:
     last_error: Exception | None = None
     for _ in range(2):
-        frames: list[bytes] = []
+        parts: list[tuple[int, datetime, bytes]] = []
         try:
             if state["stream"] is None:
                 stream = jetson.live_stream()
                 if not callable(getattr(stream, "close", None)):
                     raise ValueError("live stream is not closable")
                 state["stream"] = stream
-                state["parser"] = _multipart_jpegs(stream)  # type: ignore[arg-type]
+                state["parser"] = _multipart_parts(stream)  # type: ignore[arg-type]
                 state["opened"] = int(state["opened"]) + 1
                 state["reconnects"] = int(state["opened"]) - 1
             parser = state["parser"]
-            started = monotonic()
-            while len(frames) < 30:
-                frames.append(next(parser))  # type: ignore[arg-type]
+            while len(parts) < 30:
+                parts.append(next(parser))  # type: ignore[arg-type]
         except Exception as caught:
             last_error = caught
             try:
@@ -270,14 +281,22 @@ def _collect_live_sample(
             except Exception as close_error:
                 last_error = close_error
             continue
-        duration = monotonic() - started
+        sequences = [sequence for sequence, _observed_at, _frame in parts]
+        observed_at = [timestamp for _sequence, timestamp, _frame in parts]
+        if (
+            any(current <= previous for previous, current in zip(sequences, sequences[1:]))
+            or any(current <= previous for previous, current in zip(observed_at, observed_at[1:]))
+        ):
+            _close_live_stream(state)
+            raise ValueError("invalid live sample metadata")
+        duration = (observed_at[-1] - observed_at[0]).total_seconds() * len(parts) / (len(parts) - 1)
         if not 0 < duration <= 1.1:
             _close_live_stream(state)
             raise ValueError("invalid live sample duration")
         return {
             "duration_seconds": duration,
-            "total_frames": len(frames),
-            "unique_frames": _unique_jpeg_count(frames),
+            "total_frames": len(parts),
+            "unique_frames": _unique_jpeg_count(frame for _sequence, _observed_at, frame in parts),
         }
     raise RuntimeError("live stream reconnect failed") from last_error
 
@@ -291,7 +310,7 @@ def _post_close_live_admissions(jetson: JetsonCollectorClient) -> int:
             if not callable(getattr(stream, "close", None)):
                 raise ValueError("live stream is not closable")
             probe["stream"] = stream
-            probe["parser"] = _multipart_jpegs(stream)  # type: ignore[arg-type]
+            probe["parser"] = _multipart_parts(stream)  # type: ignore[arg-type]
             next(probe["parser"])  # type: ignore[arg-type]
             _close_live_stream(probe)
         except Exception:
@@ -774,7 +793,7 @@ def evaluate_soak(
         "capture_coverage": _full_coverage(observation_times, start, finish, 1.0),
         "authenticated_collection": authenticated,
         "inference_fps": bool(inference) and min(inference) >= 3.0,
-        "live_fps": live_times == connected_times and all(fps >= 30.0 - 1e-9 for fps in live_fps),
+        "live_fps": live_times == connected_times and all(fps >= 30.0 - 1e-3 for fps in live_fps),
         "stream_reconnect": lifecycle_opened >= len(windows) + 1 and lifecycle_reconnects == lifecycle_opened - 1,
         "stream_shutdown": (
             lifecycle_opened == lifecycle_closed
@@ -1520,7 +1539,7 @@ def collect_authenticated_soak(
             live_sample: dict[str, object] | None = None
             if connected:
                 try:
-                    live_sample = _collect_live_sample(jetson, monotonic, live_state)
+                    live_sample = _collect_live_sample(jetson, live_state)
                 except Exception:
                     connected = False
                     inference_fps = None
