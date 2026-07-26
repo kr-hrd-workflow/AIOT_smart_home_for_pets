@@ -42,6 +42,7 @@ foreach ($Key in $RequiredKeys) {
 
 $AsciiRoot = $null
 foreach ($Letter in 'P','Q','R','S','T','U','V','W','X','Y','Z') {
+  if (-not (Get-PSDrive -Name $Letter -PSProvider FileSystem -ErrorAction SilentlyContinue)) { continue }
   $Candidate = "${Letter}:\"
   $CandidateAuthority = Join-Path $Candidate 'tools/platform-manifest.json'
   $CandidateRuntime = Join-Path $Candidate '.runtime/toolchain.json'
