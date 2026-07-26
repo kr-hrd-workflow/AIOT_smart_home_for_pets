@@ -17,6 +17,21 @@ function nextWithAuth(request: NextRequest, authenticated: boolean) {
   return NextResponse.next({ request: { headers } });
 }
 
+function authUnavailableResponse(request: NextRequest) {
+  if (request.nextUrl.pathname === "/") {
+    return nextWithAuth(request, false);
+  }
+  if (
+    request.nextUrl.pathname === "/login" &&
+    request.nextUrl.searchParams.get("error") === "unavailable"
+  ) {
+    return nextWithAuth(request, false);
+  }
+  return NextResponse.redirect(
+    new URL("/login?error=unavailable", request.url),
+  );
+}
+
 export async function proxy(request: NextRequest) {
   if (request.nextUrl.pathname === "/demo") {
     return nextWithAuth(request, false);
@@ -42,21 +57,15 @@ export async function proxy(request: NextRequest) {
     !partialAuthEnv.SUPABASE_URL ||
     !partialAuthEnv.SUPABASE_PUBLISHABLE_KEY
   ) {
-    if (request.nextUrl.pathname === "/") {
-      return nextWithAuth(request, false);
-    }
-    if (
-      request.nextUrl.pathname === "/login" &&
-      request.nextUrl.searchParams.get("error") === "unavailable"
-    ) {
-      return nextWithAuth(request, false);
-    }
-    return NextResponse.redirect(
-      new URL("/login?error=unavailable", request.url),
-    );
+    return authUnavailableResponse(request);
   }
   const authEnv = partialAuthEnv as AuthEnv;
-  const session = createSupabaseSession(request, authEnv);
+  let session: ReturnType<typeof createSupabaseSession>;
+  try {
+    session = createSupabaseSession(request, authEnv);
+  } catch {
+    return authUnavailableResponse(request);
+  }
   let authenticated = false;
   try {
     await session.supabase.auth.getClaims();

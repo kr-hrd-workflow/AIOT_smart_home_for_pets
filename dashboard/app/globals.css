@@ -1371,7 +1371,7 @@ a:focus-visible {
 }
 
 .landing-page[data-scroll-world-active="true"] .landing-copy-track {
-  min-height: 1200dvh;
+  min-height: 600dvh;
 }
 
 .landing-page[data-scroll-world-active="true"] .landing-header {

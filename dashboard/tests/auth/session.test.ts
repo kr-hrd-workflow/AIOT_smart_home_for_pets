@@ -219,6 +219,41 @@ it("keeps the public entry usable when Supabase runtime configuration is absent"
   expect(mocks.requireAuth).not.toHaveBeenCalled();
 });
 
+it("keeps public entry points usable when the Supabase client cannot be constructed", async () => {
+  mocks.createServerClient.mockImplementation(() => {
+    throw new Error("provider client unavailable");
+  });
+
+  const root = await proxy(new NextRequest("https://app.test/"));
+  expect(root.status).toBe(200);
+  expect(root.headers.get("location")).toBeNull();
+  expect(
+    root.headers.get("x-middleware-request-x-petcare-authenticated"),
+  ).toBe("0");
+
+  const login = await proxy(new NextRequest("https://app.test/login"));
+  expect(login.status).toBe(307);
+  expect(login.headers.get("location")).toBe(
+    "https://app.test/login?error=unavailable",
+  );
+
+  const unavailable = await proxy(
+    new NextRequest("https://app.test/login?error=unavailable"),
+  );
+  expect(unavailable.status).toBe(200);
+  expect(unavailable.headers.get("location")).toBeNull();
+
+  const protectedPage = await proxy(
+    new NextRequest("https://app.test/settings"),
+  );
+  expect(protectedPage.status).toBe(307);
+  expect(protectedPage.headers.get("location")).toBe(
+    "https://app.test/login?error=unavailable",
+  );
+  expect(mocks.getClaims).not.toHaveBeenCalled();
+  expect(mocks.requireAuth).not.toHaveBeenCalled();
+});
+
 it("keeps the anonymous root public and overwrites a forged auth marker", async () => {
   mocks.getClaims.mockResolvedValue({ data: null, error: new Error("anonymous") });
   mocks.requireAuth.mockRejectedValue(new AuthError("Authentication required"));

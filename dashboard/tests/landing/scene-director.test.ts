@@ -256,7 +256,7 @@ it("smoothly retargets the paused video from its visible time in both directions
   scrollToProgress(0.17);
   expect(raf.pending()).toBe(1);
   raf.advance(0);
-  raf.advance(210);
+  raf.advance(500);
   const firstIntermediate = video.currentTime;
   expect(firstIntermediate).toBeGreaterThan(0);
   expect(firstIntermediate).toBeLessThan(10 * (0.17 * 3.5 / 1.3));
@@ -264,22 +264,75 @@ it("smoothly retargets the paused video from its visible time in both directions
   scrollToProgress(0.32);
   expect(video.currentTime).toBe(firstIntermediate);
   raf.advance(0);
-  raf.advance(210);
+  raf.advance(500);
   const forwardIntermediate = video.currentTime;
   expect(forwardIntermediate).toBeGreaterThan(firstIntermediate);
 
   scrollToProgress(0.1);
   expect(video.currentTime).toBe(forwardIntermediate);
   raf.advance(0);
-  raf.advance(210);
+  raf.advance(500);
   expect(video.currentTime).toBeLessThan(forwardIntermediate);
   expect(video.currentTime).toBeGreaterThan(10 * (0.1 * 3.5 / 1.3));
-  raf.advance(210);
+  raf.advance(500);
   expect(video.currentTime).toBeCloseTo(10 * (0.1 * 3.5 / 1.3), 10);
   expect(raf.pending()).toBe(0);
   const settled = video.currentTime;
   raf.advance(1_000);
   expect(video.currentTime).toBe(settled);
+
+  cleanup();
+});
+
+it("keeps advancing through continuous forward and reverse scroll retargeting", () => {
+  const raf = installFakeRaf();
+  const root = document.createElement("main");
+  const stage = document.createElement("div");
+  let top = 0;
+  Object.defineProperty(root, "scrollHeight", { value: 6000 });
+  vi.spyOn(root, "getBoundingClientRect").mockImplementation(
+    () => ({ top }) as DOMRect,
+  );
+  Object.defineProperty(navigator, "connection", {
+    configurable: true,
+    value: { saveData: false },
+  });
+  document.body.append(root, stage);
+
+  const cleanup = mountScrollWorld(stage, {
+    config,
+    root,
+    reducedMotion: false,
+    mobile: false,
+  });
+  const video = stage.querySelector<HTMLVideoElement>("video");
+  if (!video) throw new Error("expected landing video");
+  Object.defineProperty(video, "duration", { value: 10 });
+  video.dispatchEvent(new Event("loadedmetadata"));
+  const scrollRange = root.scrollHeight - window.innerHeight;
+  const retarget = (progress: number) => {
+    top = -(scrollRange * progress);
+    window.dispatchEvent(new Event("scroll"));
+    raf.advance(16);
+    expect(video.paused).toBe(true);
+    expect(raf.pending()).toBe(1);
+  };
+
+  [0.03, 0.06, 0.09, 0.12, 0.15, 0.18].forEach(retarget);
+  expect(video.currentTime).toBeGreaterThan(0);
+  expect(video.currentTime).toBeLessThan(4.846153846153846);
+  raf.advance(0);
+  raf.advance(1_000);
+  expect(video.currentTime).toBeCloseTo(4.846153846153846, 10);
+  expect(raf.pending()).toBe(0);
+
+  [0.15, 0.12, 0.09, 0.06].forEach(retarget);
+  expect(video.currentTime).toBeLessThan(4.846153846153846);
+  expect(video.currentTime).toBeGreaterThan(1.6153846153846154);
+  raf.advance(0);
+  raf.advance(1_000);
+  expect(video.currentTime).toBeCloseTo(1.6153846153846154, 10);
+  expect(raf.pending()).toBe(0);
 
   cleanup();
 });

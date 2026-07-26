@@ -42,7 +42,7 @@ type SegmentRuntime = ScrollWorldSegment & {
 const DESKTOP_FALLBACK = "/landing-apartment-photoreal-v3.webp";
 const MOBILE_FALLBACK = "/landing-apartment-photoreal-mobile-v2.webp";
 const SEAM_OVERLAP = 0.12;
-const SCRUB_DURATION_MS = 420;
+const SCRUB_DURATION_MS = 1_000;
 const SCRUB_FRAME_EPSILON = 0.001;
 const clamp = (value: number) => Math.min(1, Math.max(0, value));
 
@@ -306,7 +306,7 @@ export function mountScrollWorld(
       revealPaintedFrame(runtime);
       return;
     }
-    cancelPlaybackFrame(runtime);
+    if (runtime.playbackFrame) return;
     const start = Math.min(duration, Math.max(0, video.currentTime));
     let startedAt: number | undefined;
     const scrub = (timestamp: number) => {
@@ -321,13 +321,17 @@ export function mountScrollWorld(
         Math.max(0, (timestamp - startedAt) / SCRUB_DURATION_MS),
       );
       const easedProgress = 1 - (1 - progress) ** 3;
+      const liveTarget = Math.min(
+        duration,
+        Math.max(0, targetTime(runtime)),
+      );
       const current = Math.min(
         duration,
-        Math.max(0, start + (target - start) * easedProgress),
+        Math.max(0, start + (liveTarget - start) * easedProgress),
       );
 
       if (progress === 1) {
-        video.currentTime = target;
+        video.currentTime = liveTarget;
         runtime.playbackFrame = undefined;
         revealPaintedFrame(runtime);
         return;

@@ -79,6 +79,9 @@ it("scrubs one continuous photoreal journey instead of stitching scene fragments
   expect(globals).toContain(
     '.landing-page[data-scroll-world-active="true"] .landing-copy-track',
   );
+  expect(globals).toMatch(
+    /\.landing-page\[data-scroll-world-active="true"\] \.landing-copy-track\s*\{[^}]*min-height:\s*600dvh;/s,
+  );
   expect(globals).toContain('[data-landing-scene="hero"]');
   expect(globals).toContain("--landing-copy-hero-opacity");
   expect(globals).not.toContain("--landing-media-scale");
@@ -116,7 +119,7 @@ it("maps native scroll directly while reduced motion stays static and focus-safe
   expect(director).not.toContain("video.play(");
   expect(director).not.toContain('window.addEventListener("wheel"');
   expect(director).toContain("video.pause()");
-  expect(director).toContain("const SCRUB_DURATION_MS = 420");
+  expect(director).toContain("const SCRUB_DURATION_MS = 1_000");
   expect(director).toContain("window.requestAnimationFrame(scrub)");
   expect(director).not.toContain("video.currentTime = targetTime(runtime)");
   expect(director).toContain("const staticMode = saveData || reducedMotion");
