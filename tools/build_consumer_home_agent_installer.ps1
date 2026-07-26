@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$SiteOrigin = 'https://kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site',
+    [string]$SiteOrigin = 'https://kr-hrd-petcare-aiot.parkccccc3.chatgpt.site',
     [string]$OutputDirectory = ''
 )
 

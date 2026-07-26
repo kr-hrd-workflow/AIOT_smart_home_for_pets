@@ -90,13 +90,13 @@ The Jetson never uploads directly to Sites. The Pico has no separate Sites regis
 ## Deployment
 
 1. Build and validate the exact dashboard source with the repository-pinned runtime.
-2. Create one new Sites project under the current ChatGPT account.
+2. Reuse the one existing PetCare Sites project listed under the current ChatGPT account; create no duplicate.
 3. Preserve the `DB` and `CLIPS` binding names and replace only the inaccessible `project_id` in `dashboard/.openai/hosting.json`.
 4. Commit and push the exact validated source.
 5. Package and save one Sites version, deploy it with public access, and poll until the deployment reaches a terminal success state.
 6. Verify the new production URL in a real browser at desktop and mobile widths.
 
-The old `kr-hrd-petcare-aiot.parkccccc3.chatgpt.site` deployment is not modified because the current account receives `project_not_found` for its project ID.
+The current account's existing `kr-hrd-petcare-aiot.parkccccc3.chatgpt.site` project is reused. The stale persisted project ID belonged to another account and is replaced with the opaque ID returned by the current account's Sites listing.
 
 ## Validation
 

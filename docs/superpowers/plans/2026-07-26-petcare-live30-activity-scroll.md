@@ -480,7 +480,7 @@ do not manufacture duplicate frames or claim the gate passed.
 ### 5. Save and publicly deploy Sites
 
 - Read `.openai/hosting.json` and reuse
-  `appgprj_6a64f38956788191919fdfc797dad8f7`.
+  current-account project `appgprj_6a6101d826ac8191a4eb06c48375f83f`.
 - Push the exact dashboard source state used for the build.
 - Build and archive from that exact pushed commit.
 - Save one Sites version with D1 `DB` and R2 `CLIPS`.
@@ -505,4 +505,3 @@ Verify on the production URL:
 Record the exact commit, Sites version, production URL, test totals, hardware
 measurements, and any remaining external limitation before completing the
 goal.
-
