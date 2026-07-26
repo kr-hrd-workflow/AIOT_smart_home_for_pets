@@ -14,8 +14,10 @@ from tools.jetson_vision_soak import (
     BRINGUP_CHECKS,
     BRINGUP_SCHEMA,
     HARNESS_SCHEMA,
+    _close_live_stream,
     _collect_live_sample,
     _multipart_jpegs,
+    _post_close_live_admissions,
     _unique_jpeg_count,
     collect_authenticated_soak,
     evaluate_soak,
@@ -28,6 +30,7 @@ from tools.jetson_vision_soak import (
 
 CANDIDATE = "a" * 40
 BOOT = "b" * 32
+LIVE_OBSERVED_AT = "2026-07-20T04:00:00.000000Z"
 TEGRAPROBE = (
     "RAM 1234/3964MB (lfb 12x4MB) CPU [10%@1479,off,off,off] "
     "GR3D_FREQ 99%@921 EMC_FREQ 10%@1600 PLL@31.5C CPU@47.0C GPU@46.5C"
@@ -184,7 +187,10 @@ def passing_samples() -> dict[str, object]:
         "collector_finished_monotonic": 3600.0,
         "observations": observations,
         "live_samples": live_samples,
-        "stream_lifecycle": {"opened": 3, "closed": 3, "reconnects": 2, "active_streams": 0},
+        "stream_lifecycle": {
+            "opened": 3, "closed": 3, "reconnects": 2, "active_streams": 0,
+            "post_close_admissions": 2,
+        },
         "calibrations": calibrations,
         "wall_monotonic_guard": {
             "duration_seconds": 3600.0,
@@ -250,6 +256,22 @@ def test_exact_thresholds_pass_and_expected_disconnect_is_excluded_from_healthy_
     stored = json.loads(output.read_text(encoding="utf-8"))
     validate_soak_evidence(stored, expected_candidate_sha=CANDIDATE, require_pass=True)
     assert not list(tmp_path.glob("*.tmp"))
+
+
+def _live_headers(frame: bytes, *, sequence: int = 1, observed_at: str = LIVE_OBSERVED_AT) -> list[bytes]:
+    return [
+        b"Content-Type: image/jpeg",
+        b"Content-Length: " + str(len(frame)).encode(),
+        b"Cache-Control: private, no-store, no-transform",
+        b"X-PetCare-Jetson-Boot-Id: " + BOOT.encode(),
+        b"X-PetCare-Jetson-Sequence: " + str(sequence).encode(),
+        b"X-PetCare-Jetson-Observed-At: " + observed_at.encode(),
+        b"X-PetCare-Jetson-Content-SHA256: " + hashlib.sha256(frame).hexdigest().encode(),
+    ]
+
+
+def _live_part(frame: bytes, *, sequence: int = 1, observed_at: str = LIVE_OBSERVED_AT) -> bytes:
+    return b"--frame\r\n" + b"\r\n".join(_live_headers(frame, sequence=sequence, observed_at=observed_at)) + b"\r\n\r\n" + frame + b"\r\n"
 
 
 @pytest.mark.parametrize(
@@ -328,6 +350,7 @@ def test_home_age_p99_threshold_fails_closed() -> None:
         (("observations", 0, "inference_fps"), 2.99, "inference_fps"),
         (("stream_lifecycle", "reconnects"), 1, "stream_reconnect"),
         (("stream_lifecycle", "closed"), 2, "stream_shutdown"),
+        (("stream_lifecycle", "post_close_admissions"), 1, "stream_shutdown"),
         (("calibrations", 0, "age_seconds"), 1.001, "clock_calibration"),
         (("calibrations", 0, "offset_ms"), -150.001, "clock_calibration"),
         (("wall_monotonic_guard", "max_discontinuity_seconds"), 0.0251, "wall_monotonic_guard"),
@@ -447,7 +470,9 @@ class OperationClock:
 
 
 class FakeJetson:
-    def __init__(self, clock: FakeClock, *, live_attempts: list[int | None] | None = None) -> None:
+    def __init__(
+        self, clock: FakeClock, *, live_attempts: list[int | None] | None = None, stick_remote_after_close: int | None = None,
+    ) -> None:
         self.clock = clock
         self.status_calls = 0
         self.frame_calls = 0
@@ -459,6 +484,9 @@ class FakeJetson:
         self.live_stream_calls = 0
         self.active_live_streams = 0
         self.live_attempts = list(live_attempts or [0])
+        self.remote_live_admitted = False
+        self.live_closes = 0
+        self.stick_remote_after_close = stick_remote_after_close
         self.closed = False
 
     def _offline(self) -> bool:
@@ -542,23 +570,32 @@ class FakeLiveStream:
 
     def _chunks(self):
         self.jetson.active_live_streams += 1
+        admitted = False
         try:
+            if self.jetson.remote_live_admitted:
+                raise OSError("live stream already admitted")
+            self.jetson.remote_live_admitted = True
+            admitted = True
             frame_number = 0
             while True:
                 if self.failure_after is not None and frame_number >= self.failure_after:
                     raise OSError("live stream disconnected")
-                if self.failure_after is None and frame_number % 30 == 0:
-                    self.jetson.clock.sleep(1.0)
+                if self.jetson._offline():
+                    raise OSError("live stream disconnected")
+                self.jetson.clock.sleep(1.0 / 30.0)
+                if self.jetson._offline():
+                    raise OSError("live stream disconnected")
                 frame = b"\xff\xd8" + f"{frame_number:08d}".encode() + b"\xff\xd9"
-                yield (
-                    b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
-                    + str(len(frame)).encode()
-                    + b"\r\n\r\n" + frame + b"\r\n"
-                )
+                observed_at = self.jetson.clock.utc_now().isoformat(timespec="microseconds").replace("+00:00", "Z")
+                yield _live_part(frame, sequence=frame_number + 1, observed_at=observed_at)
                 frame_number += 1
         finally:
             self.closed = True
             self.jetson.active_live_streams -= 1
+            if admitted:
+                self.jetson.live_closes += 1
+                if self.jetson.stick_remote_after_close != self.jetson.live_closes:
+                    self.jetson.remote_live_admitted = False
 
     def close(self) -> None:
         iterator = self._iterator
@@ -674,10 +711,17 @@ def test_collector_uses_authenticated_jetson_and_live_home_apis_for_real_monoton
     assert [item["monotonic"] for item in live_samples] == connected_times  # type: ignore[index]
     assert all(item["duration_seconds"] == pytest.approx(1.0) for item in live_samples)  # type: ignore[index]
     assert {(item["total_frames"], item["unique_frames"]) for item in live_samples} == {(30, 30)}  # type: ignore[index]
-    assert jetson.live_stream_calls == 4
+    assert jetson.live_stream_calls == 6
     assert all(stream.closed for stream in jetson.live_streams)
     assert jetson.active_live_streams == 0
-    assert payload["stream_lifecycle"] == {"opened": 4, "closed": 4, "reconnects": 3, "active_streams": 0}
+    assert jetson.remote_live_admitted is False
+    assert payload["stream_lifecycle"] == {
+        "opened": 4,
+        "closed": 4,
+        "reconnects": 3,
+        "active_streams": 0,
+        "post_close_admissions": 2,
+    }
     assert evidence["checks"]["stream_reconnect"] is True  # type: ignore[index]
     assert evidence["checks"]["stream_shutdown"] is True  # type: ignore[index]
     assert jetson.status_calls == 3600 and jetson.frame_calls == 3591 and jetson.calibration_calls == 5
@@ -702,15 +746,14 @@ def test_persistent_live_sample_discards_partial_attempt_before_reconnect() -> N
     state = {"stream": None, "parser": None, "opened": 0, "closed": 0, "reconnects": 0}
 
     sample = _collect_live_sample(jetson, clock.monotonic, state)
-    parser_close = getattr(state["parser"], "close")
-    stream_close = getattr(state["stream"], "close")
-    parser_close()
-    stream_close()
+    _close_live_stream(state)
 
-    assert sample == {"duration_seconds": 1.0, "total_frames": 30, "unique_frames": 30}
-    assert state["opened"] == 2 and state["reconnects"] == 1
+    assert sample["duration_seconds"] == pytest.approx(1.0)
+    assert sample["total_frames"] == 30 and sample["unique_frames"] == 30
+    assert state == {"stream": None, "parser": None, "opened": 2, "closed": 2, "reconnects": 1}
     assert all(stream.closed for stream in jetson.live_streams)
     assert jetson.active_live_streams == 0
+    assert jetson.remote_live_admitted is False
 
 
 def test_persistent_live_sample_closes_both_failed_attempts() -> None:
@@ -724,6 +767,36 @@ def test_persistent_live_sample_closes_both_failed_attempts() -> None:
     assert state == {"stream": None, "parser": None, "opened": 2, "closed": 2, "reconnects": 1}
     assert all(stream.closed for stream in jetson.live_streams)
     assert jetson.active_live_streams == 0
+    assert jetson.remote_live_admitted is False
+    assert _post_close_live_admissions(jetson) == 2
+    assert jetson.active_live_streams == 0
+
+
+def test_post_close_live_admissions_prove_remote_single_admission_released() -> None:
+    clock = FakeClock()
+    jetson = FakeJetson(clock, live_attempts=[None])
+    state = {"stream": None, "parser": None, "opened": 0, "closed": 0, "reconnects": 0}
+
+    _collect_live_sample(jetson, clock.monotonic, state)
+    _close_live_stream(state)
+
+    assert _post_close_live_admissions(jetson) == 2
+    assert jetson.live_stream_calls == 3
+    assert jetson.active_live_streams == 0
+    assert jetson.remote_live_admitted is False
+
+
+def test_post_close_live_admissions_rejects_occupied_remote_admission() -> None:
+    clock = FakeClock()
+    jetson = FakeJetson(clock, live_attempts=[None], stick_remote_after_close=1)
+    state = {"stream": None, "parser": None, "opened": 0, "closed": 0, "reconnects": 0}
+
+    _collect_live_sample(jetson, clock.monotonic, state)
+    _close_live_stream(state)
+
+    assert _post_close_live_admissions(jetson) == 0
+    assert jetson.active_live_streams == 0
+    assert jetson.remote_live_admitted is True
 
 
 def test_tegrastats_parser_keeps_only_gate_metrics() -> None:
@@ -738,11 +811,7 @@ def test_tegrastats_parser_keeps_only_gate_metrics() -> None:
 def test_multipart_jpegs_handles_every_two_chunk_split() -> None:
     first = b"\xff\xd8first\xff\xd9"
     second = b"\xff\xd8second\xff\xd9"
-    payload = (
-        b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 9\r\n\r\n\xff\xd8first\xff\xd9\r\n"
-        b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 10\r\n\r\n\xff\xd8second\xff\xd9\r\n"
-        b"--frame--\r\n"
-    )
+    payload = _live_part(first, sequence=1) + _live_part(second, sequence=2) + b"--frame--\r\n"
 
     for split in range(len(payload) + 1):
         assert list(_multipart_jpegs((payload[:split], payload[split:]))) == [first, second]
@@ -753,6 +822,38 @@ def test_unique_jpeg_count_deduplicates_identical_frames() -> None:
     second = b"\xff\xd8second\xff\xd9"
 
     assert _unique_jpeg_count((first, first, second, first)) == 2
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        (b"Cache-Control: private, no-store, no-transform", b"Cache-Control: public"),
+        (b"X-PetCare-Jetson-Boot-Id: " + BOOT.encode(), b"X-PetCare-Jetson-Boot-Id: " + b"g" * 32),
+        (b"X-PetCare-Jetson-Sequence: 1", b"X-PetCare-Jetson-Sequence: 0"),
+        (LIVE_OBSERVED_AT.encode(), b"2026-07-20T04:00:00Z"),
+        (
+            b"X-PetCare-Jetson-Content-SHA256: " + hashlib.sha256(b"\xff\xd8first\xff\xd9").hexdigest().encode(),
+            b"X-PetCare-Jetson-Content-SHA256: " + b"0" * 64,
+        ),
+    ],
+)
+def test_multipart_jpegs_rejects_live_contract_mutations(replacement: tuple[bytes, bytes]) -> None:
+    frame = b"\xff\xd8first\xff\xd9"
+    payload = _live_part(frame) + b"--frame--\r\n"
+    source, destination = replacement
+    payload = payload.replace(source, destination, 1)
+
+    with pytest.raises(ValueError):
+        list(_multipart_jpegs((payload,)))
+
+
+def test_multipart_jpegs_rejects_tampered_live_digest() -> None:
+    frame = b"\xff\xd8first\xff\xd9"
+    payload = _live_part(frame) + b"--frame--\r\n"
+    payload = payload.replace(frame, b"\xff\xd8other\xff\xd9", 1)
+
+    with pytest.raises(ValueError, match="digest"):
+        list(_multipart_jpegs((payload,)))
 
 
 @pytest.mark.parametrize(

@@ -155,6 +155,7 @@ jobs:
           & $runtime.paths.uv_path run --project backend --frozen pytest `
             tools/tests/test_ci_workflow.py `
             tools/tests/test_bootstrap_ci.py `
+            tools/tests/test_docs_check.py `
             tools/tests/test_jetson_vision_soak.py `
             jetson/tests/test_vision_node.py `
             backend/tests/test_agent_lifecycle.py `
