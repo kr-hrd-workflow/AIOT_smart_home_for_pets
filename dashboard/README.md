@@ -23,9 +23,15 @@ PetCare 웹은 React 19와 [vinext](https://github.com/cloudflare/vinext)로 동
 2. `/dashboard`에서 Windows Home Agent 설치 파일을 내려받고 10분 코드를 만듭니다.
 3. 설치 프로그램이 `%ProgramData%\PetCare\HomeAgent`에 로컬 PostgreSQL, MQTT, FastAPI와 Windows 서비스를 설치한 뒤 코드를 사용해 해당 tenant에 등록합니다.
 4. 고객은 Pico 2 W를 Home Agent PC에 USB로 한 번 연결하고 Wi-Fi를 입력합니다. 현관 `entrance-01`과 생활공간 `petzone-01`은 이후 Wi-Fi/MQTT로 동작합니다.
-5. Jetson 카메라는 로컬 `http://127.0.0.1:8000/setup`에서 pairing 파일로 연결합니다. 등록이 끝나면 Home Agent가 자동으로 다시 연결하고 로그인한 Sites 대시보드에 상태와 프리뷰를 표시합니다. Jetson 온라인 상태까지 확인되어야 연결 완료로 표시됩니다.
+5. Jetson 카메라는 로컬 `http://127.0.0.1:8000/setup`에서 pairing 파일로 연결합니다. 등록이 끝나면 Home Agent가 자동으로 다시 연결하고 로그인한 Sites 대시보드에 상태와 인증된 라이브 영상을 표시합니다. Jetson 온라인 상태까지 확인되어야 연결 완료로 표시됩니다.
 
 고객은 Supabase 프로젝트, URL, 키 또는 JWKS를 설정하지 않습니다. PetCare 운영자가 Sites runtime의 `SUPABASE_URL`과 `SUPABASE_PUBLISHABLE_KEY`를 한 번 구성합니다.
+
+## 활동·휴식·반복 이동 표시
+
+`오늘 활동 추정`은 카메라가 dog/cat을 실제로 관측한 1초 bucket만 합산하고 `카메라 관측 N분 기준`을 함께 표시합니다. 관측 coverage가 0이면 `0분` 대신 `관측 없음`을 표시합니다. `오늘 휴식 추정`은 FSR·카메라 융합 결과이므로 활동과 별도로 유지합니다.
+
+`반복 이동 관측`은 제한된 카메라 좌표 창에서 반복 이동 조건을 만족했음을 알리는 보수적 warning입니다. 건강 상태를 판단하거나 진단하지 않으며 외부 알림·자동 클립을 만들지 않습니다. 데모는 이 계약을 fixture로만 보여주고, 로그인한 원격 화면은 같은 strict parser를 통과한 Home Agent 데이터만 렌더링합니다.
 
 ## 보안
 
@@ -97,4 +103,4 @@ Sites는 공개로 배포하되, 정상 운영 runtime에는 `SUPABASE_URL`과 `
 
 설치 파일 릴리스는 `packaging/windows/release`의 고정 EXE와 SHA-256 sidecar를 사용합니다. 운영 배포 시에만 임시 업로드 토큰을 Sites secret으로 설정해 고정 R2 키에 업로드하고, 업로드 직후 secret을 제거한 같은 버전을 다시 배포합니다. 정상 운영 runtime에는 이 임시 토큰이 남지 않습니다.
 
-Jetson 비전 서비스는 JetPack 4.6.6/L4T 32.7.6/TensorRT 8.2.1 실기기에서 USB 카메라와 서명 프리뷰까지 통과했습니다. 실제 Pico·센서 설치와 깨끗한 Windows PC에서의 Home Agent 전체 설치는 아직 `NOT RUN`입니다.
+Jetson 비전 서비스는 JetPack 4.6.6/L4T 32.7.6/TensorRT 8.2.1 실기기에서 기존 USB 카메라와 서명 프리뷰까지 통과했습니다. 새 고유 프레임 30 FPS 라이브·재연결·60분 soak는 최종 후보 SHA로 다시 측정하기 전까지 `NOT RUN`입니다. 실제 Pico·센서 설치와 깨끗한 Windows PC에서의 Home Agent 전체 설치도 아직 `NOT RUN`입니다.

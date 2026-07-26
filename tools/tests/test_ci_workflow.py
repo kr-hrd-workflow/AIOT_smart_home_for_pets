@@ -12,6 +12,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+GIT_ATTRIBUTES = ROOT / ".gitattributes"
 LOCAL_SETUP_E2E = ROOT / "dashboard" / "e2e" / "local-setup.spec.ts"
 MOSQUITTO_ENTRYPOINT = ROOT / "infra" / "mosquitto" / "docker-entrypoint.sh"
 MANIFEST = json.loads((ROOT / "tools" / "platform-manifest.json").read_text(encoding="utf-8"))
@@ -90,6 +91,30 @@ def test_ci_commands_keep_tool_and_platform_identities_explicit() -> None:
     for name in WORK_JOBS:
         body = "\n".join(str(step.get("run", "")) for step in workflow["jobs"][name]["steps"][2:])
         assert not forbidden.search(body), name
+
+
+def test_ci_runs_focused_live30_contracts_with_manifest_pinned_runtimes() -> None:
+    backend = run_text(load_workflow()["jobs"]["backend-unit"])
+    for test_path in (
+        "tools/tests/test_jetson_vision_soak.py",
+        "jetson/tests/test_vision_node.py",
+        "backend/tests/test_activity.py",
+        "backend/tests/test_camera_service.py",
+        "backend/tests/test_contracts.py",
+    ):
+        assert test_path in backend
+
+    managed = MANIFEST["managed_exact"]
+    assert managed["python"]["version"] == "3.12.13"
+    assert managed["node"]["version"] == "22.23.1"
+    assert managed["pico_sdk"]["commit"] == "bddd20f928ce76142793bef434d4f75f4af6e433"
+    assert managed["sites_plugin"]["version"] == "0.1.30"
+
+
+def test_cross_platform_contract_fixtures_keep_canonical_bytes() -> None:
+    attributes = GIT_ATTRIBUTES.read_text(encoding="utf-8").splitlines()
+    assert "*.json text eol=lf" in attributes
+    assert "*.ppm binary" in attributes
 
 
 def test_dashboard_e2e_uses_the_frozen_backend_environment_portably() -> None:

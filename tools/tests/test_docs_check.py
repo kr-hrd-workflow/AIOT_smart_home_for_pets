@@ -18,6 +18,18 @@ def test_repository_structured_docs_match_authoritative_sources() -> None:
     assert result.checked_blocks == 8
 
 
+def test_live30_activity_docs_are_observation_only_and_hardware_honest() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "docs" / "demo-runbook.md").read_text(encoding="utf-8")
+    privacy = (ROOT / "docs" / "privacy.md").read_text(encoding="utf-8")
+
+    assert "30 FPS 실기기 게이트는 `NOT RUN`" in readme
+    assert "카메라 관측 공백은 활동 0초로 계산하지 않습니다." in runbook
+    assert "`repetitive_motion`" in runbook
+    assert "`repetitive_motion`" in privacy
+    assert "의료 진단이 아닙니다." in privacy
+
+
 def test_parser_rejects_duplicate_named_blocks(tmp_path: Path) -> None:
     path = tmp_path / "duplicate.md"
     path.write_text(

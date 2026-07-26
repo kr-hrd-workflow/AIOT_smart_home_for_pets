@@ -1,6 +1,6 @@
 # PetCare Vision AIoT Smart Home
 
-PetCare는 두 대의 Raspberry Pi Pico 2 W, Windows Home Agent, Jetson 카메라, 공개 Sites 웹을 연결해 반려동물의 식사와 휴식 상태를 관찰하는 제품입니다. 공개 랜딩과 fixture 전용 체험 화면은 누구나 볼 수 있고, 실제 가정 데이터와 기기 등록은 Supabase 로그인과 tenant 범위로 보호됩니다.
+PetCare는 두 대의 Raspberry Pi Pico 2 W, Windows Home Agent, Jetson 카메라, 공개 Sites 웹을 연결해 반려동물의 식사·휴식·카메라 관측 활동을 보여주는 제품입니다. 공개 랜딩과 fixture 전용 체험 화면은 누구나 볼 수 있고, 실제 가정 데이터와 기기 등록은 Supabase 로그인과 tenant 범위로 보호됩니다.
 
 공개 Sites 주소는 [kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site](https://kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site)입니다. 실제 운영 버전은 이 저장소의 검증된 `dashboard` subtree만 배포하며, 배포 후 공개 URL과 커밋 SHA를 함께 확인합니다.
 
@@ -15,10 +15,11 @@ PetCare는 두 대의 Raspberry Pi Pico 2 W, Windows Home Agent, Jetson 카메�
 | Windows Home Agent 설치 파일 | 로그인 후 제공하는 코드서명 전 설치 파일 |
 | Sites 공개 배포 | exact-SHA 검증 후 위 공개 URL에 배포 |
 | 실제 Jetson 비전 서비스·USB 카메라·서명 프리뷰 | 실기기 통과 (JetPack 4.6.6, L4T 32.7.6, TensorRT 8.2.1) |
+| Jetson 고유 프레임 30 FPS 라이브·활동·반복 이동 관측 | 소프트웨어 구현·실기기 재검증 대기 |
 | 실제 Pico·센서 설치 검수 | `NOT RUN` |
 | 깨끗한 Windows PC에서 전체 설치 검수 | `NOT RUN` |
 
-소프트웨어 테스트 통과는 물리 장치나 새 Windows 환경의 설치 성공을 뜻하지 않습니다.
+소프트웨어 테스트 통과는 물리 장치나 새 Windows 환경의 설치 성공을 뜻하지 않습니다. 30 FPS 실기기 게이트는 `NOT RUN`이며, Jetson에서 고유 JPEG 프레임 속도·재연결·온도·throttling·60분 지속 실행을 다시 측정한 뒤에만 PASS로 바꿉니다.
 
 ## 구성과 데이터 흐름
 
@@ -26,14 +27,14 @@ PetCare는 두 대의 Raspberry Pi Pico 2 W, Windows Home Agent, Jetson 카메�
 2. 로그인한 `/dashboard`에서 Windows Home Agent 설치 파일과 10분 유효 등록 코드를 받습니다.
 3. 설치 프로그램은 관리자 승인을 받아 `%ProgramData%\PetCare\HomeAgent` 아래에 런타임을 설치하고 `PetCarePostgres`, `PetCareMqtt`, `PetCareHomeAgent` 서비스를 등록합니다.
 4. Pico를 Home Agent PC에 USB로 한 번 연결해 집 Wi-Fi를 입력합니다. Home Agent가 MQTT 자격 증명을 기기에 직접 결합하며, 이후 센서 운영 데이터는 USB가 아니라 Wi-Fi/MQTT로 전달됩니다.
-5. Home Agent는 센서·카메라 데이터를 로컬 PostgreSQL에 저장하고 행동 규칙을 처리한 뒤, 등록된 Sites origin을 통해 해당 가정의 로그인 사용자에게만 상태를 제공합니다.
+5. Home Agent는 센서·카메라 데이터와 카메라가 실제로 관측한 1초 활동 bucket을 로컬 PostgreSQL에 저장하고 행동 규칙을 처리한 뒤, 등록된 Sites origin을 통해 해당 가정의 로그인 사용자에게만 상태를 제공합니다.
 6. 승인된 Jetson `pairing.json`을 로컬 설정 화면에 전달하면 Home Agent가 자동으로 다시 연결하고, 로그인한 Sites 대시보드에서 상태와 프리뷰를 확인할 수 있습니다. 이 제품의 연결 완료 판정에는 Jetson 카메라 온라인 상태가 포함됩니다.
 
 ### 장치 역할
 
 - `entrance-01`: SHT31 온습도와 LD2410C 이동/정지 존재 센서
 - `petzone-01`: SHT31·LD2410C에 식기/물그릇 HX711 채널과 침대 FSR 3채널 추가
-- Home Agent: 로컬 MQTT 수신, PostgreSQL, FastAPI, 카메라 추론, 행동 규칙, Sites 연결
+- Home Agent: 로컬 MQTT 수신, PostgreSQL, FastAPI, 카메라 추론, 활동·휴식·반복 이동 관측, 행동 규칙, Sites 연결
 - 카메라: 기본 USB, 테스트용 `file`, 승인된 `jetson`, 또는 `disabled`
 - Sites: 공개 제품 소개·데모와 Supabase 인증 기반 원격 대시보드
 
@@ -48,7 +49,7 @@ Pico는 FSR의 `0..4095` ADC 원값만 발행합니다. 침대 baseline, polarit
   "subjects": ["dog_001", "cat_001"],
   "zones": ["food_bowl", "pet_bed"],
   "behaviors": ["eating", "resting"],
-  "anomalies": ["no_meal_12h", "bed_sensor_mismatch"],
+  "anomalies": ["no_meal_12h", "bed_sensor_mismatch", "repetitive_motion"],
   "pico_emits_raw_fsr_only": true,
   "backend_owns_fsr_interpretation": true,
   "notification_channels": []
@@ -67,6 +68,12 @@ Pico는 FSR의 `0..4095` ADC 원값만 발행합니다. 침대 baseline, polarit
 | `/api/petcare/**`와 실데이터 경로 | 로그인·tenant 검증 필요 | 등록, 상태, 카메라, 클립, 계정 작업 |
 
 루트가 랜딩보다 먼저 설정 코드 화면으로 바뀌지 않습니다. 10분 코드는 로그인한 대시보드에서 고객이 명시적으로 만들 때만 표시됩니다.
+
+## 활동과 반복 이동 관측
+
+활동 시간은 dog/cat bounding box 중심이 이전의 유효한 관측보다 24 px 이상 이동한 1초 bucket의 합계입니다. 카메라가 대상을 보지 못했거나 3초보다 오래 끊긴 시간은 정지나 활동 0초로 채우지 않고 `관측 없음`으로 표시합니다. 휴식 시간은 기존 FSR·카메라 융합 규칙에서 별도로 계산하므로 활동 시간과 서로 대체하지 않습니다.
+
+`repetitive_motion`은 최근 120초의 카메라 좌표에서 충분한 이동 거리와 방향 반전이 반복될 때 15분 단위로 중복을 억제해 보여주는 보수적 warning입니다. 건강·불안·질병을 판정하지 않으며 자동 클립이나 외부 알림을 만들지 않습니다.
 
 ## 보안과 비밀정보
 
@@ -124,4 +131,4 @@ $env:npm_config_script_shell = $runtime.paths.bash_path
 
 ## 안전 한계
 
-이 제품은 행동 패턴 관찰 도구입니다. 질병 진단, 수면 품질 판정, 체중계 수준의 측정 정확도, 위험 감지 또는 응급 알림을 보장하지 않습니다. 이상 이벤트는 `no_meal_12h`와 `bed_sensor_mismatch` 두 종류의 `warning`만 사용하며 외부 알림 채널은 구현하지 않습니다.
+이 제품은 행동 패턴 관찰 도구입니다. 질병 진단, 수면 품질 판정, 체중계 수준의 측정 정확도, 위험 감지 또는 응급 알림을 보장하지 않습니다. 이상 이벤트는 `no_meal_12h`, `bed_sensor_mismatch`, `repetitive_motion` 세 종류의 보수적 `warning`만 사용하며 외부 알림 채널은 구현하지 않습니다.

@@ -140,7 +140,7 @@ jobs:
           }
           & $runtime.paths.git_path merge-base --is-ancestor $env:PLANNING_SHA $env:CANDIDATE_SHA
           if ($LASTEXITCODE) { throw 'PLANNING_SHA is not an ancestor of CANDIDATE_SHA' }
-      - name: Run manifest and backend unit checks
+      - name: Run manifest and focused live30 contract checks
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -155,11 +155,17 @@ jobs:
           & $runtime.paths.uv_path run --project backend --frozen pytest `
             tools/tests/test_ci_workflow.py `
             tools/tests/test_bootstrap_ci.py `
+            tools/tests/test_jetson_vision_soak.py `
+            jetson/tests/test_vision_node.py `
             backend/tests/test_agent_lifecycle.py `
+            backend/tests/test_activity.py `
             backend/tests/test_anomalies.py `
+            backend/tests/test_api.py `
+            backend/tests/test_camera_service.py `
             backend/tests/test_clip_contracts.py `
             backend/tests/test_clip_delivery.py `
             backend/tests/test_clip_upload_queue.py `
+            backend/tests/test_contracts.py `
             backend/tests/test_jetson_client.py `
             backend/tests/test_jetson_contracts.py `
             backend/tests/test_jetson_wire_contract.py `

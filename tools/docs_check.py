@@ -136,7 +136,7 @@ def _validate_architecture(block: Any) -> None:
         "subjects": ["dog_001", "cat_001"],
         "zones": ["food_bowl", "pet_bed"],
         "behaviors": ["eating", "resting"],
-        "anomalies": ["no_meal_12h", "bed_sensor_mismatch"],
+        "anomalies": ["no_meal_12h", "bed_sensor_mismatch", "repetitive_motion"],
         "pico_emits_raw_fsr_only": True,
         "backend_owns_fsr_interpretation": True,
         "notification_channels": [],
@@ -286,7 +286,7 @@ def _validate_demo(block: Any, root: Path, manifest: dict[str, Any], hosting: di
             "bed_selection": "highest-confidence pet_bed detection; dog wins an exact confidence tie",
             "rest_owner": "one owner is retained until exit or handoff completes",
             "mismatch": ["sensor_check", "unconfirmed_pressure"],
-            "anomalies": ["no_meal_12h", "bed_sensor_mismatch"],
+            "anomalies": ["no_meal_12h", "bed_sensor_mismatch", "repetitive_motion"],
         },
         "schema": {
             "application_tables": tables,

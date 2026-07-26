@@ -8,7 +8,9 @@
 
 ## 카메라와 보관
 
-기본 USB camera frame은 추론과 MJPEG 표시를 위해 메모리에서 처리하고 자동 녹화하지 않습니다. Docker provider는 PostgreSQL/MQTT 실행 옵션일 뿐 Windows USB webcam access를 제공한다고 가정하지 않습니다. 별도 Jetson clip 기능은 승인된 pair/config가 있을 때만 동작하며 Sites `/demo`와는 연결되지 않습니다.
+기본 USB camera frame은 추론과 MJPEG 표시를 위해 메모리에서 처리하고 자동 녹화하지 않습니다. Jetson 라이브도 TLS/HMAC으로 인증된 단일 MJPEG 스트림을 Home Agent와 로그인된 Sites BFF가 중계할 뿐 공개 Jetson 주소를 브라우저에 전달하지 않습니다. Docker provider는 PostgreSQL/MQTT 실행 옵션일 뿐 Windows USB webcam access를 제공한다고 가정하지 않습니다. 별도 Jetson clip 기능은 승인된 pair/config가 있을 때만 동작하며 Sites `/demo`와는 연결되지 않습니다.
+
+카메라 활동은 프레임 자체가 아니라 dog/cat subject, UTC 1초 timestamp, bounding-box 중심, 이동 거리와 moving 여부를 로컬 PostgreSQL에 저장합니다. 관측되지 않은 시간은 정지로 간주하지 않습니다. `repetitive_motion`은 이 좌표의 제한된 시간 창에서 반복 이동을 보수적으로 알리는 warning이며 의료 진단이 아닙니다.
 
 ## Sites
 
@@ -55,4 +57,4 @@ Supabase 프로젝트와 런타임 공개 키는 PetCare 운영자가 한 번 �
 
 ## 사용자 안내
 
-PetCare 이벤트는 반려동물 행동의 보조 관찰 신호일 뿐입니다. `no_meal_12h`와 `bed_sensor_mismatch`는 확인이 필요한 패턴을 알리는 `warning`이며 의료 진단, 위험 감지, 체중계 또는 수면 분석 결과가 아닙니다.
+PetCare 이벤트는 반려동물 행동의 보조 관찰 신호일 뿐입니다. `no_meal_12h`, `bed_sensor_mismatch`, `repetitive_motion`은 확인이 필요한 패턴을 알리는 `warning`이며 의료 진단, 위험 감지, 체중계 또는 수면 분석 결과가 아닙니다.
