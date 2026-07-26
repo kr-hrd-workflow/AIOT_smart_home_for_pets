@@ -100,8 +100,8 @@ describe("private installer release", () => {
     expect(env.CLIPS.put).not.toHaveBeenCalled();
   });
 
-  it("rejects altered bytes and serves only the pinned R2 object", async () => {
-    const { env, clearMetadata } = makeEnv();
+  it("rejects altered installer bytes", async () => {
+    const { env } = makeEnv();
     const altered = Uint8Array.from(installerBytes);
     altered[0] ^= 0xff;
 
@@ -109,6 +109,10 @@ describe("private installer release", () => {
     expect(rejected.status).toBe(422);
     expect(await rejected.json()).toEqual({ error: "invalid_digest" });
     expect(env.CLIPS.put).not.toHaveBeenCalled();
+  });
+
+  it("serves only the pinned R2 object", async () => {
+    const { env, clearMetadata } = makeEnv();
 
     const uploaded = await uploadInstaller(uploadRequest(installerBytes), env);
     expect(uploaded.status).toBe(204);
