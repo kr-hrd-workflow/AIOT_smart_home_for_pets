@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -118,3 +118,48 @@ def test_same_second_keeps_latest_center_max_distance_and_moving(session: Sessio
     assert row is not None
     assert len(rows(session)) == 1
     assert (row.center_x, row.center_y, row.distance, row.moving) == (110, 100, 24, True)
+
+
+@pytest.mark.parametrize("autoflush", [True, False])
+def test_pending_preceding_and_current_buckets_do_not_flush(session: Session, autoflush: bool) -> None:
+    flushes: list[None] = []
+    event.listen(session, "before_flush", lambda *_: flushes.append(None))
+    session.autoflush = autoflush
+    at = datetime(2026, 7, 26, tzinfo=UTC)
+    record_activity(session, detection(at, center_x=100))
+    preceding = record_activity(session, detection(at + timedelta(seconds=3), center_x=124))
+    current = record_activity(session, detection(at + timedelta(seconds=3, microseconds=1), center_x=110))
+    assert preceding is not None and current is preceding
+    assert (current.center_x, current.distance, current.moving) == (110, 24, True)
+    assert flushes == []
+    assert len(session.new) == 2
+
+
+def test_uses_latest_of_multiple_same_subject_preceding_buckets(session: Session) -> None:
+    at = datetime(2026, 7, 26, tzinfo=UTC)
+    session.add_all(
+        [
+            ActivityObservation(
+                camera_id="pc-webcam-01",
+                subject_id="dog_001",
+                observed_at=at,
+                center_x=100,
+                center_y=100,
+                moving=False,
+                distance=0,
+            ),
+            ActivityObservation(
+                camera_id="pc-webcam-01",
+                subject_id="dog_001",
+                observed_at=at + timedelta(seconds=2),
+                center_x=200,
+                center_y=100,
+                moving=False,
+                distance=0,
+            ),
+        ]
+    )
+    session.flush()
+    row = record_activity(session, detection(at + timedelta(seconds=3), center_x=218))
+    assert row is not None
+    assert (row.distance, row.moving) == (18, False)
