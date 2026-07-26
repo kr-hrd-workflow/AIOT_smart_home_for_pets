@@ -2,9 +2,11 @@
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { getTableConfig } from "drizzle-orm/sqlite-core";
 import { Miniflare } from "miniflare";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { agents, liveParts, liveStreams } from "../../db/schema";
 import { miniflarePort } from "../helpers/miniflare";
 
 let mf: Miniflare;
@@ -34,6 +36,20 @@ beforeEach(async () => {
 afterEach(async () => mf.dispose());
 
 describe("petcare tenancy schema", () => {
+  it("keeps outbound Drizzle checks aligned with migration 0003", () => {
+    expect(getTableConfig(agents).checks.map((check) => check.name)).toEqual([
+      "agents_connection_mode_check",
+    ]);
+    expect(getTableConfig(liveStreams).checks.map((check) => check.name)).toEqual([
+      "live_streams_newest_sequence_check",
+    ]);
+    expect(getTableConfig(liveParts).checks.map((check) => check.name)).toEqual([
+      "live_parts_sequence_check",
+      "live_parts_size_check",
+      "live_parts_duration_check",
+    ]);
+  });
+
   it("allows only one active home per owner", async () => {
     await db
       .prepare("INSERT INTO homes (id, owner_sub, created_at) VALUES (?, ?, ?)")

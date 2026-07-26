@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  check,
   index,
   integer,
   primaryKey,
@@ -43,6 +44,10 @@ export const agents = sqliteTable(
       .on(table.homeId)
       .where(sql`${table.revokedAt} IS NULL`),
     index("agents_home_idx").on(table.homeId),
+    check(
+      "agents_connection_mode_check",
+      sql`${table.connectionMode} IN ('outbound','tunnel')`,
+    ),
   ],
 );
 
@@ -253,7 +258,10 @@ export const liveStreams = sqliteTable(
     updatedAt: text("updated_at").notNull(),
     expiresAt: text("expires_at").notNull(),
   },
-  (table) => [index("live_streams_expires_idx").on(table.expiresAt)],
+  (table) => [
+    index("live_streams_expires_idx").on(table.expiresAt),
+    check("live_streams_newest_sequence_check", sql`${table.newestSequence} >= 0`),
+  ],
 );
 
 export const liveParts = sqliteTable(
@@ -275,6 +283,9 @@ export const liveParts = sqliteTable(
   (table) => [
     primaryKey({ columns: [table.homeId, table.bootId, table.sequence] }),
     index("live_parts_home_expires_idx").on(table.homeId, table.expiresAt),
+    check("live_parts_sequence_check", sql`${table.sequence} >= 0`),
+    check("live_parts_size_check", sql`${table.sizeBytes} >= 0`),
+    check("live_parts_duration_check", sql`${table.durationMs} = 1000`),
   ],
 );
 
