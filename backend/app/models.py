@@ -141,6 +141,30 @@ class CameraEvent(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 
 
+class ActivityObservation(Base):
+    __tablename__ = "activity_observations"
+    __table_args__ = (
+        CheckConstraint("camera_id='pc-webcam-01'", name="camera_id"),
+        CheckConstraint("subject_id IN ('dog_001','cat_001')", name="subject_id"),
+        CheckConstraint("observed_at=date_trunc('second', observed_at)", name="observed_at_second"),
+        CheckConstraint("0<=center_x AND center_x<640", name="center_x"),
+        CheckConstraint("0<=center_y AND center_y<480", name="center_y"),
+        CheckConstraint("distance>=0 AND distance > '-Infinity'::DOUBLE PRECISION AND distance < 'Infinity'::DOUBLE PRECISION", name="distance"),
+        UniqueConstraint("camera_id", "subject_id", "observed_at", name="uq_activity_observations_camera_subject_observed"),
+        Index("ix_activity_observations_subject_time", "subject_id", text("observed_at DESC"), text("id DESC")),
+    )
+
+    id = Column(BigInteger, Identity(), primary_key=True)
+    camera_id = Column(String(32), ForeignKey("cameras.camera_id", ondelete="RESTRICT"), nullable=False)
+    subject_id = Column(String(16), nullable=False)
+    observed_at = Column(DateTime(timezone=True), nullable=False)
+    center_x = Column(Integer, nullable=False)
+    center_y = Column(Integer, nullable=False)
+    moving = Column(Boolean, nullable=False)
+    distance = Column(Double, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+
+
 class BehaviorEvent(Base):
     __tablename__ = "behavior_events"
     __table_args__ = (

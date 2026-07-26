@@ -23,6 +23,7 @@ APP_TABLES = {
     "bed_calibrations",
     "rest_sessions",
     "clip_trigger_outbox",
+    "activity_observations",
 }
 EXPECTED_COLUMNS = {
     "devices": ("device_id", "status", "last_seen_at", "created_at", "updated_at"),
@@ -35,6 +36,7 @@ EXPECTED_COLUMNS = {
     "bed_calibrations": ("id", "device_id", "calibrated_at", "window_start", "window_end", "left_sample_count", "left_baseline", "left_polarity", "left_stability_limit", "center_sample_count", "center_baseline", "center_polarity", "center_stability_limit", "right_sample_count", "right_baseline", "right_polarity", "right_stability_limit", "entry_threshold", "exit_threshold", "created_at"),
     "rest_sessions": ("id", "subject_id", "behavior_event_id", "started_at", "last_confirmed_at", "ended_at", "duration_seconds", "close_reason", "created_at", "updated_at"),
     "clip_trigger_outbox": ("id", "event_type", "event_id", "occurred_at", "created_at", "deadline_at", "next_attempt_at", "attempts", "last_error", "remote_boot_id", "remote_command_id", "put_started_at", "accepted_at", "processed_at", "terminal_reason"),
+    "activity_observations": ("id", "camera_id", "subject_id", "observed_at", "center_x", "center_y", "moving", "distance", "created_at"),
 }
 
 EXPECTED_COLUMN_SIGNATURES = {
@@ -54,6 +56,17 @@ EXPECTED_COLUMN_SIGNATURES = {
         ["accepted_at", "TIMESTAMP_TZ=True", True, None, False],
         ["processed_at", "TIMESTAMP_TZ=True", True, None, False],
         ["terminal_reason", "VARCHAR(32)", True, None, False],
+    ],
+    "activity_observations": [
+        ["id", "BIGINT", False, None, True],
+        ["camera_id", "VARCHAR(32)", False, None, False],
+        ["subject_id", "VARCHAR(16)", False, None, False],
+        ["observed_at", "TIMESTAMP_TZ=True", False, None, False],
+        ["center_x", "INTEGER", False, None, False],
+        ["center_y", "INTEGER", False, None, False],
+        ["moving", "BOOLEAN", False, None, False],
+        ["distance", "DOUBLE PRECISION", False, None, False],
+        ["created_at", "TIMESTAMP_TZ=True", False, "CURRENT_TIMESTAMP", False],
     ],
     "anomaly_events": [
         [
@@ -740,6 +753,14 @@ EXPECTED_CHECK_NAMES = {
         "ck_clip_trigger_outbox_terminal_processed",
         "ck_clip_trigger_outbox_processed_state",
     },
+    "activity_observations": {
+        "ck_activity_observations_camera_id",
+        "ck_activity_observations_subject_id",
+        "ck_activity_observations_observed_at_second",
+        "ck_activity_observations_center_x",
+        "ck_activity_observations_center_y",
+        "ck_activity_observations_distance",
+    },
 }
 EXPECTED_CHECK_DEFINITIONS = {
     ("clip_trigger_outbox", "ck_clip_trigger_outbox_accepted_identity", "CHECK ((remote_boot_id IS NULL) = (accepted_at IS NULL) AND (accepted_at IS NULL OR remote_command_id IS NOT NULL))"),
@@ -758,6 +779,12 @@ EXPECTED_CHECK_DEFINITIONS = {
     ("clip_trigger_outbox", "ck_clip_trigger_outbox_remote_command_id", "CHECK (remote_command_id IS NULL OR remote_command_id::text ~ '^[0-9a-f]{32}$'::text)"),
     ("clip_trigger_outbox", "ck_clip_trigger_outbox_terminal_processed", "CHECK (terminal_reason IS NULL OR processed_at IS NOT NULL)"),
     ("clip_trigger_outbox", "ck_clip_trigger_outbox_terminal_reason", "CHECK (terminal_reason IS NULL OR terminal_reason::text = 'clip_missed'::text)"),
+    ("activity_observations", "ck_activity_observations_camera_id", "CHECK (camera_id::text = 'pc-webcam-01'::text)"),
+    ("activity_observations", "ck_activity_observations_subject_id", "CHECK (subject_id::text = ANY (ARRAY['dog_001'::character varying, 'cat_001'::character varying]::text[]))"),
+    ("activity_observations", "ck_activity_observations_observed_at_second", "CHECK (observed_at = date_trunc('second'::text, observed_at))"),
+    ("activity_observations", "ck_activity_observations_center_x", "CHECK (center_x >= 0 AND center_x < 640)"),
+    ("activity_observations", "ck_activity_observations_center_y", "CHECK (center_y >= 0 AND center_y < 480)"),
+    ("activity_observations", "ck_activity_observations_distance", "CHECK (distance >= 0::double precision AND distance > '-Infinity'::double precision AND distance < 'Infinity'::double precision)"),
     ("anomaly_events", "ck_anomaly_events_anomaly_type", "CHECK (anomaly_type::text = ANY (ARRAY['no_meal_12h'::character varying, 'bed_sensor_mismatch'::character varying]::text[]))"),
     ("anomaly_events", "ck_anomaly_events_message", "CHECK (length(message) > 0)"),
     ("anomaly_events", "ck_anomaly_events_relation", "CHECK ((anomaly_type::text = 'no_meal_12h'::text AND (subject_id::text = ANY (ARRAY['dog_001'::character varying, 'cat_001'::character varying]::text[])) AND mismatch_kind IS NULL AND source_behavior_event_id IS NOT NULL OR anomaly_type::text = 'bed_sensor_mismatch'::text AND mismatch_kind::text = 'sensor_check'::text AND (subject_id::text = ANY (ARRAY['dog_001'::character varying, 'cat_001'::character varying]::text[])) AND source_behavior_event_id IS NULL OR anomaly_type::text = 'bed_sensor_mismatch'::text AND mismatch_kind::text = 'unconfirmed_pressure'::text AND subject_id IS NULL AND source_behavior_event_id IS NULL) IS TRUE)"),
@@ -803,12 +830,14 @@ EXPECTED_UNIQUES = {
     "bed_calibrations": {("device_id", "calibrated_at")},
     "rest_sessions": {("behavior_event_id",)},
     "clip_trigger_outbox": {("event_type", "event_id")},
+    "activity_observations": {("camera_id", "subject_id", "observed_at")},
 }
 EXPECTED_PRIMARY_KEYS = {
     "devices": ("device_id",), "cameras": ("camera_id",), "zones": ("zone_name",),
     "sensor_readings": ("id",), "camera_events": ("id",), "behavior_events": ("id",),
     "anomaly_events": ("id",), "bed_calibrations": ("id",), "rest_sessions": ("id",),
     "clip_trigger_outbox": ("id",),
+    "activity_observations": ("id",),
 }
 EXPECTED_FOREIGN_KEYS = {
     ("sensor_readings", ("device_id",), "devices", ("device_id",), "RESTRICT"),
@@ -819,6 +848,7 @@ EXPECTED_FOREIGN_KEYS = {
     ("anomaly_events", ("source_behavior_event_id",), "behavior_events", ("id",), "RESTRICT"),
     ("bed_calibrations", ("device_id",), "devices", ("device_id",), "RESTRICT"),
     ("rest_sessions", ("behavior_event_id",), "behavior_events", ("id",), "RESTRICT"),
+    ("activity_observations", ("camera_id",), "cameras", ("camera_id",), "RESTRICT"),
 }
 EXPECTED_INDEX_DEFINITIONS = {
     "CREATE INDEX ix_sensor_readings_device_type_time ON sensor_readings USING btree (device_id, sensor_type, observed_at DESC, id DESC)",
@@ -836,6 +866,7 @@ EXPECTED_INDEX_DEFINITIONS = {
     "CREATE INDEX ix_rest_sessions_end_time ON rest_sessions USING btree (ended_at DESC, id DESC)",
     "CREATE INDEX ix_clip_trigger_outbox_due ON clip_trigger_outbox USING btree (next_attempt_at, id) WHERE (processed_at IS NULL)",
     "CREATE UNIQUE INDEX uq_clip_trigger_outbox_remote_command_id ON clip_trigger_outbox USING btree (remote_command_id) WHERE (remote_command_id IS NOT NULL)",
+    "CREATE INDEX ix_activity_observations_subject_time ON activity_observations USING btree (subject_id, observed_at DESC, id DESC)",
 }
 
 
@@ -882,6 +913,17 @@ def test_clip_outbox_revision_is_self_contained_and_reversible() -> None:
     assert source.count("CREATE TABLE clip_trigger_outbox") == 1
     assert source.count('op.execute("CREATE INDEX ix_clip_trigger_outbox_due') == 1
     assert source.count('op.execute("DROP TABLE clip_trigger_outbox")') == 1
+
+
+def test_activity_observations_revision_is_self_contained_and_reversible() -> None:
+    source = (Path(__file__).parents[1] / "migrations" / "versions" / "0003_activity_observations.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'down_revision = "0002_clip_trigger_outbox"' in source
+    assert "app.models" not in source
+    assert source.count("CREATE TABLE activity_observations") == 1
+    assert source.count('op.execute("CREATE INDEX ix_activity_observations_subject_time') == 1
+    assert source.count('op.execute("DROP TABLE activity_observations")') == 1
 
 
 def test_upgrade_downgrade_upgrade_restores_exact_schema(database_url: str) -> None:
@@ -962,7 +1004,7 @@ def test_upgrade_downgrade_upgrade_restores_exact_schema(database_url: str) -> N
 def reset_data(engine) -> None:
     with engine.begin() as connection:
         connection.exec_driver_sql(
-            "TRUNCATE clip_trigger_outbox,anomaly_events,rest_sessions,bed_calibrations,behavior_events,camera_events,sensor_readings,cameras,devices RESTART IDENTITY CASCADE"
+            "TRUNCATE activity_observations,clip_trigger_outbox,anomaly_events,rest_sessions,bed_calibrations,behavior_events,camera_events,sensor_readings,cameras,devices RESTART IDENTITY CASCADE"
         )
 
 
