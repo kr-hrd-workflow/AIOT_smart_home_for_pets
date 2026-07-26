@@ -13,7 +13,8 @@ PetCare는 두 대의 Raspberry Pi Pico 2 W, Windows Home Agent, Jetson 카메�
 | Pico 2 W C++ 펌웨어와 MQTT 계약 | `entrance`·`petzone` 두 프로필 빌드 PASS |
 | FastAPI, PostgreSQL, MQTT, 행동 규칙 | 구현·로컬 통합 테스트됨 |
 | 공개 랜딩, `/demo`, 로그인 후 대시보드 | 연속 스크롤 scrub·인증 장애 fallback까지 구현·테스트됨 |
-| Supabase 고객 가입·로그인과 tenant 분리 | 구현·운영 콜백 설정됨 |
+| Supabase 고객 가입·로그인과 tenant 분리 | 구현·운영 콜백 설정됨; 일반 고객 메일용 Custom SMTP는 미구성 |
+| Sites↔Home Agent 원격 연결 | 코드·UI 구현됨; 연결된 Cloudflare 계정에 Zone·Access가 없어 운영 등록은 `BLOCKED` |
 | Windows Home Agent 설치 파일 | 로그인 후 제공하는 코드서명 전 설치 파일 |
 | Sites 공개 배포 | v5 공개 배포 PASS (source `33ffa873`) |
 | 실제 Jetson 비전 서비스·USB 카메라·서명 프리뷰 | 실기기 통과 (JetPack 4.6.6, L4T 32.7.6, TensorRT 8.2.1) |
@@ -86,7 +87,8 @@ Pico는 FSR의 `0..4095` ADC 원값만 발행합니다. 침대 baseline, polarit
 
 ## 보안과 비밀정보
 
-- 정상 운영 중에는 PetCare 운영자가 Sites runtime에 `SUPABASE_URL`과 공개 가능한 `SUPABASE_PUBLISHABLE_KEY`만 둡니다. 설치 파일을 R2에 올릴 때만 일회성 업로드 secret을 설정하고, 업로드 직후 제거한 상태로 다시 배포합니다.
+- PetCare 운영자는 Sites runtime에 공개 가능한 `SUPABASE_URL`·`SUPABASE_PUBLISHABLE_KEY`를 설정합니다. Home Agent 등록과 원격 상태·영상 연결에는 서버 전용 `CF_ACCOUNT_ID`, `CF_ZONE_ID`, `CF_ZONE_NAME`, `CF_ACCESS_TEAM_NAME`, `CF_TUNNEL_API_TOKEN`, `CF_ACCESS_SERVICE_TOKEN_ID`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`도 필요합니다.
+- Cloudflare API token과 Access client secret은 Sites의 secret으로만 저장하며 브라우저·설치 파일·Git·문서·로그에 노출하지 않습니다. 설치 파일을 R2에 올릴 때만 일회성 `PETCARE_INSTALLER_UPLOAD_TOKEN`을 설정하고, 업로드 직후 제거한 상태로 다시 배포합니다.
 - Supabase secret/service-role key와 JWKS URL은 Sites runtime, 설치 파일, Git, 문서, 로그에 넣지 않습니다.
 - 고객의 Wi-Fi 비밀번호는 브라우저에서 `127.0.0.1:8000`의 Home Agent로 직접 전달되며 Sites Worker나 Supabase를 통과하지 않습니다.
 - Home Agent의 DB/MQTT/connector 자격 증명은 owner/SYSTEM 전용 runtime 파일에 저장합니다.

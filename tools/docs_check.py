@@ -306,7 +306,12 @@ def _validate_demo(block: Any, root: Path, manifest: dict[str, Any], hosting: di
             "project_id_present": isinstance(hosting.get("project_id"), str) and bool(hosting["project_id"]),
             "source_chain": ["dashboard subtree split", "tree equality", "per-command source credential", "vinext build", "Sites archive", "saved version", "public deployment", "status poll", "anonymous / and /demo"],
             "access": "public",
-            "runtime_config": ["SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY"],
+            "runtime_config": [
+                "SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY",
+                "CF_ACCOUNT_ID", "CF_ZONE_ID", "CF_ZONE_NAME", "CF_ACCESS_TEAM_NAME",
+                "CF_TUNNEL_API_TOKEN", "CF_ACCESS_SERVICE_TOKEN_ID",
+                "CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET",
+            ],
             "demo_network": "document and same-origin static assets only",
         },
     }
