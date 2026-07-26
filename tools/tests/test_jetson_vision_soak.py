@@ -14,6 +14,8 @@ from tools.jetson_vision_soak import (
     BRINGUP_CHECKS,
     BRINGUP_SCHEMA,
     HARNESS_SCHEMA,
+    _multipart_jpegs,
+    _unique_jpeg_count,
     collect_authenticated_soak,
     evaluate_soak,
     parse_tegrastats,
@@ -580,3 +582,44 @@ def test_tegrastats_parser_keeps_only_gate_metrics() -> None:
         "gpu_clock_hz": 921_000_000,
         "temperature_c": 47.0,
     }
+
+
+def test_multipart_jpegs_handles_every_two_chunk_split() -> None:
+    first = b"\xff\xd8first\xff\xd9"
+    second = b"\xff\xd8second\xff\xd9"
+    payload = (
+        b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 9\r\n\r\n\xff\xd8first\xff\xd9\r\n"
+        b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 10\r\n\r\n\xff\xd8second\xff\xd9\r\n"
+        b"--frame--\r\n"
+    )
+
+    for split in range(len(payload) + 1):
+        assert list(_multipart_jpegs((payload[:split], payload[split:]))) == [first, second]
+
+
+def test_unique_jpeg_count_deduplicates_identical_frames() -> None:
+    first = b"\xff\xd8first\xff\xd9"
+    second = b"\xff\xd8second\xff\xd9"
+
+    assert _unique_jpeg_count((first, first, second, first)) == 2
+
+
+@pytest.mark.parametrize(
+    ("chunks", "maximum_frame_bytes"),
+    [
+        ((b"--frame\r\nContent-Type: image/jpeg\r\nContent-Type: image/jpeg\r\nContent-Length: 5\r\n\r\n\xff\xd8a\xff\xd9\r\n--frame--\r\n",), 10),
+        ((b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 5\r\nX-Test: 1\r\n\r\n\xff\xd8a\xff\xd9\r\n--frame--\r\n",), 10),
+        ((b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 05\r\n\r\n\xff\xd8a\xff\xd9\r\n--frame--\r\n",), 10),
+        ((b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 5\r\n\r\n\xff\xd8a\xff\xd9\r\n--frame--\r\n",), 4),
+        ((b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 5\r\n\r\n\xff\xd8a\xff\xd9\r\n--frame--\r",), 10),
+        ((b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 5\r\n\r\n\xff\xd8a\xff\xd9\r\n--frame--\r\ntrailing",), 10),
+        ((b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 5\r\n\r\n\x00\xd8a\xff\xd9\r\n--frame--\r\n",), 10),
+        ((b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 5\r\n\r\n\xff\xd8a\x00\x00\r\n--frame--\r\n",), 10),
+        ((b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 5\r\n\r\n\xff\xd8a\xff\xd9\r\n--frame--\r\n", "not bytes"), 10),
+    ],
+)
+def test_multipart_jpegs_rejects_invalid_streams(
+    chunks: tuple[object, ...], maximum_frame_bytes: int,
+) -> None:
+    with pytest.raises(ValueError):
+        list(_multipart_jpegs(chunks, maximum_frame_bytes=maximum_frame_bytes))  # type: ignore[arg-type]

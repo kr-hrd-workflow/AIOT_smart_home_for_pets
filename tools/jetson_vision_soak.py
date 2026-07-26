@@ -103,6 +103,86 @@ def _items(value: object, name: str) -> list[Mapping[str, object]]:
     return value  # type: ignore[return-value]
 
 
+def _multipart_jpegs(
+    chunks: Iterable[bytes], *, maximum_frame_bytes: int = 10 * 1024 * 1024,
+) -> Iterable[bytes]:
+    if type(maximum_frame_bytes) is not int or maximum_frame_bytes < 0:
+        raise ValueError("invalid maximum frame bytes")
+    opening = b"--frame\r\n"
+    closing = b"--frame--\r\n"
+    header_limit = len(b"Content-Type: image/jpeg\r\nContent-Length: ") + len(str(maximum_frame_bytes)) + 4
+    buffer = bytearray()
+    complete = False
+    reading_headers = False
+    frame_length = 0
+
+    for chunk in chunks:
+        if type(chunk) is not bytes:
+            raise ValueError("invalid multipart chunk")
+        if complete:
+            if chunk:
+                raise ValueError("trailing multipart data")
+            continue
+        buffer.extend(chunk)
+        while True:
+            if reading_headers:
+                headers_end = buffer.find(b"\r\n\r\n")
+                if headers_end < 0:
+                    if len(buffer) > header_limit:
+                        raise ValueError("invalid multipart headers")
+                    break
+                headers = bytes(buffer[:headers_end]).split(b"\r\n")
+                if len(headers) != 2 or headers[0] != b"Content-Type: image/jpeg":
+                    raise ValueError("invalid multipart headers")
+                length_prefix = b"Content-Length: "
+                if not headers[1].startswith(length_prefix):
+                    raise ValueError("invalid multipart headers")
+                length_text = headers[1][len(length_prefix):]
+                if (
+                    not length_text
+                    or not length_text.isdigit()
+                    or (len(length_text) > 1 and length_text[0] == ord("0"))
+                ):
+                    raise ValueError("invalid multipart length")
+                frame_length = int(length_text)
+                if frame_length < 4 or frame_length > maximum_frame_bytes:
+                    raise ValueError("invalid multipart length")
+                del buffer[:headers_end + 4]
+                reading_headers = False
+                continue
+            if frame_length:
+                if len(buffer) < frame_length + 2:
+                    break
+                frame = bytes(buffer[:frame_length])
+                if buffer[frame_length:frame_length + 2] != b"\r\n":
+                    raise ValueError("invalid multipart frame")
+                del buffer[:frame_length + 2]
+                frame_length = 0
+                if frame[:2] != b"\xff\xd8" or frame[-2:] != b"\xff\xd9":
+                    raise ValueError("invalid JPEG frame")
+                yield frame
+                continue
+            if buffer.startswith(closing):
+                del buffer[:len(closing)]
+                complete = True
+                if buffer:
+                    raise ValueError("trailing multipart data")
+                break
+            if closing.startswith(buffer) or opening.startswith(buffer):
+                break
+            if not buffer.startswith(opening):
+                raise ValueError("invalid multipart boundary")
+            del buffer[:len(opening)]
+            reading_headers = True
+
+    if not complete:
+        raise ValueError("truncated multipart stream")
+
+
+def _unique_jpeg_count(frames: Iterable[bytes]) -> int:
+    return len({hashlib.sha256(frame).digest() for frame in frames})
+
+
 def _p99(values: Iterable[float]) -> float:
     ordered = sorted(values)
     if not ordered:
