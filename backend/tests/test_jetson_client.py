@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import ipaddress
 import json
 import socket
@@ -148,12 +150,12 @@ def test_runtime_json_loads_string_paths_after_owner_only_checks(
     assert checked == [runtime, expected.ca_cert_path, expected.psk_path]
 
 
-def clients(handler: object) -> tuple[httpx.Client, httpx.Client, httpx.Client]:
+def clients(handler: object) -> tuple[httpx.Client, httpx.Client, httpx.Client, httpx.Client]:
     transport = httpx.MockTransport(handler)  # type: ignore[arg-type]
-    return tuple(httpx.Client(base_url="https://192.168.50.20:9443", transport=transport) for _ in range(3))  # type: ignore[return-value]
+    return tuple(httpx.Client(base_url="https://192.168.50.20:9443", transport=transport) for _ in range(4))  # type: ignore[return-value]
 
 
-def test_constructor_builds_three_independent_one_connection_pools_with_pinned_tls(
+def test_constructor_builds_four_independent_one_connection_pools_with_pinned_tls(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     created: list[dict[str, object]] = []
@@ -173,11 +175,176 @@ def test_constructor_builds_three_independent_one_connection_pools_with_pinned_t
 
     JetsonVisionClient(config(tmp_path), client_factory=Client)  # type: ignore[arg-type]
 
-    assert len(created) == 3
-    assert len({id(item["limits"]) for item in created}) == 3
+    assert len(created) == 4
+    assert len({id(item["limits"]) for item in created}) == 4
     assert all(item["verify"] is context for item in created)
     assert all(item["base_url"] == "https://192.168.50.20:9443" for item in created)
     assert all(item["limits"].max_connections == item["limits"].max_keepalive_connections == 1 for item in created)  # type: ignore[union-attr]
+
+
+def test_live_stream_uses_current_boot_on_dedicated_pool_and_yields_raw_chunks(tmp_path: Path) -> None:
+    control_requests: list[httpx.Request] = []
+    live_requests: list[httpx.Request] = []
+    chunks = (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n", b"\xff\xd8raw-jpeg\xff\xd9\r\n")
+
+    class Body(httpx.SyncByteStream):
+        def __iter__(self):
+            yield from chunks
+
+    response = httpx.Response(200, headers=FIXTURE["live"]["headers"], stream=Body())
+
+    def control_handler(request: httpx.Request) -> httpx.Response:
+        control_requests.append(request)
+        assert request.url.path == "/v1/status"
+        return httpx.Response(200, json=FIXTURE["status"])
+
+    def unused_handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(request.url)
+
+    def live_handler(request: httpx.Request) -> httpx.Response:
+        live_requests.append(request)
+        return response
+
+    client = JetsonVisionClient(
+        config(tmp_path),
+        clients=(
+            httpx.Client(base_url="https://192.168.50.20:9443", transport=httpx.MockTransport(control_handler)),
+            httpx.Client(base_url="https://192.168.50.20:9443", transport=httpx.MockTransport(unused_handler)),
+            httpx.Client(base_url="https://192.168.50.20:9443", transport=httpx.MockTransport(unused_handler)),
+            httpx.Client(base_url="https://192.168.50.20:9443", transport=httpx.MockTransport(live_handler)),
+        ),
+        now=lambda: NOW,
+        nonce=lambda: FIXTURE["auth"]["request"]["nonce"],
+    )
+
+    assert list(client.live_stream()) == list(chunks)
+    canonical = (
+        "PETCARE-JETSON-V1\nGET\n/v1/live.mjpeg\n0123456789abcdef0123456789abcdef\n"
+        "1784520000\nAAECAwQFBgcICQoLDA0ODw\n"
+        f"{hashlib.sha256(b'').hexdigest()}\n"
+    )
+    expected_signature = base64.urlsafe_b64encode(hmac.new(PSK, canonical.encode(), hashlib.sha256).digest()).rstrip(b"=").decode()
+    assert [request.url.path for request in control_requests] == ["/v1/status"]
+    assert len(live_requests) == 1
+    assert live_requests[0].method == "GET"
+    assert live_requests[0].url.path == "/v1/live.mjpeg"
+    assert live_requests[0].headers["x-petcare-jetson-boot-id"] == FIXTURE["status"]["boot_id"]
+    assert live_requests[0].headers["x-petcare-jetson-signature"] == expected_signature
+    assert response.is_closed
+
+
+@pytest.mark.parametrize(
+    ("header", "value"),
+    [
+        ("Content-Type", "multipart/x-mixed-replace; boundary=wrong"),
+        ("Cache-Control", "private, no-store"),
+        ("X-PetCare-Jetson-Boot-Id", "f" * 32),
+    ],
+)
+def test_live_stream_rejects_invalid_headers_before_reading_body(
+    tmp_path: Path, header: str, value: str
+) -> None:
+    reads = 0
+
+    class Body(httpx.SyncByteStream):
+        def __iter__(self):
+            nonlocal reads
+            reads += 1
+            yield b"must not be read"
+
+    response = httpx.Response(200, headers=FIXTURE["live"]["headers"] | {header: value}, stream=Body())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/status":
+            return httpx.Response(200, json=FIXTURE["status"])
+        return response
+
+    client = JetsonVisionClient(config(tmp_path), clients=clients(handler), now=lambda: NOW)
+    client.status()
+    with pytest.raises(JetsonClientError, match="invalid_live_headers"):
+        next(client.live_stream())
+    assert reads == 0
+    assert response.is_closed
+
+
+def test_live_stream_maps_pre_header_status_failure_and_closes_response(tmp_path: Path) -> None:
+    response = httpx.Response(503, json=FIXTURE["live"]["unavailable"]["body"])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/status":
+            return httpx.Response(200, json=FIXTURE["status"])
+        return response
+
+    client = JetsonVisionClient(config(tmp_path), clients=clients(handler), now=lambda: NOW)
+    client.status()
+    with pytest.raises(JetsonClientError, match="camera_unavailable"):
+        next(client.live_stream())
+    assert response.is_closed
+
+
+def test_live_stream_closes_response_on_downstream_cancellation(tmp_path: Path) -> None:
+    class Body(httpx.SyncByteStream):
+        def __iter__(self):
+            yield b"first"
+            yield b"second"
+
+    response = httpx.Response(200, headers=FIXTURE["live"]["headers"], stream=Body())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/status":
+            return httpx.Response(200, json=FIXTURE["status"])
+        return response
+
+    client = JetsonVisionClient(config(tmp_path), clients=clients(handler), now=lambda: NOW)
+    client.status()
+    stream = client.live_stream()
+    assert next(stream) == b"first"
+    stream.close()
+    assert response.is_closed
+
+
+def test_live_stream_closes_response_after_upstream_read_error(tmp_path: Path) -> None:
+    class Body(httpx.SyncByteStream):
+        def __iter__(self):
+            yield b"first"
+            raise httpx.ReadError("connection lost")
+
+    response = httpx.Response(200, headers=FIXTURE["live"]["headers"], stream=Body())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/status":
+            return httpx.Response(200, json=FIXTURE["status"])
+        return response
+
+    client = JetsonVisionClient(config(tmp_path), clients=clients(handler), now=lambda: NOW)
+    client.status()
+    stream = client.live_stream()
+    assert next(stream) == b"first"
+    with pytest.raises(JetsonClientError, match="jetson_unavailable"):
+        next(stream)
+    assert response.is_closed
+
+
+def test_close_closes_an_active_live_response(tmp_path: Path) -> None:
+    class Body(httpx.SyncByteStream):
+        def __iter__(self):
+            yield b"first"
+            yield b"second"
+
+    response = httpx.Response(200, headers=FIXTURE["live"]["headers"], stream=Body())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/status":
+            return httpx.Response(200, json=FIXTURE["status"])
+        return response
+
+    client = JetsonVisionClient(config(tmp_path), clients=clients(handler), now=lambda: NOW)
+    client.status()
+    stream = client.live_stream()
+    assert next(stream) == b"first"
+    client.close()
+    assert response.is_closed
+    stream.close()
 
 
 def test_pinned_tls_accepts_only_the_configured_ca_and_exact_ip_san(tmp_path: Path) -> None:
@@ -209,9 +376,9 @@ def test_next_frame_uses_control_only_and_derives_home_subject_center_zone(tmp_p
             return httpx.Response(200, headers=preview["headers"], content=base64.b64decode(preview["body_base64"]))
         raise AssertionError(request.url)
 
-    control, admission, media = clients(handler)
+    control, admission, media, live = clients(handler)
     client = JetsonVisionClient(
-        config(tmp_path), clients=(control, admission, media), now=lambda: NOW, monotonic=lambda: 10.0,
+        config(tmp_path), clients=(control, admission, media, live), now=lambda: NOW, monotonic=lambda: 10.0,
         nonce=lambda: FIXTURE["auth"]["request"]["nonce"],
     )
     frame = client.next_frame(ZONES)
@@ -327,9 +494,9 @@ def test_close_closes_all_three_clients(tmp_path: Path) -> None:
         def close(self) -> None:
             closed.append(self.number)
 
-    client = JetsonVisionClient(config(tmp_path), clients=tuple(Client(i) for i in range(3)))  # type: ignore[arg-type]
+    client = JetsonVisionClient(config(tmp_path), clients=tuple(Client(i) for i in range(4)))  # type: ignore[arg-type]
     client.close()
-    assert closed == [0, 1, 2]
+    assert closed == [0, 1, 2, 3]
 
 
 def test_close_continues_after_one_pool_close_fails(tmp_path: Path) -> None:
@@ -344,10 +511,10 @@ def test_close_continues_after_one_pool_close_fails(tmp_path: Path) -> None:
             if self.number == 0:
                 raise RuntimeError("close failed")
 
-    client = JetsonVisionClient(config(tmp_path), clients=tuple(Client(i) for i in range(3)))  # type: ignore[arg-type]
+    client = JetsonVisionClient(config(tmp_path), clients=tuple(Client(i) for i in range(4)))  # type: ignore[arg-type]
     with pytest.raises(RuntimeError, match="close failed"):
         client.close()
-    assert closed == [0, 1, 2]
+    assert closed == [0, 1, 2, 3]
 
 
 def test_partial_client_construction_closes_already_created_pool(

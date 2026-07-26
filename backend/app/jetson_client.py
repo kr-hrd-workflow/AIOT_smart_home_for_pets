@@ -6,7 +6,7 @@ import secrets
 import ssl
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -65,7 +65,7 @@ class JetsonVisionClient:
         self,
         config: JetsonConfig,
         *,
-        clients: tuple[httpx.Client, httpx.Client, httpx.Client] | None = None,
+        clients: tuple[httpx.Client, httpx.Client, httpx.Client, httpx.Client] | None = None,
         client_factory: Callable[..., httpx.Client] = httpx.Client,
         now: Callable[[], datetime] | None = None,
         now_seconds: Callable[[], float] | None = None,
@@ -84,7 +84,7 @@ class JetsonVisionClient:
             context = pinned_ssl_context(config.ca_pem)
             created: list[httpx.Client] = []
             try:
-                for _ in range(3):
+                for _ in range(4):
                     created.append(client_factory(
                     base_url=config.url,
                     verify=context,
@@ -99,14 +99,15 @@ class JetsonVisionClient:
                         pass
                 raise
             clients = tuple(created)  # type: ignore[assignment]
-        if type(clients) is not tuple or len(clients) != 3:
-            raise ValueError("three Jetson clients required")
-        self._control, self._admission, self._media = clients
-        self._locks = tuple(threading.Lock() for _ in range(3))
+        if type(clients) is not tuple or len(clients) != 4:
+            raise ValueError("four Jetson clients required")
+        self._control, self._admission, self._media, self._live = clients
+        self._locks = tuple(threading.Lock() for _ in range(4))
         self._boot_id: str | None = None
         self._sequence = 0
         self._preview: bytes | None = None
         self._preview_monotonic: float | None = None
+        self._live_response: httpx.Response | None = None
         self._guard_sample: tuple[float, float] | None = None
         self._guard_disabled_until = 0.0
         self._calibration: ClockCalibration | None = None
@@ -117,7 +118,15 @@ class JetsonVisionClient:
 
     def close(self) -> None:
         first_error: BaseException | None = None
-        for client in (self._control, self._admission, self._media):
+        with self._locks[3]:
+            response = self._live_response
+            self._live_response = None
+            if response is not None:
+                try:
+                    response.close()
+                except BaseException as error:
+                    first_error = error
+        for client in (self._control, self._admission, self._media, self._live):
             try:
                 client.close()
             except BaseException as error:
@@ -342,6 +351,44 @@ class JetsonVisionClient:
             expected <= names <= expected | {"date", "connection"}
             and ("connection" not in headers or headers["connection"].lower() == "close")
         )
+
+    def live_stream(self) -> Iterator[bytes]:
+        if self._boot_id is None:
+            with self._locks[0]:
+                if self._boot_id is None:
+                    self._status()
+        assert self._boot_id is not None
+        with self._locks[3]:
+            response = self._send(self._live, "GET", "/v1/live.mjpeg")
+            expected = {
+                "content-type", "cache-control", "x-petcare-jetson-boot-id",
+                "x-petcare-jetson-sequence", "x-petcare-jetson-observed-at",
+            }
+            if response.status_code != 200:
+                self._json(response, (200,))
+                raise JetsonClientError("invalid_response")
+            if not self._valid_media_headers(response.headers, expected):
+                response.close()
+                raise JetsonClientError("invalid_live_headers")
+            headers = response.headers
+            if (
+                headers["content-type"] != "multipart/x-mixed-replace; boundary=frame"
+                or headers["cache-control"] != "private, no-store, no-transform"
+                or headers["x-petcare-jetson-boot-id"] != self._boot_id
+            ):
+                response.close()
+                raise JetsonClientError("invalid_live_headers")
+            self._live_response = response
+        try:
+            try:
+                yield from response.iter_raw()
+            except httpx.HTTPError as error:
+                raise JetsonClientError("jetson_unavailable") from error
+        finally:
+            with self._locks[3]:
+                response.close()
+                if self._live_response is response:
+                    self._live_response = None
 
     def next_frame(self, zones: Mapping[str, object]) -> ProcessedFrame:
         with self._locks[0]:
