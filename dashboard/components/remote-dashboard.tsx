@@ -150,8 +150,17 @@ export function RemoteDashboardView({
     setEnrollmentError(null);
     try {
       setEnrollment(await client.enroll());
-    } catch {
-      setEnrollmentError("코드를 만들지 못했습니다. 다시 시도하세요.");
+    } catch (error) {
+      const unavailable =
+        typeof error === "object" &&
+        error !== null &&
+        "status" in error &&
+        (error as { status?: number }).status === 503;
+      setEnrollmentError(
+        unavailable
+          ? "원격 연결 준비 중입니다. 운영 설정이 완료된 뒤 다시 시도하세요."
+          : "코드를 만들지 못했습니다. 다시 시도하세요.",
+      );
     } finally {
       enrollingRef.current = false;
       setEnrolling(false);

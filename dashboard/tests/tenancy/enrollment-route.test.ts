@@ -7,11 +7,21 @@ const mocks = vi.hoisted(() => ({
   issueEnrollment: vi.fn(),
 }));
 
+const runtimeEnv = vi.hoisted(() => ({
+  SUPABASE_URL: "https://project-ref.supabase.co",
+  SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test",
+  CF_ACCOUNT_ID: "account",
+  CF_ZONE_ID: "zone",
+  CF_ZONE_NAME: "pets.example",
+  CF_ACCESS_TEAM_NAME: "petcare",
+  CF_TUNNEL_API_TOKEN: "api-token",
+  CF_ACCESS_SERVICE_TOKEN_ID: "service-token",
+  CF_ACCESS_CLIENT_ID: "access-client",
+  CF_ACCESS_CLIENT_SECRET: "access-secret",
+}));
+
 vi.mock("cloudflare:workers", () => ({
-  env: {
-    SUPABASE_URL: "https://project-ref.supabase.co",
-    SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test",
-  },
+  env: runtimeEnv,
 }));
 vi.mock("../../lib/auth/require-auth", () => ({
   AuthError: class AuthError extends Error {
@@ -34,7 +44,19 @@ import { POST } from "../../app/api/petcare/enrollment/route";
 import { AuthError } from "../../lib/auth/require-auth";
 import { TenantNotFoundError } from "../../lib/tenancy/repository";
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  Object.assign(runtimeEnv, {
+    CF_ACCOUNT_ID: "account",
+    CF_ZONE_ID: "zone",
+    CF_ZONE_NAME: "pets.example",
+    CF_ACCESS_TEAM_NAME: "petcare",
+    CF_TUNNEL_API_TOKEN: "api-token",
+    CF_ACCESS_SERVICE_TOKEN_ID: "service-token",
+    CF_ACCESS_CLIENT_ID: "access-client",
+    CF_ACCESS_CLIENT_SECRET: "access-secret",
+  });
+});
 
 it.each(["owner-a", "owner-b"])(
   "issues only for verified subject %s",
@@ -105,6 +127,24 @@ it("returns 404 for a subject without an active home", async () => {
 
   expect(response.status).toBe(404);
   await expect(response.json()).resolves.toEqual({ error: "not_found" });
+});
+
+it("fails before issuing a code when the managed tunnel runtime is unavailable", async () => {
+  mocks.requireAuth.mockResolvedValue({ sub: "owner-a", email: null });
+  runtimeEnv.CF_ZONE_ID = "";
+
+  const response = await POST(
+    new Request("https://app.test/api/petcare/enrollment", {
+      method: "POST",
+      headers: { origin: "https://app.test" },
+    }),
+  );
+
+  expect(response.status).toBe(503);
+  await expect(response.json()).resolves.toEqual({
+    error: "enrollment_unavailable",
+  });
+  expect(mocks.issueEnrollment).not.toHaveBeenCalled();
 });
 
 it("rejects cross-origin issuance before auth or D1", async () => {

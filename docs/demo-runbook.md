@@ -100,4 +100,8 @@ API 문서는 외부 OpenAPI route를 노출하지 않으며 `/docs`, `/redoc`, 
 
 Sites source는 후보 commit의 `dashboard` subtree를 split하고 tree equality를 확인한 뒤, 짧은 source credential을 단일 Git process 환경에서만 사용해 전용 `main`에 push합니다. 같은 source SHA로 vinext build와 Sites archive를 만들고 saved version ID를 public deployment로 배포한 뒤 exact project/version/deployment ID로 `succeeded`를 확인합니다. `dashboard/.openai/hosting.json`의 D1/R2 binding과 opaque project ID를 재사용합니다. 공개 랜딩·인증에는 Supabase URL과 publishable key를, Home Agent 등록·원격 상태·영상에는 `dashboard/.env.example`의 `CF_*` 8개 값을 사용하며 token/client secret은 Sites secret으로 저장합니다.
 
+Supabase Auth의 production Site URL은 `https://kr-hrd-petcare-aiot.parkccccc3.chatgpt.site`여야 합니다. Redirect URL allowlist는 `/auth/callback`과 `/auth/callback?next=/reset-password`의 정확한 production URL 두 개만 허용합니다. Custom SMTP가 없으면 일반 고객 이메일 확인·비밀번호 복구를 운영 PASS로 기록하지 않습니다. `CF_*` 8개 값이 완전하지 않은 환경에서는 인증된 10분 코드 요청이 `503 enrollment_unavailable`로 조기 실패하고 D1에 코드를 저장하지 않는지 확인합니다.
+
 익명 세션으로 `/`와 `/demo`가 렌더링되고, `/dashboard`, `/api/petcare/**`, R2 설치 파일은 인증 없이는 접근할 수 없는지 확인합니다. 기존 `/downloads/PetCare-Home-Agent-Setup.exe`가 더 이상 정적 배포물에 없고, 익명 `/api/petcare/installer`가 401을 반환하는지도 확인합니다. `/demo`는 fixture-only이며 실제 카메라·센서·등록·클립 데이터를 제공하지 않습니다.
+
+Sites provider에서 시간별 scheduled trigger와 R2 `clips/` 7일 lifecycle을 구성한 뒤 실제 실행 시각, 삭제된 D1/R2 수, 실패·재시도 수를 운영 증거로 남깁니다. Worker scheduled handler만 존재하거나 읽기 시 만료가 적용된 것만으로는 물리 삭제 PASS가 아닙니다.
