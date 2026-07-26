@@ -14,7 +14,7 @@ PetCare는 센서 노드와 Home 런타임을 분리합니다. 두 Pico 2 W는 C
 | Backend/API/DB/rules | 구현·테스트됨 | unit/component/local-live |
 | Dashboard/demo/responsive QA | 구현·테스트됨 | Vitest, Playwright, build |
 | Jetson live 30 FPS·활동·반복 이동 | 소프트웨어 구현·단기 실기기 gate PASS; 60분 soak `NOT RUN` | 10개 1초 창 모두 30/30 고유 프레임, 합산 30.064 FPS |
-| CI | workflow implemented; final candidate push 후 exact-SHA rerun 대기 | 6-job workflow |
+| CI | workflow implemented; exact-SHA 결과는 GitHub Actions가 authoritative | 6-job workflow |
 | Sites | v8 공개 배포 PASS; 원격 등록 외부 gate `BLOCKED` | source `634fe4e`, public landing/demo, Supabase-authenticated live data |
 | 실제 Pico/센서/웹캠 설치 | NOT RUN | 물리 증거 없음 |
 

@@ -150,6 +150,7 @@ jobs:
           $env:PETCARE_TEST_BASH = $runtime.paths.bash_path
           $env:PETCARE_TEST_GIT = $runtime.paths.git_path
           $env:PYTHON_PATH = $runtime.paths.python_path
+          $env:PYTHONPATH = (Get-Location).Path
           & $runtime.paths.uv_path sync --project backend --frozen
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           & $runtime.paths.uv_path run --project backend --frozen pytest `

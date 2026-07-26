@@ -19,7 +19,7 @@ else:
 PASS_MARKER = "PRIVACY_CHECK=PASS"
 
 _AGENT_VECTOR_SHA256 = "D9849424F38A2F99B844C4705EB0652BF245B74ECE6173C62E0271D1DB7E2E4B"
-_JETSON_VECTOR_SHA256 = "C1262F7476114B6B770A4FB60928AF1336BCE8CD8E811A54926A501775A85FAA"
+_JETSON_VECTOR_SHA256 = "C5B19C1618522DB5D279471C47E124CACD571353EF9D63ADD52A67BEC7FED49F"
 _FROZEN_SEED = "AAECAwQFBgcICQoL" + "DA0ODxAREhMUFRYXGBkaGxwdHh8"
 _FIXTURE_CONNECTOR = "fixture-only-" + "connector-token"
 _MEDIA_SUFFIXES = {".mp4", ".mjpeg", ".jpg", ".jpeg", ".png", ".webp"}
@@ -92,7 +92,7 @@ def _is_excluded_tracked(relative: Path) -> bool:
 
 
 def _fixed_allowlist(relative: str, data: bytes) -> set[str]:
-    digest = hashlib.sha256(data).hexdigest().upper()
+    digest = hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest().upper()
     if relative == "contracts/petcare-agent-wire-v1.json" and digest == _AGENT_VECTOR_SHA256:
         return {_FROZEN_SEED, _FIXTURE_CONNECTOR}
     if relative == "contracts/petcare-jetson-wire-v1.json" and digest == _JETSON_VECTOR_SHA256:

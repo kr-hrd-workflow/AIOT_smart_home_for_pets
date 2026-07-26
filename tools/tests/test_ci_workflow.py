@@ -95,6 +95,7 @@ def test_ci_commands_keep_tool_and_platform_identities_explicit() -> None:
 
 def test_ci_runs_focused_live30_contracts_with_manifest_pinned_runtimes() -> None:
     backend = run_text(load_workflow()["jobs"]["backend-unit"])
+    assert "$env:PYTHONPATH = (Get-Location).Path" in backend
     for test_path in (
         "tools/tests/test_docs_check.py",
         "tools/tests/test_jetson_vision_soak.py",

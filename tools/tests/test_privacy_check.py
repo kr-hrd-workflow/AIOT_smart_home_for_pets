@@ -160,6 +160,21 @@ def test_exact_agent_and_jetson_contract_vectors_allow_only_the_frozen_seed(
         (),
         tracked_paths=[agent.relative_to(tmp_path), jetson.relative_to(tmp_path)],
     )
+    for contract in (agent, jetson):
+        canonical = contract.read_bytes().replace(b"\r\n", b"\n")
+        contract.write_bytes(canonical)
+        scan_tracked_files(
+            tmp_path,
+            (),
+            tracked_paths=[contract.relative_to(tmp_path)],
+        )
+        contract.write_bytes(canonical.replace(b"\n", b"\r\n"))
+        scan_tracked_files(
+            tmp_path,
+            (),
+            tracked_paths=[contract.relative_to(tmp_path)],
+        )
+        contract.write_bytes(canonical)
 
     mutated = json.loads(agent.read_text(encoding="utf-8"))
     mutated["enrollment"]["response"]["status"] = 202
