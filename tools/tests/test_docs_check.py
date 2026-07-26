@@ -23,7 +23,11 @@ def test_live30_activity_docs_are_observation_only_and_hardware_honest() -> None
     runbook = (ROOT / "docs" / "demo-runbook.md").read_text(encoding="utf-8")
     privacy = (ROOT / "docs" / "privacy.md").read_text(encoding="utf-8")
 
-    assert "30 FPS 실기기 게이트는 `NOT RUN`" in readme
+    assert "Jetson 단기 실기기 라이브 게이트" in readme
+    assert "60분 soak는 `NOT RUN`" in readme
+    assert "Sites v5" in readme
+    assert "source commit `33ffa873`" in readme
+    assert "한 번의 큰 스크롤에 영상이 약 1~2초 전진" in readme
     assert "카메라 관측 공백은 활동 0초로 계산하지 않습니다." in runbook
     assert "`repetitive_motion`" in runbook
     assert "`repetitive_motion`" in privacy

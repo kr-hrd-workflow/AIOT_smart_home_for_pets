@@ -2,24 +2,29 @@
 
 PetCare는 두 대의 Raspberry Pi Pico 2 W, Windows Home Agent, Jetson 카메라, 공개 Sites 웹을 연결해 반려동물의 식사·휴식·카메라 관측 활동을 보여주는 제품입니다. 공개 랜딩과 fixture 전용 체험 화면은 누구나 볼 수 있고, 실제 가정 데이터와 기기 등록은 Supabase 로그인과 tenant 범위로 보호됩니다.
 
-공개 Sites 주소는 [kr-hrd-petcare-aiot.parkccccc3.chatgpt.site](https://kr-hrd-petcare-aiot.parkccccc3.chatgpt.site)입니다. 실제 운영 버전은 이 저장소의 검증된 `dashboard` subtree만 배포하며, 배포 후 공개 URL과 커밋 SHA를 함께 확인합니다.
+공개 Sites 주소는 [kr-hrd-petcare-aiot.parkccccc3.chatgpt.site](https://kr-hrd-petcare-aiot.parkccccc3.chatgpt.site)입니다. 현재 공개 배포는 Sites v5이며, 검증된 `dashboard` subtree의 source commit `33ffa873`을 사용합니다.
+
+랜딩 영상은 휠 틱마다 장면을 점프하거나 재생을 다시 시작하지 않습니다. native scroll 목표를 1초 동안 연속 보간해 한 번의 큰 스크롤에 영상이 약 1~2초 전진하고, 입력이 멈추면 영상도 정지합니다.
 
 ## 현재 상태
 
 | 범위 | 상태 |
 | --- | --- |
-| Pico 2 W C++ 펌웨어와 MQTT 계약 | 구현·호스트/펌웨어 테스트됨 |
+| Pico 2 W C++ 펌웨어와 MQTT 계약 | `entrance`·`petzone` 두 프로필 빌드 PASS |
 | FastAPI, PostgreSQL, MQTT, 행동 규칙 | 구현·로컬 통합 테스트됨 |
-| 공개 랜딩, `/demo`, 로그인 후 대시보드 | 구현·테스트됨 |
+| 공개 랜딩, `/demo`, 로그인 후 대시보드 | 연속 스크롤 scrub·인증 장애 fallback까지 구현·테스트됨 |
 | Supabase 고객 가입·로그인과 tenant 분리 | 구현·운영 콜백 설정됨 |
 | Windows Home Agent 설치 파일 | 로그인 후 제공하는 코드서명 전 설치 파일 |
-| Sites 공개 배포 | exact-SHA 검증 후 위 공개 URL에 배포 |
+| Sites 공개 배포 | v5 공개 배포 PASS (source `33ffa873`) |
 | 실제 Jetson 비전 서비스·USB 카메라·서명 프리뷰 | 실기기 통과 (JetPack 4.6.6, L4T 32.7.6, TensorRT 8.2.1) |
-| Jetson 고유 프레임 30 FPS 라이브·활동·반복 이동 관측 | 소프트웨어 구현·실기기 재검증 대기 |
+| Jetson 고유 프레임 30 FPS 라이브·활동·반복 이동 관측 | 60 Hz 보정 후 단기 실기기 게이트 PASS |
+| Jetson 60분 지속 실행 | `NOT RUN` |
 | 실제 Pico·센서 설치 검수 | `NOT RUN` |
 | 깨끗한 Windows PC에서 전체 설치 검수 | `NOT RUN` |
 
-소프트웨어 테스트 통과는 물리 장치나 새 Windows 환경의 설치 성공을 뜻하지 않습니다. 30 FPS 실기기 게이트는 `NOT RUN`이며, Jetson에서 고유 JPEG 프레임 속도·재연결·온도·throttling·60분 지속 실행을 다시 측정한 뒤에만 PASS로 바꿉니다.
+Jetson 단기 실기기 라이브 게이트는 카메라 전원 주파수를 60 Hz로 보정한 뒤 1초 창 10회 모두 `30/30` 고유 프레임, 합산 `30.064 FPS`, 창 길이 p99 `1.0146초`로 PASS했습니다. 이 결과는 60분 지속 실행을 대체하지 않으며, 60분 soak는 `NOT RUN`입니다.
+
+Pico UF2 빌드는 두 프로필 모두 PASS했습니다. `entrance` SHA-256은 `6620E63041C2ADE5764D3F1F175F5BB42E1B3400707A79E23E0BEDD1EDD19203`, `petzone` SHA-256은 `FC241E1AA4517753316ACEA9FEDAC5A84A7BB3A575029943AB81770B433515A3`입니다. 실제 보드 플래시·센서 스모크와 깨끗한 Windows PC 설치 검수는 모두 `NOT RUN`입니다.
 
 ## 구성과 데이터 흐름
 
