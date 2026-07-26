@@ -158,6 +158,22 @@ describe("tenant-scoped live proxy", () => {
     });
   });
 
+  it("passes through minute-precision activity timestamps", async () => {
+    const minutePrecisionSummary = structuredClone(summary);
+    minutePrecisionSummary.activity[0].last_observed_at = "2026-07-15T01:42Z";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonUpstream(minutePrecisionSummary)),
+    );
+
+    const response = await proxyStatus(user, env, now);
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).dashboard.activity[0].last_observed_at).toBe(
+      "2026-07-15T01:42Z",
+    );
+  });
+
   it("returns needs_enrollment without an upstream request", async () => {
     vi.mocked(PetCareRepository.prototype.getHomeConnection).mockResolvedValue({
       state: "needs_enrollment",
