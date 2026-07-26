@@ -1621,8 +1621,13 @@ export class PetCareRepository {
   async listTenantCleanup(limit: number): Promise<TenantCleanupRecord[]> {
     const result = await this.db
       .prepare(`
-        SELECT owner_sub, home_id, status FROM tenant_cleanup
-        ORDER BY updated_at, owner_sub LIMIT ?
+        SELECT tc.owner_sub, tc.home_id, tc.status FROM tenant_cleanup tc
+        WHERE NOT EXISTS (SELECT 1 FROM agents a WHERE a.home_id = tc.home_id)
+           OR EXISTS (
+             SELECT 1 FROM activity_cleanup_commands ac
+             WHERE ac.home_id = tc.home_id AND ac.status = 'acknowledged'
+           )
+        ORDER BY tc.updated_at, tc.owner_sub LIMIT ?
       `)
       .bind(limit)
       .all<{ owner_sub: string; home_id: string; status: "cleanup_pending" }>();

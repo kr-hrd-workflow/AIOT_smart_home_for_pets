@@ -889,6 +889,54 @@ describe("reconcilePetCare", () => {
     expect(await count("homes")).toBe(0);
   });
 
+  it("does not starve an acknowledged cleanup behind more than 25 unacknowledged homes", async () => {
+    const pendingHomes = [];
+    const statements: D1PreparedStatement[] = [];
+    for (let index = 0; index < 26; index += 1) {
+      const home = await seedHome(`unacknowledged-${String(index).padStart(2, "0")}`, {
+        deleted: true,
+      });
+      pendingHomes.push(home);
+      statements.push(
+        db
+          .prepare(
+            "INSERT INTO tenant_cleanup (owner_sub, home_id, status, started_at, updated_at) VALUES (?, ?, 'cleanup_pending', ?, ?)",
+          )
+          .bind(home.ownerSub, home.homeId, "2026-07-20T00:00:00.000Z", "2026-07-20T00:00:00.000Z"),
+        db
+          .prepare(
+            `INSERT INTO activity_cleanup_commands
+             (id, home_id, agent_id, type, status, created_at)
+             VALUES (?, ?, ?, 'delete_activity_observations', 'pending', ?)`,
+          )
+          .bind(`command-${home.homeId}`, home.homeId, home.agentId, "2026-07-20T00:00:00.000Z"),
+      );
+    }
+    await db.batch(statements);
+
+    const acknowledgedHome = await seedHome("acknowledged-after-pending", {
+      deleted: true,
+    });
+    await db
+      .prepare(
+        "INSERT INTO tenant_cleanup (owner_sub, home_id, status, started_at, updated_at) VALUES (?, ?, 'cleanup_pending', ?, ?)",
+      )
+      .bind(acknowledgedHome.ownerSub, acknowledgedHome.homeId, NOW_ISO, NOW_ISO)
+      .run();
+    await acknowledgeLocalActivityCleanup(acknowledgedHome);
+
+    const result = await reconcilePetCare(env(), NOW);
+
+    expect(result.cleanedTenants).toBe(1);
+    expect(
+      await db.prepare("SELECT id FROM homes WHERE id = ?").bind(acknowledgedHome.homeId).first(),
+    ).toBeNull();
+    expect(await count("tenant_cleanup")).toBe(26);
+    await expect(
+      db.prepare("SELECT id FROM homes WHERE id = ?").bind(pendingHomes[0].homeId).first(),
+    ).resolves.toEqual({ id: pendingHomes[0].homeId });
+  });
+
   it("does not complete a cleanup that has no local activity acknowledgement command", async () => {
     const home = await seedHome("missing-command", { deleted: true });
     await db
