@@ -99,6 +99,7 @@ def test_ci_runs_focused_live30_contracts_with_manifest_pinned_runtimes() -> Non
         "tools/tests/test_docs_check.py",
         "tools/tests/test_jetson_vision_soak.py",
         "jetson/tests/test_vision_node.py",
+        "backend/tests/test_account_cleanup.py",
         "backend/tests/test_activity.py",
         "backend/tests/test_camera_service.py",
         "backend/tests/test_contracts.py",

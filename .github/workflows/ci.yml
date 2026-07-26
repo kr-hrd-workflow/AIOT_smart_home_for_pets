@@ -158,6 +158,7 @@ jobs:
             tools/tests/test_docs_check.py `
             tools/tests/test_jetson_vision_soak.py `
             jetson/tests/test_vision_node.py `
+            backend/tests/test_account_cleanup.py `
             backend/tests/test_agent_lifecycle.py `
             backend/tests/test_activity.py `
             backend/tests/test_anomalies.py `
