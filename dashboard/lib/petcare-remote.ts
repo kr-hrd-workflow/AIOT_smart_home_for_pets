@@ -151,6 +151,26 @@ function isBehavior(value: unknown): boolean {
   );
 }
 
+function isActivityStatus(value: unknown): boolean {
+  return (
+    hasExactKeys(value, [
+      "subject_id",
+      "today_active_seconds",
+      "today_observed_seconds",
+      "current_state",
+      "last_observed_at",
+    ]) &&
+    isOneOf(value.subject_id, ["dog_001", "cat_001"]) &&
+    isNumber(value.today_active_seconds) &&
+    value.today_active_seconds >= 0 &&
+    isNumber(value.today_observed_seconds) &&
+    value.today_observed_seconds >= 0 &&
+    value.today_active_seconds <= value.today_observed_seconds &&
+    isOneOf(value.current_state, ["active", "still", "unknown"]) &&
+    isNullableString(value.last_observed_at)
+  );
+}
+
 function isAnomaly(value: unknown): boolean {
   return (
     hasExactKeys(value, [
@@ -165,7 +185,11 @@ function isAnomaly(value: unknown): boolean {
     isNumber(value.id) &&
     (value.subject_id === null ||
       isOneOf(value.subject_id, ["dog_001", "cat_001"])) &&
-    isOneOf(value.anomaly_type, ["no_meal_12h", "bed_sensor_mismatch"]) &&
+    (value.anomaly_type === "no_meal_12h" ||
+      value.anomaly_type === "bed_sensor_mismatch" ||
+      (value.anomaly_type === "repetitive_motion" &&
+        value.subject_id !== null &&
+        value.mismatch_kind === null)) &&
     value.severity === "warning" &&
     (value.mismatch_kind === null ||
       isOneOf(value.mismatch_kind, ["unconfirmed_pressure", "sensor_check"])) &&
@@ -307,6 +331,7 @@ function isDashboardSummary(value: unknown): value is DashboardSummary {
       "bed",
       "behaviors",
       "anomalies",
+      "activity",
     ]) &&
     typeof value.generated_at === "string" &&
     isHealth(value.health) &&
@@ -319,7 +344,12 @@ function isDashboardSummary(value: unknown): value is DashboardSummary {
     Array.isArray(value.behaviors) &&
     value.behaviors.every(isBehavior) &&
     Array.isArray(value.anomalies) &&
-    value.anomalies.every(isAnomaly)
+    value.anomalies.every(isAnomaly) &&
+    Array.isArray(value.activity) &&
+    value.activity.length === 2 &&
+    value.activity[0]?.subject_id === "dog_001" &&
+    value.activity[1]?.subject_id === "cat_001" &&
+    value.activity.every(isActivityStatus)
   );
 }
 

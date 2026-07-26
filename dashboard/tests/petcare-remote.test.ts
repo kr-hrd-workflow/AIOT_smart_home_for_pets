@@ -302,6 +302,81 @@ describe("createPetCareRemote", () => {
 
   const malformedStatuses: Array<[string, unknown]> = [
     [
+      "missing activity",
+      validStatus(
+        Object.fromEntries(
+          Object.entries(dashboardSummary).filter(([key]) => key !== "activity"),
+        ),
+      ),
+    ],
+    [
+      "reordered activity",
+      validStatus({
+        ...dashboardSummary,
+        activity: [
+          {
+            subject_id: "cat_001",
+            today_active_seconds: 840,
+            today_observed_seconds: 4_980,
+            current_state: "still",
+            last_observed_at: "2026-07-15T01:41:00Z",
+          },
+          {
+            subject_id: "dog_001",
+            today_active_seconds: 1_260,
+            today_observed_seconds: 5_400,
+            current_state: "active",
+            last_observed_at: "2026-07-15T01:42:00Z",
+          },
+        ],
+      }),
+    ],
+    [
+      "malformed activity",
+      validStatus({
+        ...dashboardSummary,
+        activity: [
+          {
+            subject_id: "dog_001",
+            today_active_seconds: 5_401,
+            today_observed_seconds: 5_400,
+            current_state: "active",
+            last_observed_at: "2026-07-15T01:42:00Z",
+          },
+          {
+            subject_id: "cat_001",
+            today_active_seconds: 840,
+            today_observed_seconds: 4_980,
+            current_state: "still",
+            last_observed_at: "2026-07-15T01:41:00Z",
+          },
+        ],
+      }),
+    ],
+    [
+      "extra activity field",
+      validStatus({
+        ...dashboardSummary,
+        activity: [
+          {
+            subject_id: "dog_001",
+            today_active_seconds: 1_260,
+            today_observed_seconds: 5_400,
+            current_state: "active",
+            last_observed_at: "2026-07-15T01:42:00Z",
+            extra: true,
+          },
+          {
+            subject_id: "cat_001",
+            today_active_seconds: 840,
+            today_observed_seconds: 4_980,
+            current_state: "still",
+            last_observed_at: "2026-07-15T01:41:00Z",
+          },
+        ],
+      }),
+    ],
+    [
       "device",
       validStatus({
         ...dashboardSummary,
