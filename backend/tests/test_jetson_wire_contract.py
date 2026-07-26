@@ -74,9 +74,9 @@ def jpeg_shape(data: bytes) -> tuple[int, int, int]:
     raise AssertionError("JPEG has no SOF marker")
 
 
-def test_auth_vector_and_exact_six_operations() -> None:
+def test_auth_vector_and_exact_seven_operations() -> None:
     fixture = load_fixture()
-    assert list(fixture) == ["auth", "status", "observation", "command", "clip", "errors"]
+    assert list(fixture) == ["auth", "status", "observation", "live", "command", "clip", "errors"]
     auth = fixture["auth"]
     assert list(auth) == ["version", "secret_base64url", "request", "canonical_query", "operations"]
     request = auth["request"]
@@ -138,6 +138,7 @@ def test_auth_vector_and_exact_six_operations() -> None:
         {"method": "GET", "target": "/v1/status", "success": [200]},
         {"method": "GET", "target": "/v1/observations?after=42&wait_ms=1000", "success": [200, 204]},
         {"method": "GET", "target": "/v1/preview.jpg", "success": [200]},
+        {"method": "GET", "target": "/v1/live.mjpeg", "success": [200]},
         {"method": "PUT", "target": "/v1/clips/fedcba9876543210fedcba9876543210", "success": [201, 200]},
         {"method": "GET", "target": "/v1/clips/fedcba9876543210fedcba9876543210", "success": [200]},
         {"method": "DELETE", "target": "/v1/clips/fedcba9876543210fedcba9876543210", "success": [204]},
@@ -184,6 +185,26 @@ def test_strict_json_and_preview_contracts() -> None:
     assert headers["X-PetCare-Jetson-Content-SHA256"] == hashlib.sha256(jpeg).hexdigest()
     assert preview["ignored_transport_headers"] == ["Date", "Connection"]
     assert preview["max_fps"] == 2
+
+
+def test_live_mjpeg_contract() -> None:
+    fixture = load_fixture()
+    live = fixture["live"]
+    assert list(live) == ["headers", "ignored_transport_headers", "boundary", "max_streams", "unavailable"]
+    assert live["headers"] == {
+        "Content-Type": "multipart/x-mixed-replace; boundary=frame",
+        "Cache-Control": "private, no-store, no-transform",
+        "X-PetCare-Jetson-Boot-Id": fixture["status"]["boot_id"],
+        "X-PetCare-Jetson-Sequence": "43",
+        "X-PetCare-Jetson-Observed-At": "2026-07-20T04:00:00.200000Z",
+    }
+    assert live["ignored_transport_headers"] == ["Date", "Connection"]
+    assert live["boundary"] == "frame"
+    assert live["max_streams"] == 1
+    assert live["unavailable"] == {
+        "status": 503,
+        "body": {"code": "camera_unavailable", "message": "Camera unavailable"},
+    }
 
 
 def test_command_admission_and_idempotency_contract() -> None:

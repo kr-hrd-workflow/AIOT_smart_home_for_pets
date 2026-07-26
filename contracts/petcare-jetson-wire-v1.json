@@ -44,6 +44,7 @@
       {"method": "GET", "target": "/v1/status", "success": [200]},
       {"method": "GET", "target": "/v1/observations?after=42&wait_ms=1000", "success": [200, 204]},
       {"method": "GET", "target": "/v1/preview.jpg", "success": [200]},
+      {"method": "GET", "target": "/v1/live.mjpeg", "success": [200]},
       {"method": "PUT", "target": "/v1/clips/fedcba9876543210fedcba9876543210", "success": [201, 200]},
       {"method": "GET", "target": "/v1/clips/fedcba9876543210fedcba9876543210", "success": [200]},
       {"method": "DELETE", "target": "/v1/clips/fedcba9876543210fedcba9876543210", "success": [204]}
@@ -94,6 +95,22 @@
         "X-PetCare-Jetson-Content-SHA256": "e8f2ea5a7c0511f2e32a41933ef8af70a1b96fc3acb9523a89dfb9d8aeb63cfd"
       },
       "ignored_transport_headers": ["Date", "Connection"]
+    }
+  },
+  "live": {
+    "headers": {
+      "Content-Type": "multipart/x-mixed-replace; boundary=frame",
+      "Cache-Control": "private, no-store, no-transform",
+      "X-PetCare-Jetson-Boot-Id": "0123456789abcdef0123456789abcdef",
+      "X-PetCare-Jetson-Sequence": "43",
+      "X-PetCare-Jetson-Observed-At": "2026-07-20T04:00:00.200000Z"
+    },
+    "ignored_transport_headers": ["Date", "Connection"],
+    "boundary": "frame",
+    "max_streams": 1,
+    "unavailable": {
+      "status": 503,
+      "body": {"code": "camera_unavailable", "message": "Camera unavailable"}
     }
   },
   "command": {
