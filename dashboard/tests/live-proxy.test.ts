@@ -529,8 +529,9 @@ describe("tenant-scoped live proxy", () => {
       "multipart/x-mixed-replace; boundary=\"frame\"",
     );
     expect(response.headers.get("Cache-Control")).toBe(
-      "public, max-age=3600",
+      "private, no-store, no-transform",
     );
+    expect(response.headers.get("Pragma")).toBe("no-cache");
     expect(response.headers.get("X-Upstream-Origin")).toBeNull();
     await response.body?.cancel("browser closed");
     expect(cancel).toHaveBeenCalledWith("browser closed");

@@ -396,8 +396,6 @@ export async function proxyMjpeg(
       clearTimeout(timeout);
       const responseHeaders = new Headers(PRIVATE_HEADERS);
       responseHeaders.set("Content-Type", contentType);
-      const cacheControl = upstream.headers.get("Cache-Control");
-      if (cacheControl) responseHeaders.set("Cache-Control", cacheControl);
       return new Response(upstream.body, {
         status: 200,
         headers: responseHeaders,
