@@ -462,6 +462,13 @@ test.describe("animated public landing", () => {
         requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
       }));
     };
+    const waitForVideoTarget = async (progress: number) => {
+      const target = await video.evaluate((element, value) => element.duration * value, progress);
+      await expect.poll(async () => Math.abs(
+        (await video.evaluate((element) => element.currentTime)) - target,
+      )).toBeLessThan(0.04);
+      await expect.poll(() => video.evaluate((element) => element.paused)).toBe(true);
+    };
 
     const topTime = await video.evaluate((element) => element.currentTime);
     await scrollLandingTo(0.2);
@@ -469,6 +476,7 @@ test.describe("animated public landing", () => {
     await expect.poll(() => video.evaluate((element) => element.currentTime)).toBeGreaterThan(
       topTime,
     );
+    await waitForVideoTarget(0.2);
     const earlyTime = await video.evaluate((element) => element.currentTime);
     await page.waitForTimeout(600);
     const idleEarlyTime = await video.evaluate((element) => element.currentTime);
@@ -495,6 +503,7 @@ test.describe("animated public landing", () => {
     await expect.poll(() => video.evaluate((element) => element.currentTime)).toBeLessThan(
       lateTime,
     );
+    await waitForVideoTarget(0.5);
     const reverseEarly = await video.evaluate((element) => element.currentTime);
     await page.waitForTimeout(600);
     const reverseLater = await video.evaluate((element) => element.currentTime);
