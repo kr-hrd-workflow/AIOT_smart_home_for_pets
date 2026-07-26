@@ -415,6 +415,49 @@ def test_jetson_camera_uses_remote_frame_without_local_yolo_and_keeps_persistenc
     assert "remote-close" not in calls
 
 
+def test_jetson_mjpeg_stream_passes_raw_chunks_once_and_closes_upstream() -> None:
+    raw_chunks = (
+        b"--frame\r\nContent-Type: image/jpeg\r\n\r\nfirst\r\n",
+        b"--frame\r\nContent-Type: image/jpeg\r\n\r\nsecond\r\n",
+    )
+
+    class Remote:
+        calls = 0
+        closed = False
+
+        def live_stream(self):
+            self.calls += 1
+            try:
+                yield from raw_chunks
+            finally:
+                self.closed = True
+
+    remote = Remote()
+    service = CameraService(None, None, None, remote)
+    stream = service.mjpeg_stream()
+
+    assert next(stream) == raw_chunks[0]
+    stream.close()
+
+    assert remote.calls == 1
+    assert remote.closed is True
+
+
+def test_local_mjpeg_stream_keeps_latest_frame_format() -> None:
+    service = CameraService(None, None, None)
+    service._latest_frame = camera_module.ProcessedFrame(
+        jpeg=b"\xff\xd8\xff\xd9", detections=(), fps=4.0, inference_ms=100.0,
+        observed_at=NOW, bed_subject_ids=(), selected_bed_subject_id=None,
+    )
+    service._status = CameraStatus(
+        state="online", fps=4.0, inference_ms=100.0, last_frame_at=NOW, reason=None,
+    )
+    stream = service.mjpeg_stream()
+
+    assert next(stream) == b"--frame\r\nContent-Type: image/jpeg\r\n\r\n\xff\xd8\xff\xd9\r\n"
+    stream.close()
+
+
 def test_jetson_camera_only_goes_offline_after_three_seconds_without_valid_observation() -> None:
     calls: list[str] = []
     ingress = RecordingIngress(calls, [NOW, NOW + timedelta(seconds=1), NOW + timedelta(seconds=4)])

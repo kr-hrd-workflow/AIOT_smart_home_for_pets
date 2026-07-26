@@ -31,6 +31,7 @@ from app.clip_contracts import ClipDeliveryIdentity, ClipEventMetadata, ClipInte
 from app.clip_delivery import ClipDeliveryWorker, _queue_id
 from app.config import JetsonConfig
 from app.contracts import CameraStatus, SensorReadingOut
+from app.camera_service import CameraService
 from app.jetson_client import JetsonClientError, JetsonVisionClient
 from app.jetson_contracts import JetsonClipCommand, canonical_json
 from jetson.protocol import ProtocolError, ReplayGuard, verify_request
@@ -42,6 +43,7 @@ NOW = datetime.fromisoformat(FIXTURE["observation"]["body"]["observed_at"].repla
 BOOT_ID = FIXTURE["status"]["boot_id"]
 COMMAND_ID = FIXTURE["command"]["response"]["command_id"]
 ZONES = {"pet_bed": (0, 0, 640, 480)}
+LIVE_MULTIPART = b"--frame\r\nContent-Type: image/jpeg\r\n\r\nfake-live\r\n"
 
 
 def _utc(value: str) -> datetime:
@@ -105,6 +107,18 @@ class FixtureJetson:
                 200,
                 headers=preview_headers,
                 content=base64.b64decode(FIXTURE["observation"]["preview"]["body_base64"]),
+            )
+        if request.method == "GET" and target == "/v1/live.mjpeg":
+            return httpx.Response(
+                200,
+                headers={
+                    "Content-Type": "multipart/x-mixed-replace; boundary=frame",
+                    "Cache-Control": "private, no-store, no-transform",
+                    "X-PetCare-Jetson-Boot-Id": self.boot_id,
+                    "X-PetCare-Jetson-Sequence": "1",
+                    "X-PetCare-Jetson-Observed-At": _utc_text(self.wall),
+                },
+                stream=httpx.ByteStream(LIVE_MULTIPART),
             )
         if target.startswith("/v1/clips/"):
             command_id = target.rsplit("/", 1)[1]
@@ -189,7 +203,7 @@ def _config(tmp_path: Path) -> JetsonConfig:
 def _client(tmp_path: Path, fixture: FixtureJetson) -> JetsonVisionClient:
     transport = httpx.MockTransport(fixture)
     clients = tuple(
-        httpx.Client(base_url="https://192.168.50.20:9443", transport=transport) for _ in range(3)
+        httpx.Client(base_url="https://192.168.50.20:9443", transport=transport) for _ in range(4)
     )
     return JetsonVisionClient(
         _config(tmp_path),
@@ -246,6 +260,21 @@ def test_exact_six_operation_fixture_receipt_replay_headers_and_jpeg(tmp_path: P
         ("DELETE", f"/v1/clips/{COMMAND_ID}"),
     }
     assert set(fixture.operations) == expected_operations
+
+
+def test_camera_service_passes_fake_jetson_live_multipart_through_and_closes_it(tmp_path: Path) -> None:
+    fixture = FixtureJetson()
+    client = _client(tmp_path, fixture)
+    service = CameraService(None, None, None, client)
+    stream = service.mjpeg_stream()
+    try:
+        assert next(stream) == LIVE_MULTIPART
+        assert fixture.operations == [("GET", "/v1/status"), ("GET", "/v1/live.mjpeg")]
+    finally:
+        stream.close()
+        client.close()
+
+    assert client._live_response is None
 
 
 def test_real_admission_age_negative_skew_expiry_conflict_and_immutable_replay(tmp_path: Path) -> None:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from concurrent.futures import CancelledError, TimeoutError as FutureTimeoutError
 from datetime import UTC, datetime
 from typing import Annotated, Callable, Iterable
@@ -464,21 +463,31 @@ def install_api(application: FastAPI, *, allowed_origins: Iterable[str] = DEFAUL
         if error := _query_error(request):
             return error
         camera = request.app.state.camera_service
+        stream = camera.mjpeg_stream()
         try:
-            first = camera.mjpeg_chunk()
-        except CameraUnavailable:
+            first = next(stream)
+        except (CameraUnavailable, StopIteration):
+            close = getattr(stream, "close", None)
+            if close is not None:
+                close()
             return _api_error(503, "camera_unavailable", "Camera is unavailable")
 
         def chunks():
-            yield first
-            while True:
-                time.sleep(0.05)
-                try:
-                    yield camera.mjpeg_chunk()
-                except CameraUnavailable:
-                    return
+            try:
+                yield first
+                yield from stream
+            except CameraUnavailable:
+                return
+            finally:
+                close = getattr(stream, "close", None)
+                if close is not None:
+                    close()
 
-        return StreamingResponse(chunks(), media_type="multipart/x-mixed-replace; boundary=frame")
+        return StreamingResponse(
+            chunks(),
+            media_type="multipart/x-mixed-replace; boundary=frame",
+            headers={"Cache-Control": "private, no-store, no-transform"},
+        )
 
     @router.get("/api/bed/status", response_model=BedStatus)
     def get_bed_status(

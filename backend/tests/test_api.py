@@ -77,6 +77,8 @@ class Camera:
             [b"--frame\r\nContent-Type: image/jpeg\r\n\r\nabc\r\n"] if chunks is None else chunks
         )
         self.zone_updates: list[dict[str, tuple[int, int, int, int]]] = []
+        self.stream_calls = 0
+        self.stream_closed = False
 
     def replace_zones(self, zones: dict[str, tuple[int, int, int, int]]) -> None:
         self.zone_updates.append(zones)
@@ -85,6 +87,15 @@ class Camera:
         if not self.chunks:
             raise CameraUnavailable("camera_unavailable")
         return self.chunks.pop(0)
+
+    def mjpeg_stream(self):
+        self.stream_calls += 1
+        try:
+            while self.chunks:
+                yield self.chunks.pop(0)
+            raise CameraUnavailable("camera_unavailable")
+        finally:
+            self.stream_closed = True
 
 
 def bed_status() -> BedStatus:
@@ -569,6 +580,24 @@ def test_mjpeg_unavailable_is_503_before_stream_headers(sessions: sessionmaker) 
     assert response.status_code == 503
     assert response.headers["content-type"].startswith("application/json")
     assert response.json() == {"code": "camera_unavailable", "message": "Camera is unavailable"}
+
+
+def test_mjpeg_primes_raw_stream_and_closes_it_with_private_cache_headers(sessions: sessionmaker) -> None:
+    raw_chunks = [
+        b"--frame\r\nContent-Type: image/jpeg\r\n\r\nfirst\r\n",
+        b"--frame\r\nContent-Type: image/jpeg\r\n\r\nsecond\r\n",
+    ]
+    camera = Camera(chunks=raw_chunks)
+
+    with TestClient(make_app(sessions, camera=camera)) as client:
+        response = client.get("/api/video_feed")
+
+    assert response.status_code == 200
+    assert response.content == b"".join(raw_chunks)
+    assert response.headers["cache-control"] == "private, no-store, no-transform"
+    assert response.headers["content-type"] == "multipart/x-mixed-replace; boundary=frame"
+    assert camera.stream_calls == 1
+    assert camera.stream_closed is True
 
 
 @pytest.mark.parametrize("origin", ["https://evil.example", "null"])

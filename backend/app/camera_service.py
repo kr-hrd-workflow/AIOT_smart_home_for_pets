@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import time
 from collections import deque
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from threading import Event, Lock, Thread
 from typing import Callable
@@ -304,6 +306,15 @@ class CameraService:
         if frame is None or not online or not fresh:
             raise CameraUnavailable("camera_unavailable")
         return MJPEG_PREFIX + frame.jpeg + MJPEG_SUFFIX
+
+    def mjpeg_stream(self) -> Iterator[bytes]:
+        if self._jetson_client is not None:
+            yield from self._jetson_client.live_stream()
+            return
+        yield self.mjpeg_chunk()
+        while True:
+            time.sleep(0.05)
+            yield self.mjpeg_chunk()
 
     def _wait_remote_retry(self, retry_seconds: float) -> None:
         status = self.status
