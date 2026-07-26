@@ -10,8 +10,7 @@
       "status": 201,
       "body": {
         "agent_id": "agent_01",
-        "camera_id": "camera_01",
-        "connector_token": "fixture-only-connector-token"
+        "camera_id": "camera_01"
       }
     }
   },

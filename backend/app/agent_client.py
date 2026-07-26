@@ -146,7 +146,7 @@ def _required_nonempty_strings(
 def _parse_enrollment_response(content: bytes) -> dict[str, str]:
     return _required_nonempty_strings(
         _strict_json_object(content, error=EnrollmentError),
-        {"agent_id", "camera_id", "connector_token"},
+        {"agent_id", "camera_id"},
         error=EnrollmentError,
     )
 
@@ -207,7 +207,6 @@ def enroll(
         origin=origin,
         agent_id=server["agent_id"],
         camera_id=server["camera_id"],
-        connector_token=server["connector_token"],
         private_key=b64url(private_raw),
         public_key=b64url(public_raw),
         local_camera_id=LOCAL_CAMERA_ID,

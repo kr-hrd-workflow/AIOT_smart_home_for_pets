@@ -78,7 +78,6 @@ def test_enrollment_generates_identity_and_never_sends_private_or_local_secrets(
         return httpx.Response(201, json={
             "agent_id": "agent_01",
             "camera_id": "camera_01",
-            "connector_token": "connector-secret",
         })
 
     original_argv = tuple(sys.argv)
@@ -101,8 +100,8 @@ def test_enrollment_generates_identity_and_never_sends_private_or_local_secrets(
     assert request_json["local_camera_id"] == "pc-webcam-01"
     assert "private_key" not in request_json
     assert config.camera_id == "camera_01"
-    assert config.connector_token.get_secret_value() == "connector-secret"
-    assert "connector-secret" not in repr(config)
+    assert config.connector_token is None
+    assert "connector_token" not in json.loads(output.read_text(encoding="utf-8"))
     assert "mqtt-secret" not in repr(config)
     assert tuple(sys.argv) == original_argv
 
@@ -223,7 +222,7 @@ def test_enrollment_code_must_be_canonical_unpadded_16_byte_base64url(code: str)
         (200, b'{"agent_id":"a","camera_id":"c","connector_token":"t"}'),
         (201, b"not-json"),
         (201, b'{"agent_id":"a","agent_id":"b","camera_id":"c","connector_token":"t"}'),
-        (201, b'{"agent_id":"a","camera_id":"c"}'),
+        (201, b'{"agent_id":"a","camera_id":"c","connector_token":"t"}'),
         (201, b'{"agent_id":"a","camera_id":"c","connector_token":"t","extra":1}'),
         (201, b'{"agent_id":1,"camera_id":"c","connector_token":"t"}'),
         (201, b'{"agent_id":"","camera_id":"c","connector_token":"t"}'),

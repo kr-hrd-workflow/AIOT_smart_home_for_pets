@@ -14,12 +14,8 @@ vi.mock("../lib/tenancy/repository", () => ({
 vi.mock("../lib/petcare/repository", () => ({
   PetCareRepository: class {},
 }));
-vi.mock("../lib/petcare/cloudflare", () => ({
-  CloudflareClient: class {},
-}));
-vi.mock("../lib/petcare/env", () => ({ readPetCareConfig: vi.fn(() => ({})) }));
-vi.mock("../lib/petcare/enrollment", () => ({
-  EnrollmentProvisioningService: class {
+vi.mock("../lib/petcare/outbound-enrollment", () => ({
+  OutboundEnrollmentService: class {
     enroll = mocks.enroll;
   },
 }));
@@ -55,18 +51,16 @@ beforeEach(() => {
   mocks.enroll.mockResolvedValue({
     agentId: "agent_01",
     cameraId: "camera_01",
-    connectorToken: "connector-secret",
   });
 });
 
-it("passes the platform IP and returns only the one-time connector response", async () => {
+it("passes the platform IP and returns only the outbound enrollment response", async () => {
   const response = await handleAgentEnroll(request(), {} as never, new Date());
   expect(response.status).toBe(201);
   expect(response.headers.get("cache-control")).toBe("private, no-store");
   await expect(response.json()).resolves.toEqual({
     agent_id: "agent_01",
     camera_id: "camera_01",
-    connector_token: "connector-secret",
   });
   expect(mocks.enroll).toHaveBeenCalledWith({
     code: "AQEBAQEBAQEBAQEBAQEBAQ",

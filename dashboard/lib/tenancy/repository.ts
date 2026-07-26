@@ -11,6 +11,13 @@ export type ConsumeEnrollmentInput = {
   camera: { id: string; localCameraId: string };
 };
 
+export type ConsumeOutboundEnrollmentInput = {
+  codeHash: string;
+  consumedAt: string;
+  agent: { id: string; publicKey: string };
+  camera: { id: string; localCameraId: "pc-webcam-01" };
+};
+
 export type EnrollmentBinding = {
   homeId: string;
   agentId: string;
@@ -122,8 +129,8 @@ export class TenantRepository {
       const results = await client.batch([
         client
           .prepare(`
-            INSERT INTO agents (id, home_id, public_key, tunnel_origin)
-            SELECT ?, et.home_id, ?, ? FROM enrollment_tokens et
+            INSERT INTO agents (id, home_id, public_key, tunnel_origin, connection_mode)
+            SELECT ?, et.home_id, ?, ?, 'tunnel' FROM enrollment_tokens et
             JOIN tunnel_routes tr ON tr.home_id = et.home_id
             WHERE tr.agent_id = ? AND tr.status = 'provisioning'
               AND et.token_hash = ? AND et.consumed_at IS NULL AND et.expires_at > ?
@@ -175,6 +182,84 @@ export class TenantRepository {
       if (
         results[0].meta.changes !== 1 ||
         results[1].meta.changes !== 1 ||
+        typeof homeId !== "string"
+      ) {
+        throw new EnrollmentRejectedError("Enrollment rejected");
+      }
+      return {
+        homeId,
+        agentId: input.agent.id,
+        cameraId: input.camera.id,
+      };
+    } catch (error) {
+      if (error instanceof EnrollmentRejectedError) throw error;
+      if (isEnrollmentConstraint(error)) {
+        throw new EnrollmentRejectedError("Enrollment rejected");
+      }
+      throw new TenantInfrastructureError("Tenancy unavailable");
+    }
+  }
+
+  async consumeOutboundEnrollment(
+    input: ConsumeOutboundEnrollmentInput,
+  ): Promise<EnrollmentBinding> {
+    const client = this.db.$client;
+    try {
+      const results = await client.batch([
+        client
+          .prepare(`
+            INSERT INTO agents (id, home_id, public_key, tunnel_origin, connection_mode)
+            SELECT ?, et.home_id, ?, NULL, 'outbound'
+            FROM enrollment_tokens et
+            WHERE et.token_hash = ? AND et.consumed_at IS NULL AND et.expires_at > ?
+          `)
+          .bind(
+            input.agent.id,
+            input.agent.publicKey,
+            input.codeHash,
+            input.consumedAt,
+          ),
+        client
+          .prepare(`
+            INSERT INTO cameras (id, home_id, agent_id, local_camera_id, created_at)
+            SELECT ?, et.home_id, ?, ?, ?
+            FROM enrollment_tokens et
+            JOIN agents a ON a.id = ? AND a.home_id = et.home_id
+            WHERE et.token_hash = ? AND et.consumed_at IS NULL AND et.expires_at > ?
+          `)
+          .bind(
+            input.camera.id,
+            input.agent.id,
+            input.camera.localCameraId,
+            input.consumedAt,
+            input.agent.id,
+            input.codeHash,
+            input.consumedAt,
+          ),
+        client
+          .prepare(`
+            UPDATE enrollment_tokens SET consumed_at = ?
+            WHERE token_hash = ? AND consumed_at IS NULL AND expires_at > ?
+              AND EXISTS (
+                SELECT 1 FROM agents a
+                JOIN cameras c ON c.agent_id = a.id AND c.home_id = a.home_id
+                WHERE a.id = ? AND c.id = ? AND a.home_id = enrollment_tokens.home_id
+              )
+            RETURNING home_id
+          `)
+          .bind(
+            input.consumedAt,
+            input.codeHash,
+            input.consumedAt,
+            input.agent.id,
+            input.camera.id,
+          ),
+      ]);
+      const homeId = results[2].results[0]?.home_id;
+      if (
+        results[0].meta.changes !== 1 ||
+        results[1].meta.changes !== 1 ||
+        results[2].meta.changes !== 1 ||
         typeof homeId !== "string"
       ) {
         throw new EnrollmentRejectedError("Enrollment rejected");

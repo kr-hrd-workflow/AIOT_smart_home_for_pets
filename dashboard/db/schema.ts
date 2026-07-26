@@ -31,7 +31,10 @@ export const agents = sqliteTable(
       .notNull()
       .references(() => homes.id, { onDelete: "restrict" }),
     publicKey: text("public_key").notNull(),
-    tunnelOrigin: text("tunnel_origin").notNull(),
+    tunnelOrigin: text("tunnel_origin"),
+    connectionMode: text("connection_mode", {
+      enum: ["outbound", "tunnel"],
+    }).notNull(),
     lastSeenAt: text("last_seen_at"),
     revokedAt: text("revoked_at"),
   },
@@ -210,6 +213,68 @@ export const activityCleanupCommands = sqliteTable(
   (table) => [
     uniqueIndex("activity_cleanup_commands_home_id_unique").on(table.homeId),
     index("activity_cleanup_commands_agent_status_idx").on(table.agentId, table.status),
+  ],
+);
+
+export const agentSnapshots = sqliteTable(
+  "agent_snapshots",
+  {
+    homeId: text("home_id")
+      .primaryKey()
+      .references(() => homes.id, { onDelete: "restrict" }),
+    agentId: text("agent_id")
+      .notNull()
+      .unique()
+      .references(() => agents.id, { onDelete: "restrict" }),
+    body: text("body").notNull(),
+    generatedAt: text("generated_at").notNull(),
+    receivedAt: text("received_at").notNull(),
+  },
+  (table) => [index("agent_snapshots_received_idx").on(table.receivedAt)],
+);
+
+export const liveStreams = sqliteTable(
+  "live_streams",
+  {
+    homeId: text("home_id")
+      .primaryKey()
+      .references(() => homes.id, { onDelete: "restrict" }),
+    agentId: text("agent_id")
+      .notNull()
+      .unique()
+      .references(() => agents.id, { onDelete: "restrict" }),
+    cameraId: text("camera_id")
+      .notNull()
+      .unique()
+      .references(() => cameras.id, { onDelete: "restrict" }),
+    bootId: text("boot_id").notNull(),
+    initObjectKey: text("init_object_key").notNull().unique(),
+    newestSequence: integer("newest_sequence").notNull(),
+    updatedAt: text("updated_at").notNull(),
+    expiresAt: text("expires_at").notNull(),
+  },
+  (table) => [index("live_streams_expires_idx").on(table.expiresAt)],
+);
+
+export const liveParts = sqliteTable(
+  "live_parts",
+  {
+    homeId: text("home_id")
+      .notNull()
+      .references(() => homes.id, { onDelete: "restrict" }),
+    bootId: text("boot_id").notNull(),
+    sequence: integer("sequence").notNull(),
+    objectKey: text("object_key").notNull().unique(),
+    sha256: text("sha256").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    startedAt: text("started_at").notNull(),
+    durationMs: integer("duration_ms").notNull(),
+    createdAt: text("created_at").notNull(),
+    expiresAt: text("expires_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.homeId, table.bootId, table.sequence] }),
+    index("live_parts_home_expires_idx").on(table.homeId, table.expiresAt),
   ],
 );
 

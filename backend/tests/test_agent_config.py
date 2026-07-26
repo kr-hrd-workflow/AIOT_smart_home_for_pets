@@ -35,7 +35,6 @@ def runtime_config() -> AgentRuntimeConfig:
         origin="https://petcare.example",
         agent_id="agent_01",
         camera_id="camera_01",
-        connector_token="connector-secret",
         private_key=PRIVATE_KEY,
         public_key=PUBLIC_KEY,
         local_camera_id="pc-webcam-01",
@@ -48,7 +47,6 @@ def test_runtime_config_redacts_every_local_secret_and_round_trips(
 ) -> None:
     config = runtime_config()
     rendered = repr(config)
-    assert "connector-secret" not in rendered
     assert "db-secret" not in rendered
     assert "mqtt-secret" not in rendered
     assert PRIVATE_KEY not in rendered
@@ -58,12 +56,12 @@ def test_runtime_config_redacts_every_local_secret_and_round_trips(
     write_runtime_config(output, config, windows_identity_sid="S-1-5-21-1000")
 
     persisted = json.loads(output.read_text(encoding="utf-8"))
-    assert persisted["connector_token"] == "connector-secret"
+    assert "connector_token" not in persisted
     assert persisted["private_key"] == PRIVATE_KEY
     assert persisted["local_settings"]["mqtt_password"] == "mqtt-secret"
     loaded = load_runtime_config(output)
     assert loaded == config
-    assert isinstance(loaded.connector_token, SecretStr)
+    assert loaded.connector_token is None
     assert isinstance(loaded.local_settings.database_url, SecretStr)
 
 
@@ -82,7 +80,6 @@ def test_runtime_config_rejects_invalid_trust_boundary_values(field: str, value:
         "origin": "https://petcare.example",
         "agent_id": "agent_01",
         "camera_id": "camera_01",
-        "connector_token": "connector-secret",
         "private_key": PRIVATE_KEY,
         "public_key": PUBLIC_KEY,
         "local_camera_id": "pc-webcam-01",
@@ -129,12 +126,40 @@ def test_runtime_config_rejects_mismatched_ed25519_keypair() -> None:
             origin="https://petcare.example",
             agent_id="agent_01",
             camera_id="camera_01",
-            connector_token="connector-secret",
             private_key=PRIVATE_KEY,
             public_key="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
             local_camera_id="pc-webcam-01",
             local_settings=local_settings(),
         )
+
+
+def test_runtime_config_loads_legacy_connector_token_without_writing_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = tmp_path / "legacy-agent.json"
+    legacy = {
+        "origin": "https://petcare.example",
+        "agent_id": "agent_01",
+        "camera_id": "camera_01",
+        "connector_token": "connector-secret",
+        "private_key": PRIVATE_KEY,
+        "public_key": PUBLIC_KEY,
+        "local_camera_id": "pc-webcam-01",
+        "local_settings": {
+            "database_url": "postgresql+psycopg://petcare:db-secret@127.0.0.1:55432/petcare",
+            "mqtt_profile": "local_live",
+            "mqtt_username": "petcare",
+            "mqtt_password": "mqtt-secret",
+        },
+    }
+    output.write_text(json.dumps(legacy), encoding="utf-8")
+
+    loaded = load_runtime_config(output)
+
+    assert isinstance(loaded.connector_token, SecretStr)
+    monkeypatch.setattr("app.agent_config.protect_runtime_file", lambda *args: None)
+    write_runtime_config(output, loaded, windows_identity_sid="S-1-5-21-1000")
+    assert "connector_token" not in json.loads(output.read_text(encoding="utf-8"))
 
 
 def test_atomic_replace_failure_preserves_previous_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -10,14 +10,6 @@ const mocks = vi.hoisted(() => ({
 const runtimeEnv = vi.hoisted(() => ({
   SUPABASE_URL: "https://project-ref.supabase.co",
   SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test",
-  CF_ACCOUNT_ID: "account",
-  CF_ZONE_ID: "zone",
-  CF_ZONE_NAME: "pets.example",
-  CF_ACCESS_TEAM_NAME: "petcare",
-  CF_TUNNEL_API_TOKEN: "api-token",
-  CF_ACCESS_SERVICE_TOKEN_ID: "service-token",
-  CF_ACCESS_CLIENT_ID: "access-client",
-  CF_ACCESS_CLIENT_SECRET: "access-secret",
 }));
 
 vi.mock("cloudflare:workers", () => ({
@@ -46,16 +38,6 @@ import { TenantNotFoundError } from "../../lib/tenancy/repository";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  Object.assign(runtimeEnv, {
-    CF_ACCOUNT_ID: "account",
-    CF_ZONE_ID: "zone",
-    CF_ZONE_NAME: "pets.example",
-    CF_ACCESS_TEAM_NAME: "petcare",
-    CF_TUNNEL_API_TOKEN: "api-token",
-    CF_ACCESS_SERVICE_TOKEN_ID: "service-token",
-    CF_ACCESS_CLIENT_ID: "access-client",
-    CF_ACCESS_CLIENT_SECRET: "access-secret",
-  });
 });
 
 it.each(["owner-a", "owner-b"])(
@@ -129,9 +111,12 @@ it("returns 404 for a subject without an active home", async () => {
   await expect(response.json()).resolves.toEqual({ error: "not_found" });
 });
 
-it("fails before issuing a code when the managed tunnel runtime is unavailable", async () => {
+it("issues a code without Cloudflare runtime values", async () => {
   mocks.requireAuth.mockResolvedValue({ sub: "owner-a", email: null });
-  runtimeEnv.CF_ZONE_ID = "";
+  mocks.issueEnrollment.mockResolvedValue({
+    code: "code-owner-a",
+    expiresAt: "2026-07-20T03:10:00.000Z",
+  });
 
   const response = await POST(
     new Request("https://app.test/api/petcare/enrollment", {
@@ -140,11 +125,12 @@ it("fails before issuing a code when the managed tunnel runtime is unavailable",
     }),
   );
 
-  expect(response.status).toBe(503);
+  expect(response.status).toBe(201);
   await expect(response.json()).resolves.toEqual({
-    error: "enrollment_unavailable",
+    code: "code-owner-a",
+    expiresAt: "2026-07-20T03:10:00.000Z",
   });
-  expect(mocks.issueEnrollment).not.toHaveBeenCalled();
+  expect(mocks.issueEnrollment).toHaveBeenCalledWith("owner-a");
 });
 
 it("rejects cross-origin issuance before auth or D1", async () => {

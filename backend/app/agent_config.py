@@ -82,7 +82,7 @@ class AgentRuntimeConfig(BaseModel):
     origin: str
     agent_id: str
     camera_id: str
-    connector_token: SecretStr
+    connector_token: SecretStr | None = None
     private_key: SecretStr
     public_key: str
     local_camera_id: str = LOCAL_CAMERA_ID
@@ -100,7 +100,9 @@ class AgentRuntimeConfig(BaseModel):
 
     @field_validator("connector_token")
     @classmethod
-    def validate_connector_token(cls, value: SecretStr) -> SecretStr:
+    def validate_connector_token(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is None:
+            return value
         _validate_nonempty(value.get_secret_value(), "connector token")
         return value
 
@@ -157,7 +159,6 @@ def _runtime_payload(config: AgentRuntimeConfig) -> dict[str, Any]:
         "origin": config.origin,
         "agent_id": config.agent_id,
         "camera_id": config.camera_id,
-        "connector_token": config.connector_token.get_secret_value(),
         "private_key": config.private_key.get_secret_value(),
         "public_key": config.public_key,
         "local_camera_id": config.local_camera_id,

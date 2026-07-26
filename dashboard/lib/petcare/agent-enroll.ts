@@ -1,9 +1,8 @@
 import { getDb } from "../../db";
 import { TenantRepository } from "../tenancy/repository";
-import { CloudflareClient } from "./cloudflare";
-import { EnrollmentProvisioningService } from "./enrollment";
-import { readPetCareConfig, type PetCareEnv } from "./env";
+import type { PetCareEnv } from "./env";
 import { errorResponse, PetCareError } from "./errors";
+import { OutboundEnrollmentService } from "./outbound-enrollment";
 import { PetCareRepository } from "./repository";
 
 export type AgentEnrollWireRequest = {
@@ -16,7 +15,6 @@ export type AgentEnrollWireRequest = {
 export type AgentEnrollWireResponse = {
   agent_id: string;
   camera_id: string;
-  connector_token: string;
 };
 
 const MAX_BODY_BYTES = 4096;
@@ -167,10 +165,9 @@ export async function handleAgentEnroll(
 
     const payload = parsePayload(await boundedBody(request, declaredLength));
     const db = getDb(env.DB);
-    const service = new EnrollmentProvisioningService(
+    const service = new OutboundEnrollmentService(
       new TenantRepository(db),
       new PetCareRepository(env.DB),
-      new CloudflareClient(readPetCareConfig(env)),
       () => now,
     );
     const result = await service.enroll({
@@ -182,7 +179,6 @@ export async function handleAgentEnroll(
     const response: AgentEnrollWireResponse = {
       agent_id: result.agentId,
       camera_id: result.cameraId,
-      connector_token: result.connectorToken,
     };
     return Response.json(response, {
       status: 201,

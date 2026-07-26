@@ -26,6 +26,7 @@ beforeEach(async () => {
     "0000_petcare_tenancy.sql",
     "0001_petcare_tunnels_clips.sql",
     "0002_activity_cleanup_commands.sql",
+    "0003_petcare_outbound.sql",
   ]) {
     const migration = readFileSync(
       resolve(import.meta.dirname, `../../drizzle/${migrationName}`),
@@ -44,6 +45,17 @@ beforeEach(async () => {
 afterEach(async () => mf.dispose());
 
 describe("TenantRepository", () => {
+  async function enrollmentState() {
+    const table = async (name: string) =>
+      (await db.prepare(`SELECT * FROM ${name} ORDER BY 1`).all()).results;
+    return {
+      homes: await table("homes"),
+      enrollmentTokens: await table("enrollment_tokens"),
+      agents: await table("agents"),
+      cameras: await table("cameras"),
+    };
+  }
+
   async function reserveRoute(
     homeId: string,
     agentId: string,
@@ -133,6 +145,112 @@ describe("TenantRepository", () => {
       status: 409,
       code: "enrollment_rejected",
     });
+  });
+
+  it("creates one outbound agent and camera in one batch", async () => {
+    const tenantDb = getDb(db);
+    const repository = new TenantRepository(tenantDb);
+    const home = await repository.ensureHome("owner-outbound");
+    await repository.replaceEnrollmentToken(
+      home.id,
+      "outbound-hash",
+      "2026-07-20T03:10:00.000Z",
+    );
+
+    await expect(
+      repository.consumeOutboundEnrollment({
+        codeHash: "outbound-hash",
+        consumedAt: "2026-07-20T03:05:00.000Z",
+        agent: { id: "agent-outbound", publicKey: "key-outbound" },
+        camera: { id: "camera-outbound", localCameraId: "pc-webcam-01" },
+      }),
+    ).resolves.toEqual({
+      homeId: home.id,
+      agentId: "agent-outbound",
+      cameraId: "camera-outbound",
+    });
+
+    expect(
+      await db
+        .prepare("SELECT tunnel_origin, connection_mode FROM agents WHERE id = ?")
+        .bind("agent-outbound")
+        .first(),
+    ).toEqual({ tunnel_origin: null, connection_mode: "outbound" });
+    expect(
+      await db
+        .prepare("SELECT consumed_at FROM enrollment_tokens WHERE token_hash = ?")
+        .bind("outbound-hash")
+        .first(),
+    ).toEqual({ consumed_at: "2026-07-20T03:05:00.000Z" });
+  });
+
+  it.each([
+    ["expired", async (repository: TenantRepository) => {
+      const home = await repository.ensureHome("owner-expired");
+      await repository.replaceEnrollmentToken(home.id, "expired-outbound", "2026-07-20T03:00:00.000Z");
+      return {
+        codeHash: "expired-outbound",
+        consumedAt: "2026-07-20T03:05:00.000Z",
+        agent: { id: "agent-expired", publicKey: "key-expired" },
+        camera: { id: "camera-expired", localCameraId: "pc-webcam-01" as const },
+      };
+    }],
+    ["reused", async (repository: TenantRepository) => {
+      const home = await repository.ensureHome("owner-reused");
+      await repository.replaceEnrollmentToken(home.id, "reused-outbound", "2026-07-20T03:10:00.000Z");
+      const input = {
+        codeHash: "reused-outbound",
+        consumedAt: "2026-07-20T03:05:00.000Z",
+        agent: { id: "agent-reused", publicKey: "key-reused" },
+        camera: { id: "camera-reused", localCameraId: "pc-webcam-01" as const },
+      };
+      await repository.consumeOutboundEnrollment(input);
+      return input;
+    }],
+    ["foreign", async (repository: TenantRepository) => {
+      const home = await repository.ensureHome("owner-foreign");
+      const other = await repository.ensureHome("owner-other");
+      await repository.replaceEnrollmentToken(home.id, "foreign-outbound", "2026-07-20T03:10:00.000Z");
+      await db
+        .prepare(
+          "INSERT INTO agents (id, home_id, public_key, tunnel_origin, connection_mode) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind("agent-foreign", other.id, "key-other", null, "outbound")
+        .run();
+      return {
+        codeHash: "foreign-outbound",
+        consumedAt: "2026-07-20T03:05:00.000Z",
+        agent: { id: "agent-foreign", publicKey: "key-foreign" },
+        camera: { id: "camera-foreign", localCameraId: "pc-webcam-01" as const },
+      };
+    }],
+    ["second-agent", async (repository: TenantRepository) => {
+      const home = await repository.ensureHome("owner-second");
+      await repository.replaceEnrollmentToken(home.id, "second-outbound", "2026-07-20T03:10:00.000Z");
+      await db
+        .prepare(
+          "INSERT INTO agents (id, home_id, public_key, tunnel_origin, connection_mode) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind("agent-existing", home.id, "key-existing", null, "outbound")
+        .run();
+      return {
+        codeHash: "second-outbound",
+        consumedAt: "2026-07-20T03:05:00.000Z",
+        agent: { id: "agent-second", publicKey: "key-second" },
+        camera: { id: "camera-second", localCameraId: "pc-webcam-01" as const },
+      };
+    }],
+  ])("rejects %s outbound enrollment without mutating tenant tables", async (_name, setup) => {
+    const repository = new TenantRepository(getDb(db));
+    const input = await setup(repository);
+    const before = await enrollmentState();
+
+    await expect(repository.consumeOutboundEnrollment(input)).rejects.toMatchObject({
+      status: 409,
+      code: "enrollment_rejected",
+    });
+
+    await expect(enrollmentState()).resolves.toEqual(before);
   });
 
   it("rejects a valid token without its reserved provisioning route", async () => {
@@ -290,13 +408,14 @@ describe("TenantRepository", () => {
     const home = await repository.ensureHome("owner-a");
     await db
       .prepare(
-        "INSERT INTO agents (id, home_id, public_key, tunnel_origin) VALUES (?, ?, ?, ?)",
+        "INSERT INTO agents (id, home_id, public_key, tunnel_origin, connection_mode) VALUES (?, ?, ?, ?, ?)",
       )
       .bind(
         "agent-existing",
         home.id,
         "key-existing",
         "https://existing.invalid",
+        "tunnel",
       )
       .run();
     await repository.replaceEnrollmentToken(
@@ -341,13 +460,14 @@ describe("TenantRepository", () => {
     await db.batch([
       db
         .prepare(
-          "INSERT INTO agents (id, home_id, public_key, tunnel_origin, revoked_at) VALUES (?, ?, ?, ?, ?)",
+          "INSERT INTO agents (id, home_id, public_key, tunnel_origin, connection_mode, revoked_at) VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(
           "agent-old",
           home.id,
           "key-old",
           "https://old.invalid",
+          "tunnel",
           "2026-07-20T03:00:00.000Z",
         ),
       db

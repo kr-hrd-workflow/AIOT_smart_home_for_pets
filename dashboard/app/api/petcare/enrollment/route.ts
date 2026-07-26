@@ -1,14 +1,8 @@
-import { env } from "cloudflare:workers";
-
 import { AuthError, requireAuth } from "../../../../lib/auth/require-auth";
 import {
   requireSameOrigin,
   runtimeAuthEnv,
 } from "../../../../lib/auth/session";
-import {
-  readPetCareConfig,
-  type PetCareEnv,
-} from "../../../../lib/petcare/env";
 import { issueEnrollment } from "../../../../lib/tenancy/enrollment";
 import { TenantNotFoundError } from "../../../../lib/tenancy/repository";
 
@@ -16,7 +10,6 @@ export async function POST(request: Request) {
   try {
     requireSameOrigin(request);
     const user = await requireAuth(request, runtimeAuthEnv());
-    readPetCareConfig(env as unknown as PetCareEnv);
     const result = await issueEnrollment(user.sub);
     return Response.json(result, {
       status: 201,
