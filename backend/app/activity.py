@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from math import hypot, isfinite
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from .contracts import CameraDetectionIn
+from .contracts import ActivityStatus, CameraDetectionIn
 from .models import ActivityObservation, AnomalyEvent
 
 
@@ -17,6 +18,63 @@ def _utc(observed_at: datetime) -> datetime:
     if observed_at.tzinfo is None or observed_at.utcoffset() is None:
         return observed_at.replace(tzinfo=UTC)
     return observed_at.astimezone(UTC)
+
+
+def activity_statuses(session: Session, now: datetime) -> list[ActivityStatus]:
+    now = _utc(now)
+    seoul = ZoneInfo("Asia/Seoul")
+    day_start = datetime.combine(now.astimezone(seoul).date(), datetime.min.time(), seoul).astimezone(UTC)
+    subjects = ("dog_001", "cat_001")
+    with session.no_autoflush:
+        totals = {
+            subject_id: (int(active), int(observed))
+            for subject_id, active, observed in session.execute(
+                select(
+                    ActivityObservation.subject_id,
+                    func.coalesce(func.sum(case((ActivityObservation.moving.is_(True), 1), else_=0)), 0),
+                    func.count(),
+                )
+                .where(
+                    ActivityObservation.subject_id.in_(subjects),
+                    ActivityObservation.observed_at >= day_start,
+                    ActivityObservation.observed_at <= now,
+                )
+                .group_by(ActivityObservation.subject_id)
+            )
+        }
+        latest = {
+            subject_id: session.execute(
+                select(ActivityObservation.observed_at, ActivityObservation.moving)
+                .where(
+                    ActivityObservation.subject_id == subject_id,
+                    ActivityObservation.observed_at >= day_start,
+                    ActivityObservation.observed_at <= now,
+                )
+                .order_by(ActivityObservation.observed_at.desc(), ActivityObservation.id.desc())
+                .limit(1)
+            ).one_or_none()
+            for subject_id in subjects
+        }
+    statuses = []
+    for subject_id in subjects:
+        active, observed = totals.get(subject_id, (0, 0))
+        latest_row = latest[subject_id]
+        last_observed_at = None if latest_row is None else _utc(latest_row.observed_at)
+        current_state = (
+            "unknown"
+            if last_observed_at is None or last_observed_at < now - timedelta(seconds=3)
+            else "active" if latest_row.moving else "still"
+        )
+        statuses.append(
+            ActivityStatus(
+                subject_id=subject_id,
+                today_active_seconds=active,
+                today_observed_seconds=observed,
+                current_state=current_state,
+                last_observed_at=last_observed_at,
+            )
+        )
+    return statuses
 
 
 def _activity_window(session: Session, subject_id: str, observed_at: datetime) -> list[ActivityObservation]:

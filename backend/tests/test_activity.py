@@ -10,7 +10,7 @@ from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.activity import record_activity
+from app.activity import activity_statuses, record_activity
 from app.contracts import CameraDetectionIn
 from app.models import ActivityObservation, AnomalyEvent
 
@@ -80,6 +80,89 @@ def rows(session: Session) -> list[ActivityObservation]:
 
 def anomalies(session: Session) -> list[AnomalyEvent]:
     return session.execute(select(AnomalyEvent).order_by(AnomalyEvent.id)).scalars().all()
+
+
+def observation(subject_id: str, observed_at: datetime, *, moving: bool) -> ActivityObservation:
+    return ActivityObservation(
+        camera_id="pc-webcam-01",
+        subject_id=subject_id,
+        observed_at=observed_at,
+        center_x=100,
+        center_y=100,
+        moving=moving,
+        distance=0,
+    )
+
+
+def test_activity_statuses_use_seoul_day_and_exact_freshness_boundary(session: Session) -> None:
+    now = datetime(2026, 7, 26, tzinfo=UTC)
+    day_start = datetime(2026, 7, 25, 15, tzinfo=UTC)
+    session.add_all(
+        [
+            observation("dog_001", day_start - timedelta(seconds=1), moving=True),
+            observation("dog_001", day_start, moving=True),
+            observation("dog_001", now, moving=False),
+            observation("cat_001", now - timedelta(seconds=3), moving=True),
+            observation("cat_001", now + timedelta(seconds=1), moving=False),
+        ]
+    )
+    session.commit()
+
+    statuses = activity_statuses(session, now)
+
+    assert [status.model_dump() for status in statuses] == [
+        {
+            "subject_id": "dog_001",
+            "today_active_seconds": 1,
+            "today_observed_seconds": 2,
+            "current_state": "still",
+            "last_observed_at": now,
+        },
+        {
+            "subject_id": "cat_001",
+            "today_active_seconds": 1,
+            "today_observed_seconds": 1,
+            "current_state": "active",
+            "last_observed_at": now - timedelta(seconds=3),
+        },
+    ]
+
+
+def test_activity_statuses_keep_stale_timestamp_and_report_empty_as_unknown(session: Session) -> None:
+    now = datetime(2026, 7, 26, tzinfo=UTC)
+    observed_at = now - timedelta(seconds=4)
+    session.add(observation("dog_001", observed_at, moving=True))
+    session.commit()
+
+    statuses = activity_statuses(session, now)
+
+    assert [status.model_dump() for status in statuses] == [
+        {
+            "subject_id": "dog_001",
+            "today_active_seconds": 1,
+            "today_observed_seconds": 1,
+            "current_state": "unknown",
+            "last_observed_at": observed_at,
+        },
+        {
+            "subject_id": "cat_001",
+            "today_active_seconds": 0,
+            "today_observed_seconds": 0,
+            "current_state": "unknown",
+            "last_observed_at": None,
+        },
+    ]
+
+
+def test_activity_statuses_do_not_flush_or_include_pending_observations(session: Session) -> None:
+    now = datetime(2026, 7, 26, tzinfo=UTC)
+    pending = observation("dog_001", now, moving=True)
+    session.add(pending)
+
+    statuses = activity_statuses(session, now)
+
+    assert [(status.today_active_seconds, status.today_observed_seconds) for status in statuses] == [(0, 0), (0, 0)]
+    assert pending in session.new
 
 
 def qualifying_history(

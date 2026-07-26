@@ -372,6 +372,22 @@ class HealthOut(StrictModel):
     worker: Literal["running", "stopped"]
 
 
+class ActivityStatus(StrictModel):
+    subject_id: SubjectId
+    today_active_seconds: NonNegativeInt
+    today_observed_seconds: NonNegativeInt
+    current_state: Literal["active", "still", "unknown"]
+    last_observed_at: UtcDatetime | None
+
+    @model_validator(mode="after")
+    def validate_status(self) -> Self:
+        if self.today_active_seconds > self.today_observed_seconds:
+            raise ValueError("active seconds exceed observed seconds")
+        if self.current_state in {"active", "still"} and self.last_observed_at is None:
+            raise ValueError("observed state requires a timestamp")
+        return self
+
+
 class DashboardSummary(StrictModel):
     generated_at: UtcDatetime
     health: HealthOut
@@ -381,6 +397,13 @@ class DashboardSummary(StrictModel):
     bed: BedStatus
     behaviors: list[BehaviorEventOut]
     anomalies: list[AnomalyEventOut]
+    activity: list[ActivityStatus]
+
+    @model_validator(mode="after")
+    def validate_activity_order(self) -> Self:
+        if [item.subject_id for item in self.activity] != ["dog_001", "cat_001"]:
+            raise ValueError("activity must be dog_001 then cat_001")
+        return self
 
 
 class DashboardUpdate(StrictModel):

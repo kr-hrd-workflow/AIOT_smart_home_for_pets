@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from app.config import AppConfig, load_config
 from app.contracts import (
     AnomalyEventOut,
+    ActivityStatus,
     ApiError,
     BedCalibrationError,
     BedCalibrationSuccess,
@@ -152,7 +153,8 @@ def test_named_wire_models_keep_exact_field_order() -> None:
         BedCalibrationError: ("code", "message", "channels"),
         ZoneOut: ("zone_name", "x1", "y1", "x2", "y2", "enabled", "updated_at"),
         HealthOut: ("status", "database", "mqtt", "camera", "queue", "worker"),
-        DashboardSummary: ("generated_at", "health", "devices", "latest_sensors", "camera", "bed", "behaviors", "anomalies"),
+        ActivityStatus: ("subject_id", "today_active_seconds", "today_observed_seconds", "current_state", "last_observed_at"),
+        DashboardSummary: ("generated_at", "health", "devices", "latest_sensors", "camera", "bed", "behaviors", "anomalies", "activity"),
         ApiError: ("code", "message"),
     }
     for model, fields in expected.items():
@@ -164,6 +166,33 @@ def test_named_wire_models_keep_exact_field_order() -> None:
 def test_float_fields_do_not_coerce_integers() -> None:
     with pytest.raises(ValidationError):
         CameraStatus(state="online", fps=1, inference_ms=1.0, last_frame_at=NOW, reason=None)
+
+
+def test_activity_status_rejects_impossible_counts_and_fresh_state_without_timestamp() -> None:
+    assert ActivityStatus(
+        subject_id="dog_001",
+        today_active_seconds=1,
+        today_observed_seconds=2,
+        current_state="unknown",
+        last_observed_at=NOW,
+    ).current_state == "unknown"
+    for payload in (
+        {"today_active_seconds": 3, "today_observed_seconds": 2},
+        {"today_active_seconds": -1, "today_observed_seconds": 0},
+        {"current_state": "active", "last_observed_at": None},
+        {"current_state": "still", "last_observed_at": None},
+    ):
+        with pytest.raises(ValidationError):
+            ActivityStatus(
+                **{
+                    "subject_id": "dog_001",
+                    "today_active_seconds": 0,
+                    "today_observed_seconds": 0,
+                    "current_state": "unknown",
+                    "last_observed_at": None,
+                    **payload,
+                }
+            )
 
 
 def test_anomaly_output_accepts_repetitive_motion_for_pet() -> None:

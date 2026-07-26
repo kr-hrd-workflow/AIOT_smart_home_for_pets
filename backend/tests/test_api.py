@@ -332,6 +332,9 @@ def sessions() -> sessionmaker:
             "CREATE TABLE anomaly_events (id INTEGER PRIMARY KEY, subject_id TEXT, anomaly_type TEXT, severity TEXT, mismatch_kind TEXT, source_behavior_event_id INTEGER, source_key TEXT, message TEXT, occurred_at DATETIME, created_at DATETIME)"
         )
         connection.exec_driver_sql(
+            "CREATE TABLE activity_observations (id INTEGER PRIMARY KEY, camera_id TEXT, subject_id TEXT, observed_at DATETIME, center_x INTEGER, center_y INTEGER, moving BOOLEAN, distance FLOAT, created_at DATETIME)"
+        )
+        connection.exec_driver_sql(
             "CREATE TABLE zones (zone_name TEXT PRIMARY KEY, x1 INTEGER, y1 INTEGER, x2 INTEGER, y2 INTEGER, enabled BOOLEAN, created_at DATETIME, updated_at DATETIME)"
         )
         connection.exec_driver_sql(
@@ -352,6 +355,11 @@ def sessions() -> sessionmaker:
             "INSERT INTO anomaly_events VALUES "
             "(1,'dog_001','no_meal_12h','warning',NULL,1,'a','old','2026-07-20 09:00:00',NULL),"
             "(2,NULL,'bed_sensor_mismatch','warning','unconfirmed_pressure',NULL,'b','new','2026-07-20 11:00:00',NULL)"
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO activity_observations VALUES "
+            "(1,'pc-webcam-01','dog_001','2026-07-20 11:59:59',100,100,1,0,NULL),"
+            "(2,'pc-webcam-01','cat_001','2026-07-20 11:59:58',100,100,0,0,NULL)"
         )
         connection.exec_driver_sql(
             "INSERT INTO zones VALUES "
@@ -451,9 +459,26 @@ def test_every_http_route_returns_exact_models_and_order(sessions: sessionmaker)
             "bed",
             "behaviors",
             "anomalies",
+            "activity",
         ]
         assert [row["id"] for row in summary["behaviors"]] == [2, 1]
         assert [row["id"] for row in summary["anomalies"]] == [2, 1]
+        assert summary["activity"] == [
+            {
+                "subject_id": "dog_001",
+                "today_active_seconds": 1,
+                "today_observed_seconds": 1,
+                "current_state": "active",
+                "last_observed_at": "2026-07-20T11:59:59Z",
+            },
+            {
+                "subject_id": "cat_001",
+                "today_active_seconds": 0,
+                "today_observed_seconds": 1,
+                "current_state": "still",
+                "last_observed_at": "2026-07-20T11:59:58Z",
+            },
+        ]
 
         calibration = client.post("/api/bed/calibration", json={"device_id": "petzone-01"})
         assert calibration.status_code == 200

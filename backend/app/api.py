@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers, MutableHeaders
 
+from .activity import activity_statuses
 from .contracts import (
     AnomalyEventOut,
     ApiError,
@@ -335,8 +336,9 @@ def build_dashboard_summary(application: FastAPI) -> DashboardSummary:
     try:
         session = _session(application)
         session.execute(select(1)).scalar_one()
+        now = application.state.clock.utc_now()
         return DashboardSummary(
-            generated_at=application.state.clock.utc_now(),
+            generated_at=now,
             health=build_health(application, database_up=True),
             devices=_devices(session),
             latest_sensors=_latest_sensors(session),
@@ -344,6 +346,7 @@ def build_dashboard_summary(application: FastAPI) -> DashboardSummary:
             bed=_bed_status(application),
             behaviors=_behaviors(session, 100),
             anomalies=_anomalies(session, 100),
+            activity=activity_statuses(session, now),
         )
     finally:
         if session is not None:

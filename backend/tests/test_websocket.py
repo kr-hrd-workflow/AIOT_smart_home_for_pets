@@ -15,6 +15,7 @@ from app.api import DEFAULT_ALLOWED_ORIGINS, install_api
 from app.contracts import (
     AnomalyAlert,
     AnomalyEventOut,
+    ActivityStatus,
     BedChannelStatus,
     BedStatus,
     BedStatusMessage,
@@ -71,7 +72,7 @@ def bed_status(raw: int = 100) -> BedStatus:
     )
 
 
-def summary(raw: int = 100) -> DashboardSummary:
+def summary(raw: int = 100, *, activity: list[ActivityStatus] | None = None) -> DashboardSummary:
     return DashboardSummary(
         generated_at=NOW,
         health=HealthOut(
@@ -90,7 +91,28 @@ def summary(raw: int = 100) -> DashboardSummary:
         bed=bed_status(raw),
         behaviors=[],
         anomalies=[],
+        activity=activity
+        or [
+            ActivityStatus(
+                subject_id=subject_id,
+                today_active_seconds=0,
+                today_observed_seconds=0,
+                current_state="unknown",
+                last_observed_at=None,
+            )
+            for subject_id in ("dog_001", "cat_001")
+        ],
     )
+
+
+def test_dashboard_summary_rejects_activity_other_than_fixed_dog_cat_order() -> None:
+    with pytest.raises(ValueError):
+        summary(
+            activity=[
+                ActivityStatus(subject_id="cat_001", today_active_seconds=0, today_observed_seconds=0, current_state="unknown", last_observed_at=None),
+                ActivityStatus(subject_id="dog_001", today_active_seconds=0, today_observed_seconds=0, current_state="unknown", last_observed_at=None),
+            ]
+        )
 
 
 def anomaly(identifier: int = 1) -> AnomalyAlert:
