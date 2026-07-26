@@ -144,11 +144,23 @@ const behavior = z
     (value) => value.ended_at === null || Date.parse(value.ended_at) >= Date.parse(value.started_at),
   );
 
+const activity = z
+  .object({
+    subject_id: z.enum(["dog_001", "cat_001"]),
+    today_active_seconds: nonNegativeInteger,
+    today_observed_seconds: nonNegativeInteger,
+    current_state: z.enum(["active", "still", "unknown"]),
+    last_observed_at: nullableUtc,
+  })
+  .strict()
+  .refine((value) => value.today_active_seconds <= value.today_observed_seconds)
+  .refine((value) => value.current_state === "unknown" || value.last_observed_at !== null);
+
 const anomaly = z
   .object({
     id: nonNegativeInteger,
     subject_id: z.enum(["dog_001", "cat_001"]).nullable(),
-    anomaly_type: z.enum(["no_meal_12h", "bed_sensor_mismatch"]),
+    anomaly_type: z.enum(["no_meal_12h", "bed_sensor_mismatch", "repetitive_motion"]),
     severity: z.literal("warning"),
     mismatch_kind: z.enum(["unconfirmed_pressure", "sensor_check"]).nullable(),
     message: z.string().min(1),
@@ -156,7 +168,7 @@ const anomaly = z
   })
   .strict()
   .refine((value) => {
-    if (value.anomaly_type === "no_meal_12h") {
+    if (value.anomaly_type === "no_meal_12h" || value.anomaly_type === "repetitive_motion") {
       return value.subject_id !== null && value.mismatch_kind === null;
     }
     if (value.mismatch_kind === "sensor_check") return value.subject_id !== null;
@@ -240,6 +252,7 @@ const dashboardSummary = z
     bed: bedStatus,
     behaviors: z.array(behavior),
     anomalies: z.array(anomaly),
+    activity: z.array(activity),
   })
   .strict()
   .refine((value) => isCanonicalSubset(value.devices.map((item) => item.device_id), DEVICE_ORDER))
@@ -256,7 +269,8 @@ const dashboardSummary = z
     return true;
   })
   .refine((value) => isNewestFirst(value.behaviors, "started_at"))
-  .refine((value) => isNewestFirst(value.anomalies, "occurred_at"));
+  .refine((value) => isNewestFirst(value.anomalies, "occurred_at"))
+  .refine((value) => value.activity.map((item) => item.subject_id).join(",") === "dog_001,cat_001");
 
 const zoneInput = z
   .object({
