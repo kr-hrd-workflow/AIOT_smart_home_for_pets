@@ -4,9 +4,11 @@ const labels = {
   no_meal_12h: "12시간 식사 기록 없음",
   unconfirmed_pressure: "카메라 확인 대기",
   sensor_check: "침대 센서 확인 필요",
+  repetitive_motion: "반복 이동 관측",
 } as const;
 
 function warningLabel(anomaly: AnomalyEventOut) {
+  if (anomaly.anomaly_type === "repetitive_motion") return labels.repetitive_motion;
   if (anomaly.mismatch_kind) return labels[anomaly.mismatch_kind];
   return anomaly.anomaly_type === "no_meal_12h"
     ? labels.no_meal_12h
