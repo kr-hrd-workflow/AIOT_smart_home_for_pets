@@ -180,6 +180,39 @@
   border-top: 3px solid var(--dashboard-focus);
 }
 
+.activity-list {
+  margin: 0 0 16px;
+  border-top: 1px solid var(--dashboard-line);
+}
+
+.activity-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 16px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--dashboard-line);
+}
+
+.activity-row > div {
+  min-width: 0;
+}
+
+.activity-row > div:last-child {
+  text-align: right;
+}
+
+.activity-row strong {
+  letter-spacing: -0.02em;
+}
+
+.activity-row small {
+  display: block;
+  margin-top: 2px;
+  color: var(--dashboard-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .warnings-panel {
   border-top: 3px solid var(--dashboard-warn);
 }
@@ -456,6 +489,10 @@
 
   .page-heading > p {
     margin-top: 10px;
+  }
+
+  .activity-row {
+    gap: 3px 10px;
   }
 }
 

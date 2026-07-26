@@ -68,6 +68,11 @@ const sensorLabels = {
 } as const;
 
 const channelLabels = { left: "왼쪽", center: "가운데", right: "오른쪽" } as const;
+const activityStateLabels = {
+  active: "지금 움직임 관측",
+  still: "지금 정지 관측",
+  unknown: "현재 관측 없음",
+} as const;
 
 function seconds(value: number) {
   const hours = Math.floor(value / 3600);
@@ -119,6 +124,18 @@ export function Dashboard({
   const currentRest = data.behaviors.find(
     (behavior) => behavior.behavior_type === "resting" && behavior.ended_at === null,
   );
+  const totalObservedSeconds = data.activity.reduce(
+    (total, activity) => total + activity.today_observed_seconds,
+    0,
+  );
+  const totalActiveSeconds = data.activity.reduce(
+    (total, activity) => total + activity.today_active_seconds,
+    0,
+  );
+  const activityValue = totalObservedSeconds === 0 ? "관측 없음" : seconds(totalActiveSeconds);
+  const activityDetail = totalObservedSeconds === 0
+    ? "카메라 관측 없음"
+    : `카메라 관측 ${Math.floor(totalObservedSeconds / 60)}분 기준`;
 
   return (
     <div
@@ -159,7 +176,7 @@ export function Dashboard({
 
           <div className="dashboard-grid">
             <section id="summary" className="summary-strip" data-dashboard-section="summary" aria-label="핵심 요약">
-              <SummaryCell label="현재 휴식" value={seconds(data.bed.current_rest_seconds)} detail={currentRest?.subject_id ?? "확인 없음"} />
+              <SummaryCell label="오늘 활동 추정" value={activityValue} detail={activityDetail} />
               <SummaryCell label="오늘 휴식 추정" value={seconds(data.bed.today_rest_seconds)} detail={sevenDayCopy(data)} />
               <SummaryCell label="야간 침대 이탈" value={`${data.bed.nighttime_exit_count}회`} detail="22:00–06:00" />
               <SummaryCell label="사료" value={sensorValue(byType.get("food_weight"))} detail="최근 측정" />
@@ -195,7 +212,23 @@ export function Dashboard({
             </section>
 
             <section id="rest" className="rest-panel panel" data-dashboard-section="confirmed-rest">
-              <SectionHeading title="확인된 휴식" meta={data.bed.camera_confirmed ? "카메라 확인" : "확인 대기"} />
+              <SectionHeading title="활동 · 휴식" meta={data.bed.camera_confirmed ? "카메라 확인" : "확인 대기"} />
+              <div className="activity-list" role="list" aria-label="반려동물별 활동 관측">
+                {data.activity.map((activity) => {
+                  const activityValue = activity.today_observed_seconds === 0
+                    ? "관측 없음"
+                    : seconds(activity.today_active_seconds);
+                  const activityDetail = activity.today_observed_seconds === 0
+                    ? "카메라 관측 없음"
+                    : `카메라 관측 ${Math.floor(activity.today_observed_seconds / 60)}분 기준`;
+                  return (
+                    <div className="activity-row" role="listitem" key={activity.subject_id}>
+                      <div><strong>{activity.subject_id}</strong><small>{activityDetail}</small></div>
+                      <div><strong className="activity-value">{activityValue}</strong><small>{activityStateLabels[activity.current_state]}</small></div>
+                    </div>
+                  );
+                })}
+              </div>
               <div className="rest-subject">
                 <strong>{currentRest?.subject_id ?? "현재 휴식 없음"}</strong>
                 <span>{data.bed.fusion_state === "confirmed_rest" ? "휴식 추정" : fusionCopy(data.bed.fusion_state)}</span>
@@ -359,6 +392,10 @@ const unavailableDashboardData: DashboardData = {
   },
   behaviors: [],
   anomalies: [],
+  activity: [
+    { subject_id: "dog_001", today_active_seconds: 0, today_observed_seconds: 0, current_state: "unknown", last_observed_at: null },
+    { subject_id: "cat_001", today_active_seconds: 0, today_observed_seconds: 0, current_state: "unknown", last_observed_at: null },
+  ],
   zones: [
     { zone_name: "food_bowl", x1: 40, y1: 260, x2: 260, y2: 470, enabled: true, updated_at: "1970-01-01T00:00:00Z" },
     { zone_name: "pet_bed", x1: 320, y1: 180, x2: 630, y2: 470, enabled: true, updated_at: "1970-01-01T00:00:00Z" },
