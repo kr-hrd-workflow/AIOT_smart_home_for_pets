@@ -68,24 +68,45 @@ $EffectivePaths = @{}
 foreach ($Key in $RequiredKeys) { $EffectivePaths[$Key] = Get-EffectivePath $Runtime.paths.$Key }
 
 $GitPath = $Runtime.paths.git_path
+function Assert-PicoSdkIdentity([string]$Path) {
+  $SdkPath = [IO.Path]::GetFullPath($Path)
+  $Origin = (& $GitPath -C $SdkPath remote get-url origin).Trim()
+  $Commit = (& $GitPath -C $SdkPath rev-parse HEAD).Trim()
+  $Tag = (& $GitPath -C $SdkPath describe --tags --exact-match).Trim()
+  if ($LASTEXITCODE -or $Origin -ne $Pin.url -or $Commit -ne $Pin.commit -or $Tag -ne $Pin.tag) {
+    throw 'Pico SDK identity mismatch'
+  }
+  $SubmoduleState = & $GitPath -C $SdkPath submodule status --recursive
+  if ($LASTEXITCODE -or $SubmoduleState | Where-Object { $_ -match '^[\-+U]' }) { throw 'Pico SDK submodule mismatch' }
+  $Dirty = & $GitPath -C $SdkPath status --porcelain=v1 --untracked-files=all --ignore-submodules=all
+  if ($LASTEXITCODE -or $Dirty) { throw 'Pico SDK working tree is dirty' }
+  foreach ($Line in $SubmoduleState) {
+    $Parts = $Line.Trim().Split([char[]]@(' ', "`t"), [StringSplitOptions]::RemoveEmptyEntries)
+    $SubmodulePath = Join-Path $SdkPath $Parts[1]
+    $Dirty = & $GitPath -C $SubmodulePath status --porcelain=v1 --untracked-files=all --ignore-submodules=all
+    if ($LASTEXITCODE -or $Dirty) { throw "Pico SDK submodule is dirty: $($Parts[1])" }
+  }
+
+  [PSCustomObject]@{path=$SdkPath; tag=$Tag; commit=$Commit}
+}
+
 $SdkPath = [IO.Path]::GetFullPath([string]$Runtime.pico_sdk.path)
-$EffectiveSdkPath = Get-EffectivePath $SdkPath
-$Origin = (& $GitPath -C $SdkPath remote get-url origin).Trim()
-$Commit = (& $GitPath -C $SdkPath rev-parse HEAD).Trim()
-$Tag = (& $GitPath -C $SdkPath describe --tags --exact-match).Trim()
-if ($LASTEXITCODE -or $Origin -ne $Pin.url -or $Commit -ne $Pin.commit -or $Tag -ne $Pin.tag) {
-  throw 'Pico SDK identity mismatch'
+$SdkIdentity = Assert-PicoSdkIdentity $SdkPath
+$EffectiveSdkPath = $null
+foreach ($Letter in 'P','Q','R','S','T','U','V','W','X','Y','Z') {
+  if (-not (Get-PSDrive -Name $Letter -PSProvider FileSystem -ErrorAction SilentlyContinue)) { continue }
+  $CandidateSdkPath = Join-Path "${Letter}:\" ".runtime/managed/pico-sdk-$($Pin.tag)"
+  if (-not (Test-Path -LiteralPath $CandidateSdkPath)) { continue }
+  try {
+    $EffectiveSdkPath = (Assert-PicoSdkIdentity $CandidateSdkPath).path
+    break
+  } catch {
+    continue
+  }
 }
-$SubmoduleState = & $GitPath -C $SdkPath submodule status --recursive
-if ($LASTEXITCODE -or $SubmoduleState | Where-Object { $_ -match '^[\-+U]' }) { throw 'Pico SDK submodule mismatch' }
-$Dirty = & $GitPath -C $SdkPath status --porcelain=v1 --untracked-files=all --ignore-submodules=all
-if ($LASTEXITCODE -or $Dirty) { throw 'Pico SDK working tree is dirty' }
-foreach ($Line in $SubmoduleState) {
-  $Parts = $Line.Trim().Split([char[]]@(' ', "`t"), [StringSplitOptions]::RemoveEmptyEntries)
-  $SubmodulePath = Join-Path $SdkPath $Parts[1]
-  $Dirty = & $GitPath -C $SubmodulePath status --porcelain=v1 --untracked-files=all --ignore-submodules=all
-  if ($LASTEXITCODE -or $Dirty) { throw "Pico SDK submodule is dirty: $($Parts[1])" }
-}
+if (-not $EffectiveSdkPath) { throw 'verified ASCII Pico SDK path is required for the Windows Arm GNU toolchain' }
+$Tag = $SdkIdentity.tag
+$Commit = $SdkIdentity.commit
 
 foreach ($Key in @('arm_gcc_path','arm_gxx_path','arm_asm_path','arm_as_path','arm_ar_path','arm_ranlib_path','arm_ld_path','arm_objcopy_path','arm_size_path')) {
   $VersionLine = (& $Runtime.paths.$Key --version | Select-Object -First 1)
@@ -99,6 +120,7 @@ if ((& $Runtime.paths.ninja_path --version) -ne '1.13.2') { throw 'Ninja identit
 
 if ($DryRun) {
   Write-Output "Pico dry-run PASS: SDK $Tag@$Commit, board=$($Pin.board), platform=$($Pin.platform)"
+  Write-Output "effective_pico_sdk=$EffectiveSdkPath"
   foreach ($Key in $RequiredKeys) { Write-Output "$Key=$($Runtime.paths.$Key)" }
   exit 0
 }
