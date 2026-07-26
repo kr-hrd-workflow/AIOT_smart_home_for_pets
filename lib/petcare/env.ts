@@ -11,6 +11,7 @@ export interface PetCareEnv extends AuthEnv {
   CF_ACCESS_SERVICE_TOKEN_ID: string;
   CF_ACCESS_CLIENT_ID: string;
   CF_ACCESS_CLIENT_SECRET: string;
+  PETCARE_INSTALLER_UPLOAD_TOKEN?: string;
 }
 
 export function readPetCareConfig(env: PetCareEnv) {

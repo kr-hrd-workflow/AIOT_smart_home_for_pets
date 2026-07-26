@@ -85,7 +85,7 @@ describe("tenant-scoped live proxy", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps the exact eight-key Task 12 dashboard summary contract", () => {
+  it("keeps the exact nine-key dashboard summary contract", () => {
     expect(Object.keys(summary)).toEqual([
       "generated_at",
       "health",
@@ -95,6 +95,7 @@ describe("tenant-scoped live proxy", () => {
       "bed",
       "behaviors",
       "anomalies",
+      "activity",
     ]);
   });
 
@@ -140,6 +141,39 @@ describe("tenant-scoped live proxy", () => {
     expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
   });
 
+  it("does not report Jetson connected when the Home Agent camera is offline", async () => {
+    const offlineSummary = structuredClone(summary);
+    offlineSummary.camera = {
+      ...offlineSummary.camera,
+      state: "offline",
+      reason: "agent_unavailable",
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonUpstream(offlineSummary)));
+
+    const response = await proxyStatus(user, env, now);
+
+    expect(await response.json()).toMatchObject({
+      camera: null,
+      dashboard: { camera: { state: "offline" } },
+    });
+  });
+
+  it("passes through minute-precision activity timestamps", async () => {
+    const minutePrecisionSummary = structuredClone(summary);
+    minutePrecisionSummary.activity[0].last_observed_at = "2026-07-15T01:42Z";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonUpstream(minutePrecisionSummary)),
+    );
+
+    const response = await proxyStatus(user, env, now);
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).dashboard.activity[0].last_observed_at).toBe(
+      "2026-07-15T01:42Z",
+    );
+  });
+
   it("returns needs_enrollment without an upstream request", async () => {
     vi.mocked(PetCareRepository.prototype.getHomeConnection).mockResolvedValue({
       state: "needs_enrollment",
@@ -178,6 +212,177 @@ describe("tenant-scoped live proxy", () => {
       () => new Response("{", { headers: { "Content-Type": "application/json" } }),
     ],
     ["wrong summary shape", () => jsonUpstream({ ...summary, extra: true })],
+    [
+      "missing activity",
+      () =>
+        jsonUpstream(
+          Object.fromEntries(
+            Object.entries(summary).filter(([key]) => key !== "activity"),
+          ),
+        ),
+    ],
+    [
+      "reordered activity",
+      () =>
+        jsonUpstream({
+          ...summary,
+          activity: [
+            {
+              subject_id: "cat_001",
+              today_active_seconds: 840,
+              today_observed_seconds: 4_980,
+              current_state: "still",
+              last_observed_at: "2026-07-15T01:41:00Z",
+            },
+            {
+              subject_id: "dog_001",
+              today_active_seconds: 1_260,
+              today_observed_seconds: 5_400,
+              current_state: "active",
+              last_observed_at: "2026-07-15T01:42:00Z",
+            },
+          ],
+        }),
+    ],
+    [
+      "malformed activity",
+      () =>
+        jsonUpstream({
+          ...summary,
+          activity: [
+            {
+              subject_id: "dog_001",
+              today_active_seconds: 5_401,
+              today_observed_seconds: 5_400,
+              current_state: "active",
+              last_observed_at: "2026-07-15T01:42:00Z",
+            },
+            {
+              subject_id: "cat_001",
+              today_active_seconds: 840,
+              today_observed_seconds: 4_980,
+              current_state: "still",
+              last_observed_at: "2026-07-15T01:41:00Z",
+            },
+          ],
+        }),
+    ],
+    [
+      "fractional activity counter",
+      () =>
+        jsonUpstream({
+          ...summary,
+          activity: [
+            {
+              subject_id: "dog_001",
+              today_active_seconds: 1_260.5,
+              today_observed_seconds: 5_400,
+              current_state: "active",
+              last_observed_at: "2026-07-15T01:42:00Z",
+            },
+            {
+              subject_id: "cat_001",
+              today_active_seconds: 840,
+              today_observed_seconds: 4_980,
+              current_state: "still",
+              last_observed_at: "2026-07-15T01:41:00Z",
+            },
+          ],
+        }),
+    ],
+    [
+      "active activity without timestamp",
+      () =>
+        jsonUpstream({
+          ...summary,
+          activity: [
+            {
+              subject_id: "dog_001",
+              today_active_seconds: 1_260,
+              today_observed_seconds: 5_400,
+              current_state: "active",
+              last_observed_at: null,
+            },
+            {
+              subject_id: "cat_001",
+              today_active_seconds: 840,
+              today_observed_seconds: 4_980,
+              current_state: "still",
+              last_observed_at: "2026-07-15T01:41:00Z",
+            },
+          ],
+        }),
+    ],
+    [
+      "activity timestamp without timezone",
+      () =>
+        jsonUpstream({
+          ...summary,
+          activity: [
+            {
+              subject_id: "dog_001",
+              today_active_seconds: 1_260,
+              today_observed_seconds: 5_400,
+              current_state: "active",
+              last_observed_at: "2026-07-15T01:42:00",
+            },
+            {
+              subject_id: "cat_001",
+              today_active_seconds: 840,
+              today_observed_seconds: 4_980,
+              current_state: "still",
+              last_observed_at: "2026-07-15T01:41:00Z",
+            },
+          ],
+        }),
+    ],
+    [
+      "invalid activity timestamp",
+      () =>
+        jsonUpstream({
+          ...summary,
+          activity: [
+            {
+              subject_id: "dog_001",
+              today_active_seconds: 1_260,
+              today_observed_seconds: 5_400,
+              current_state: "active",
+              last_observed_at: "2026-99-99T01:42:00Z",
+            },
+            {
+              subject_id: "cat_001",
+              today_active_seconds: 840,
+              today_observed_seconds: 4_980,
+              current_state: "still",
+              last_observed_at: "2026-07-15T01:41:00Z",
+            },
+          ],
+        }),
+    ],
+    [
+      "extra activity field",
+      () =>
+        jsonUpstream({
+          ...summary,
+          activity: [
+            {
+              subject_id: "dog_001",
+              today_active_seconds: 1_260,
+              today_observed_seconds: 5_400,
+              current_state: "active",
+              last_observed_at: "2026-07-15T01:42:00Z",
+              extra: true,
+            },
+            {
+              subject_id: "cat_001",
+              today_active_seconds: 840,
+              today_observed_seconds: 4_980,
+              current_state: "still",
+              last_observed_at: "2026-07-15T01:41:00Z",
+            },
+          ],
+        }),
+    ],
   ])("maps %s status responses to redacted offline state", async (_name, upstream) => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(upstream()));
 
@@ -298,7 +503,7 @@ describe("tenant-scoped live proxy", () => {
       return Promise.resolve(
         new Response(upstreamBody, {
           headers: {
-            "Content-Type": "multipart/x-mixed-replace; boundary=frame",
+            "Content-Type": "multipart/x-mixed-replace; boundary=\"frame\"",
             "Cache-Control": "public, max-age=3600",
             "X-Upstream-Origin": route.tunnelOrigin,
           },
@@ -321,11 +526,12 @@ describe("tenant-scoped live proxy", () => {
     await vi.advanceTimersByTimeAsync(5_000);
     expect(signal?.aborted).toBe(false);
     expect(response.headers.get("Content-Type")).toBe(
-      "multipart/x-mixed-replace; boundary=frame",
+      "multipart/x-mixed-replace; boundary=\"frame\"",
     );
     expect(response.headers.get("Cache-Control")).toBe(
       "private, no-store, no-transform",
     );
+    expect(response.headers.get("Pragma")).toBe("no-cache");
     expect(response.headers.get("X-Upstream-Origin")).toBeNull();
     await response.body?.cancel("browser closed");
     expect(cancel).toHaveBeenCalledWith("browser closed");

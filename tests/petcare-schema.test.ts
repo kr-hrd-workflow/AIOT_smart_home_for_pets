@@ -37,4 +37,16 @@ describe("PetCare Sites storage contract", () => {
       /connector_token|access_client_secret|api_token/i,
     );
   });
+
+  it("ships a command ledger for the outbound local activity cleanup", () => {
+    const sql = readFileSync(
+      resolve(root, "drizzle/0002_activity_cleanup_commands.sql"),
+      "utf8",
+    );
+    expect(sql).toContain("CREATE TABLE `activity_cleanup_commands`");
+    expect(sql).toContain("'delete_activity_observations'");
+    expect(sql).toContain("'pending','acknowledged'");
+    expect(sql).toContain("UNIQUE INDEX `activity_cleanup_commands_home_id_unique`");
+    expect(sql).not.toMatch(/private_key|connector_token|access_client_secret|api_token/i);
+  });
 });

@@ -104,6 +104,44 @@ describe("dashboard demo surface", () => {
     );
   });
 
+  it("shows activity only from camera coverage while preserving rest evidence", () => {
+    const { container, unmount } = render(<Dashboard data={demoDashboardData} />);
+    const restPanel = container.querySelector('[data-dashboard-section="confirmed-rest"]')!;
+
+    expect(screen.getByText("오늘 활동 추정")).toBeInTheDocument();
+    expect(screen.getByText("35분")).toBeInTheDocument();
+    expect(screen.getByText("카메라 관측 173분 기준")).toBeInTheDocument();
+    expect(restPanel).toHaveTextContent("활동 · 휴식");
+    expect([...restPanel.querySelectorAll(".activity-row")].map((row) => row.textContent)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("dog_001"),
+        expect.stringContaining("cat_001"),
+      ]),
+    );
+    expect(restPanel.querySelector(".rest-duration")).toHaveTextContent("42분");
+    expect(restPanel.querySelector(".secondary-copy")).not.toBeEmptyDOMElement();
+    expect(restPanel.querySelector(".channel-table")).toHaveAttribute(
+      "aria-label",
+      "침대 센서 세 채널",
+    );
+    unmount();
+
+    const unavailable = structuredClone(demoDashboardData);
+    unavailable.activity = unavailable.activity.map((activity) => ({
+      ...activity,
+      today_active_seconds: 0,
+      today_observed_seconds: 0,
+      current_state: "unknown",
+      last_observed_at: null,
+    }));
+    const unavailableRender = render(<Dashboard data={unavailable} />);
+    const activityArea = unavailableRender.container.querySelector(".activity-list")!;
+
+    expect(screen.getAllByText("관측 없음").length).toBeGreaterThanOrEqual(3);
+    expect(activityArea).toHaveTextContent("현재 관측 없음");
+    expect(activityArea).not.toHaveTextContent("0분");
+  });
+
   it("keeps unavailable and calibration failure states explicit", () => {
     const unavailable = structuredClone(demoDashboardData);
     unavailable.camera = {
@@ -212,23 +250,24 @@ describe("dashboard demo surface", () => {
     expect(dashboardCss).not.toMatch(/gradient|backdrop-filter|text-shadow/i);
   });
 
-  it("keeps auth-plan-protected root Flight-serializable and demo server-only", () => {
+  it("keeps the public root first, the remote dashboard protected, and demo server-only", () => {
     const rootPage = readFileSync(resolve(root, "app/page.tsx"), "utf8");
+    const remotePage = readFileSync(resolve(root, "app/dashboard/page.tsx"), "utf8");
     const demoPage = readFileSync(resolve(root, "app/demo/page.tsx"), "utf8");
     const remoteDashboard = readFileSync(
       resolve(root, "components/remote-dashboard.tsx"),
       "utf8",
     );
-    expect(rootPage).toContain("RemoteDashboard");
     expect(rootPage).toContain("LandingPage");
-    expect(rootPage).toContain("ClientDashboardEntry");
+    expect(rootPage).not.toContain("ClientDashboardEntry");
+    expect(rootPage).toMatch(/return <LandingPage \/>/);
+    expect(rootPage).not.toContain("RemoteDashboard");
+    expect(rootPage).not.toContain("next/headers");
     expect(rootPage).not.toContain("<ConnectedDashboard />");
     expect(rootPage).toContain('export const dynamic = "force-dynamic"');
-    expect(rootPage).toContain('get("x-petcare-authenticated") === "1"');
-    expect(rootPage.indexOf('get("x-petcare-authenticated")')).toBeLessThan(
-      rootPage.indexOf("return <ClientDashboardEntry"),
-    );
     expect(rootPage).not.toMatch(/createPetCareRemote|client=|media=/);
+    expect(remotePage).toContain("RemoteDashboard");
+    expect(remotePage).toMatch(/return <RemoteDashboard \/>/);
     expect(remoteDashboard).toContain("createPetCareRemoteClient");
     expect(remoteDashboard).toContain("createPetCareRemoteMedia");
     expect(rootPage).not.toMatch(
@@ -346,7 +385,7 @@ describe("dashboard demo surface", () => {
   });
 
   it("keeps the backend summary key order and every calibration state explicit", () => {
-    expect(Object.keys(demoDashboardData).slice(0, 8)).toEqual([
+    expect(Object.keys(demoDashboardData).slice(0, 9)).toEqual([
       "generated_at",
       "health",
       "devices",
@@ -355,6 +394,7 @@ describe("dashboard demo surface", () => {
       "bed",
       "behaviors",
       "anomalies",
+      "activity",
     ]);
 
     for (const phase of ["idle", "submitting", "success", "disabled", "error"] as const) {

@@ -11,16 +11,13 @@ import { LandingFallback } from "./landing-fallback";
 import {
   readCompactScene,
   readSceneMode,
+  subscribeSceneQuality,
   type SceneMode,
 } from "./scene-quality";
 
 const LazyPetHomeCanvas = lazy(() => import("./pet-home-canvas").then((module) => ({
   default: module.PetHomeCanvas,
 })));
-
-function subscribeSceneQuality() {
-  return () => undefined;
-}
 
 class SceneBoundary extends Component<
   { children: ReactNode },

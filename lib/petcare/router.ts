@@ -8,11 +8,13 @@ import {
   type AuthSessionHandle,
 } from "../auth/session";
 import { deletePetCareAccountData } from "./account-delete";
+import { handleAgentActivityCleanup } from "./agent-cleanup";
 import { handleAgentEnroll } from "./agent-enroll";
 import { uploadSignedClip } from "./clip-upload";
 import { deleteClip, listClips, readClip } from "./clips";
 import type { PetCareEnv } from "./env";
 import { errorResponse, PetCareError } from "./errors";
+import { downloadInstaller, uploadInstaller } from "./installer";
 import { proxyMjpeg, proxyStatus } from "./live-proxy";
 
 export type PetCareExecutionContext = {
@@ -81,11 +83,23 @@ export async function routePetCare(
         ? await handleAgentEnroll(request, env, now)
         : methodNotAllowed("POST");
     }
+    if (url.pathname === "/api/petcare/agent/cleanup") {
+      routeName = "agent_activity_cleanup";
+      return request.method === "POST"
+        ? await handleAgentActivityCleanup(request, env, now)
+        : methodNotAllowed("POST");
+    }
     if (url.pathname === "/api/petcare/agent/clips") {
       routeName = "agent_clip_upload";
       return request.method === "POST"
         ? await uploadSignedClip(request, env, now)
         : methodNotAllowed("POST");
+    }
+    if (url.pathname === "/api/petcare/operator/installer") {
+      routeName = "installer_upload";
+      return request.method === "PUT"
+        ? await uploadInstaller(request, env)
+        : methodNotAllowed("PUT");
     }
 
     let invoke: ((next: NextRequest, user: AuthUser) => Promise<Response>) | null =
@@ -105,6 +119,10 @@ export async function routePetCare(
       mutation = true;
       invoke = (next, user) =>
         deletePetCareAccountData(next, env, now, user);
+    } else if (url.pathname === "/api/petcare/installer") {
+      routeName = "installer_download";
+      if (request.method !== "GET") return methodNotAllowed("GET");
+      invoke = () => downloadInstaller(env);
     } else {
       const camera = CAMERA.exec(url.pathname);
       const clipMedia = CLIP_MEDIA.exec(url.pathname);
@@ -134,6 +152,9 @@ export async function routePetCare(
       } catch {
         throw new PetCareError(403, "csrf");
       }
+    }
+    if (!request.headers.get("cookie")) {
+      throw new AuthError("Authentication required");
     }
     const next = new NextRequest(request);
     auth = await requireAuthSession(next, env);

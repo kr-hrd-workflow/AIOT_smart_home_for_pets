@@ -38,10 +38,18 @@ export interface BehaviorEventOut {
   duration_seconds: number | null;
 }
 
+export interface ActivityStatus {
+  subject_id: SubjectId;
+  today_active_seconds: number;
+  today_observed_seconds: number;
+  current_state: "active" | "still" | "unknown";
+  last_observed_at: string | null;
+}
+
 export interface AnomalyEventOut {
   id: number;
   subject_id: SubjectId | null;
-  anomaly_type: "no_meal_12h" | "bed_sensor_mismatch";
+  anomaly_type: "no_meal_12h" | "bed_sensor_mismatch" | "repetitive_motion";
   severity: "warning";
   mismatch_kind: "unconfirmed_pressure" | "sensor_check" | null;
   message: string;
@@ -112,6 +120,7 @@ export interface DashboardSummary {
   bed: BedStatus;
   behaviors: BehaviorEventOut[];
   anomalies: AnomalyEventOut[];
+  activity: ActivityStatus[];
 }
 
 export interface ZoneOut {

@@ -61,7 +61,11 @@ export class FakeD1 {
   constructor() {
     this.database.exec("PRAGMA foreign_keys = ON");
     const drizzle = resolve(import.meta.dirname, "../../drizzle");
-    for (const migration of ["0000_petcare_tenancy.sql", "0001_petcare_tunnels_clips.sql"]) {
+    for (const migration of [
+      "0000_petcare_tenancy.sql",
+      "0001_petcare_tunnels_clips.sql",
+      "0002_activity_cleanup_commands.sql",
+    ]) {
       this.database.exec(
         readFileSync(resolve(drizzle, migration), "utf8").replaceAll(
           "--> statement-breakpoint",

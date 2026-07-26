@@ -50,6 +50,30 @@ describe("AnomalyList", () => {
     expect(items[2]).toHaveTextContent("dog_001");
   });
 
+  it("renders newest repetitive-motion camera observation", () => {
+    render(
+      <AnomalyList
+        anomalies={[
+          {
+            id: 4,
+            subject_id: "dog_001",
+            anomaly_type: "repetitive_motion",
+            severity: "warning",
+            mismatch_kind: null,
+            message: "짧은 시간에 반복 이동이 관측됐습니다. 건강 판단이 아닌 카메라 관측 알림입니다.",
+            occurred_at: "2026-07-15T01:41:00Z",
+          },
+          anomalies[0],
+        ]}
+      />,
+    );
+
+    const items = screen.getAllByRole("listitem");
+    expect(within(items[0]).getByText("반복 이동 관측")).toBeInTheDocument();
+    expect(items[0]).toHaveTextContent("dog_001");
+    expect(items[0]).toHaveTextContent("짧은 시간에 반복 이동이 관측됐습니다. 건강 판단이 아닌 카메라 관측 알림입니다.");
+  });
+
   it("renders an explicit empty state", () => {
     render(<AnomalyList anomalies={[]} />);
     expect(screen.getByText("현재 확인할 경고가 없습니다.")).toBeInTheDocument();

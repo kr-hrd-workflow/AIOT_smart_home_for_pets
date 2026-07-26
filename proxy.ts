@@ -22,13 +22,40 @@ export async function proxy(request: NextRequest) {
     return nextWithAuth(request, false);
   }
   if (
+    process.env.NODE_ENV !== "production" &&
+    request.headers.get("x-petcare-e2e-auth") === "connected" &&
+    request.nextUrl.pathname === "/dashboard" &&
+    (request.nextUrl.hostname === "127.0.0.1" ||
+      request.nextUrl.hostname === "localhost")
+  ) {
+    return nextWithAuth(request, true);
+  }
+  if (
     request.nextUrl.pathname === "/" &&
     (request.nextUrl.hostname === "127.0.0.1" ||
       request.nextUrl.hostname === "localhost")
   ) {
     return nextWithAuth(request, false);
   }
-  const authEnv = env as unknown as AuthEnv;
+  const partialAuthEnv = env as unknown as Partial<AuthEnv>;
+  if (
+    !partialAuthEnv.SUPABASE_URL ||
+    !partialAuthEnv.SUPABASE_PUBLISHABLE_KEY
+  ) {
+    if (request.nextUrl.pathname === "/") {
+      return nextWithAuth(request, false);
+    }
+    if (
+      request.nextUrl.pathname === "/login" &&
+      request.nextUrl.searchParams.get("error") === "unavailable"
+    ) {
+      return nextWithAuth(request, false);
+    }
+    return NextResponse.redirect(
+      new URL("/login?error=unavailable", request.url),
+    );
+  }
+  const authEnv = partialAuthEnv as AuthEnv;
   const session = createSupabaseSession(request, authEnv);
   let authenticated = false;
   try {

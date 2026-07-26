@@ -3,34 +3,18 @@ export type SceneMode = "animated" | "reduced" | "fallback";
 export type SceneCapabilities = {
   reduced: boolean;
   saveData: boolean;
-  webgl: boolean;
 };
 
 export function detectSceneMode({
   reduced,
   saveData,
-  webgl,
 }: SceneCapabilities): SceneMode {
-  if (saveData || !webgl) return "fallback";
+  if (saveData) return "fallback";
   return reduced ? "reduced" : "animated";
 }
 
-function supportsWebGL(): boolean {
-  if (typeof WebGLRenderingContext === "undefined") return false;
-  try {
-    const canvas = document.createElement("canvas");
-    return Boolean(
-      canvas.getContext("webgl2") ||
-        canvas.getContext("webgl") ||
-        canvas.getContext("experimental-webgl"),
-    );
-  } catch {
-    return false;
-  }
-}
-
 export function readSceneMode(): SceneMode {
-  if (typeof window === "undefined" || typeof document === "undefined") {
+  if (typeof window === "undefined" || typeof navigator === "undefined") {
     return "fallback";
   }
   const connection = navigator as Navigator & {
@@ -39,11 +23,45 @@ export function readSceneMode(): SceneMode {
   return detectSceneMode({
     reduced: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false,
     saveData: connection.connection?.saveData === true,
-    webgl: supportsWebGL(),
   });
 }
 
 export function readCompactScene(): boolean {
   if (typeof window === "undefined") return true;
   return window.matchMedia?.("(max-width: 767px)").matches ?? window.innerWidth < 768;
+}
+
+type SceneChangeSource = {
+  addEventListener?: (event: "change", callback: EventListener) => void;
+  removeEventListener?: (event: "change", callback: EventListener) => void;
+  addListener?: (callback: EventListener) => void;
+  removeListener?: (callback: EventListener) => void;
+};
+
+export function subscribeSceneQuality(callback: () => void): () => void {
+  if (typeof window === "undefined") return () => undefined;
+  const connection =
+    typeof navigator === "undefined"
+      ? undefined
+      : (navigator as Navigator & { connection?: SceneChangeSource }).connection;
+  const sources = [
+    window.matchMedia?.("(prefers-reduced-motion: reduce)"),
+    window.matchMedia?.("(max-width: 767px)"),
+    connection,
+  ] as Array<SceneChangeSource | undefined>;
+
+  for (const source of sources) {
+    if (source?.addEventListener) source.addEventListener("change", callback);
+    else source?.addListener?.(callback);
+  }
+
+  return () => {
+    for (const source of sources) {
+      if (source?.removeEventListener) {
+        source.removeEventListener("change", callback);
+      } else {
+        source?.removeListener?.(callback);
+      }
+    }
+  };
 }

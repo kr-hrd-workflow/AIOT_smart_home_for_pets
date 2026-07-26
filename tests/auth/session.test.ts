@@ -7,17 +7,28 @@ const mocks = vi.hoisted(() => ({
   createServerClient: vi.fn(),
   getClaims: vi.fn(),
   exchangeCodeForSession: vi.fn(),
+  signInWithPassword: vi.fn(),
+  signUp: vi.fn(),
+  resetPasswordForEmail: vi.fn(),
+  updateUser: vi.fn(),
   signOut: vi.fn(),
   requireAuth: vi.fn(),
   ensureHome: vi.fn(),
   getDb: vi.fn(() => ({ binding: "test" })),
 }));
 
-vi.mock("cloudflare:workers", () => ({
-  env: {
+const runtimeEnv = vi.hoisted(
+  (): {
+    SUPABASE_URL?: string;
+    SUPABASE_PUBLISHABLE_KEY?: string;
+  } => ({
     SUPABASE_URL: "https://project-ref.supabase.co",
     SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test",
-  },
+  }),
+);
+
+vi.mock("cloudflare:workers", () => ({
+  env: runtimeEnv,
 }));
 vi.mock("@supabase/ssr", () => ({ createServerClient: mocks.createServerClient }));
 vi.mock("../../lib/auth/require-auth", () => ({
@@ -35,7 +46,11 @@ vi.mock("../../lib/tenancy/repository", () => ({
 }));
 
 import { GET } from "../../app/auth/callback/route";
+import { POST as forgotPassword } from "../../app/auth/forgot-password/route";
+import { POST as login } from "../../app/auth/login/route";
 import { POST } from "../../app/auth/logout/route";
+import { POST as resetPassword } from "../../app/auth/reset-password/route";
+import { POST as signup } from "../../app/auth/signup/route";
 import { AuthError } from "../../lib/auth/require-auth";
 import { proxy } from "../../proxy";
 
@@ -58,6 +73,9 @@ let setAll: (
 
 beforeEach(() => {
   vi.clearAllMocks();
+  delete process.env.PETCARE_E2E_TARGET;
+  runtimeEnv.SUPABASE_URL = "https://project-ref.supabase.co";
+  runtimeEnv.SUPABASE_PUBLISHABLE_KEY = "sb_publishable_test";
   mocks.createServerClient.mockImplementation(
     (_url: string, _key: string, options: { cookies: { setAll: typeof setAll } }) => {
       setAll = options.cookies.setAll;
@@ -65,6 +83,10 @@ beforeEach(() => {
         auth: {
           getClaims: mocks.getClaims,
           exchangeCodeForSession: mocks.exchangeCodeForSession,
+          signInWithPassword: mocks.signInWithPassword,
+          signUp: mocks.signUp,
+          resetPasswordForEmail: mocks.resetPasswordForEmail,
+          updateUser: mocks.updateUser,
           signOut: mocks.signOut,
         },
       };
@@ -73,8 +95,50 @@ beforeEach(() => {
   mocks.getClaims.mockResolvedValue({ data: { claims: validClaims }, error: null });
   mocks.requireAuth.mockResolvedValue({ sub: "user-a", email: "a@example.com" });
   mocks.exchangeCodeForSession.mockResolvedValue({ data: {}, error: null });
+  mocks.signInWithPassword.mockResolvedValue({ data: {}, error: null });
+  mocks.signUp.mockResolvedValue({ data: {}, error: null });
+  mocks.resetPasswordForEmail.mockResolvedValue({ data: {}, error: null });
+  mocks.updateUser.mockResolvedValue({ data: {}, error: null });
   mocks.signOut.mockResolvedValue({ error: null });
   mocks.ensureHome.mockResolvedValue({ id: "home-a" });
+});
+
+it("permits the connected E2E dashboard only on loopback", async () => {
+  runtimeEnv.SUPABASE_URL = undefined;
+  runtimeEnv.SUPABASE_PUBLISHABLE_KEY = undefined;
+
+  const local = await proxy(
+    new NextRequest("http://127.0.0.1:4175/dashboard", {
+      headers: { "x-petcare-e2e-auth": "connected" },
+    }),
+  );
+  expect(local.status).toBe(200);
+  expect(local.headers.get("location")).toBeNull();
+  expect(
+    local.headers.get("x-middleware-request-x-petcare-authenticated"),
+  ).toBe("1");
+
+  const remote = await proxy(
+    new NextRequest("https://app.test/dashboard", {
+      headers: { "x-petcare-e2e-auth": "connected" },
+    }),
+  );
+  expect(remote.status).toBe(307);
+  expect(remote.headers.get("location")).toBe(
+    "https://app.test/login?error=unavailable",
+  );
+
+  const wrongTarget = await proxy(
+    new NextRequest("http://127.0.0.1:4175/dashboard", {
+      headers: { "x-petcare-e2e-auth": "demo-dev" },
+    }),
+  );
+  expect(wrongTarget.status).toBe(307);
+  const wrongTargetLocation = new URL(
+    wrongTarget.headers.get("location") ?? "http://invalid.test",
+  );
+  expect(wrongTargetLocation.pathname).toBe("/login");
+  expect(wrongTargetLocation.search).toBe("?error=unavailable");
 });
 
 it.each(["/login", "/signup", "/forgot-password", "/reset-password"])(
@@ -122,6 +186,38 @@ it.each(["http://127.0.0.1/", "http://localhost/"])(
     expect(mocks.requireAuth).not.toHaveBeenCalled();
   },
 );
+
+it("keeps the public entry usable when Supabase runtime configuration is absent", async () => {
+  runtimeEnv.SUPABASE_URL = undefined;
+  runtimeEnv.SUPABASE_PUBLISHABLE_KEY = undefined;
+
+  const root = await proxy(new NextRequest("https://app.test/"));
+  expect(root.status).toBe(200);
+  expect(
+    root.headers.get("x-middleware-request-x-petcare-authenticated"),
+  ).toBe("0");
+
+  const login = await proxy(new NextRequest("https://app.test/login"));
+  expect(login.status).toBe(307);
+  expect(login.headers.get("location")).toBe(
+    "https://app.test/login?error=unavailable",
+  );
+
+  const unavailable = await proxy(
+    new NextRequest("https://app.test/login?error=unavailable"),
+  );
+  expect(unavailable.status).toBe(200);
+
+  const protectedPage = await proxy(
+    new NextRequest("https://app.test/settings"),
+  );
+  expect(protectedPage.status).toBe(307);
+  expect(protectedPage.headers.get("location")).toBe(
+    "https://app.test/login?error=unavailable",
+  );
+  expect(mocks.createServerClient).not.toHaveBeenCalled();
+  expect(mocks.requireAuth).not.toHaveBeenCalled();
+});
 
 it("keeps the anonymous root public and overwrites a forged auth marker", async () => {
   mocks.getClaims.mockResolvedValue({ data: null, error: new Error("anonymous") });
@@ -212,7 +308,7 @@ it("uses a safe callback destination and maps callback failures generically", as
   const safe = await GET(
     new NextRequest("https://app.test/auth/callback?code=pkce-code&next=https://evil.test"),
   );
-  expect(safe.headers.get("location")).toBe("https://app.test/");
+  expect(safe.headers.get("location")).toBe("https://app.test/dashboard");
 
   mocks.exchangeCodeForSession.mockResolvedValue({
     data: null,
@@ -272,4 +368,139 @@ it("maps provider logout failures without exposing details", async () => {
   );
   expect(response.status).toBe(503);
   await expect(response.json()).resolves.toEqual({ error: "logout_failed" });
+});
+
+function authPost(
+  pathname: string,
+  fields: Record<string, string> = {},
+): NextRequest {
+  return new NextRequest(`https://app.test${pathname}`, {
+    method: "POST",
+    headers: { origin: "https://app.test" },
+    body: new URLSearchParams(fields),
+  });
+}
+
+it("keeps every auth action usable when runtime configuration is absent", async () => {
+  runtimeEnv.SUPABASE_URL = undefined;
+  runtimeEnv.SUPABASE_PUBLISHABLE_KEY = undefined;
+
+  const cases = [
+    [
+      login(
+        authPost("/auth/login", {
+          email: "a@example.com",
+          password: "password-for-test",
+        }),
+      ),
+      "/login?error=unavailable",
+    ],
+    [
+      signup(
+        authPost("/auth/signup", {
+          email: "a@example.com",
+          password: "password-for-test",
+        }),
+      ),
+      "/signup?error=unavailable",
+    ],
+    [
+      forgotPassword(
+        authPost("/auth/forgot-password", { email: "a@example.com" }),
+      ),
+      "/forgot-password?error=unavailable",
+    ],
+    [
+      resetPassword(
+        authPost("/auth/reset-password", {
+          password: "password-for-test",
+        }),
+      ),
+      "/reset-password?error=unavailable",
+    ],
+    [
+      GET(
+        new NextRequest(
+          "https://app.test/auth/callback?code=provider-code",
+        ),
+      ),
+      "/login?error=unavailable",
+    ],
+  ] as const;
+
+  for (const [pending, destination] of cases) {
+    const response = await pending;
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      `https://app.test${destination}`,
+    );
+  }
+  const logout = await POST(authPost("/auth/logout"));
+  expect(logout.status).toBe(503);
+  await expect(logout.json()).resolves.toEqual({ error: "logout_failed" });
+});
+
+it("maps thrown provider failures without exposing provider details", async () => {
+  const providerFailure = new Error("provider detail must stay private");
+  mocks.signInWithPassword.mockRejectedValue(providerFailure);
+  mocks.signUp.mockRejectedValue(providerFailure);
+  mocks.resetPasswordForEmail.mockRejectedValue(providerFailure);
+  mocks.updateUser.mockRejectedValue(providerFailure);
+  mocks.exchangeCodeForSession.mockRejectedValue(providerFailure);
+  mocks.signOut.mockRejectedValue(providerFailure);
+
+  const cases = [
+    [
+      login(
+        authPost("/auth/login", {
+          email: "a@example.com",
+          password: "password-for-test",
+        }),
+      ),
+      "/login?error=unavailable",
+    ],
+    [
+      signup(
+        authPost("/auth/signup", {
+          email: "a@example.com",
+          password: "password-for-test",
+        }),
+      ),
+      "/signup?error=unavailable",
+    ],
+    [
+      forgotPassword(
+        authPost("/auth/forgot-password", { email: "a@example.com" }),
+      ),
+      "/forgot-password?error=unavailable",
+    ],
+    [
+      resetPassword(
+        authPost("/auth/reset-password", {
+          password: "password-for-test",
+        }),
+      ),
+      "/reset-password?error=unavailable",
+    ],
+    [
+      GET(
+        new NextRequest(
+          "https://app.test/auth/callback?code=provider-code",
+        ),
+      ),
+      "/login?error=unavailable",
+    ],
+  ] as const;
+
+  for (const [pending, destination] of cases) {
+    const response = await pending;
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      `https://app.test${destination}`,
+    );
+    expect(await response.text()).not.toContain("provider detail");
+  }
+  const logout = await POST(authPost("/auth/logout"));
+  expect(logout.status).toBe(503);
+  expect(await logout.text()).not.toContain("provider detail");
 });

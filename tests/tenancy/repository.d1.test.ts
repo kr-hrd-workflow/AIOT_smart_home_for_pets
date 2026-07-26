@@ -25,6 +25,7 @@ beforeEach(async () => {
   for (const migrationName of [
     "0000_petcare_tenancy.sql",
     "0001_petcare_tunnels_clips.sql",
+    "0002_activity_cleanup_commands.sql",
   ]) {
     const migration = readFileSync(
       resolve(import.meta.dirname, `../../drizzle/${migrationName}`),

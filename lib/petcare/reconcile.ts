@@ -347,6 +347,9 @@ async function cleanRemoteResources(
       continue;
     }
     try {
+      if (!(await repository.isActivityCleanupAcknowledged(tenant.homeId))) {
+        continue;
+      }
       await repository.completeTenantCleanup(tenant.ownerSub, tenant.homeId, now);
       result.cleanedTenants += 1;
     } catch {

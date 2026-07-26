@@ -156,6 +156,7 @@ it("renders the four public auth forms with accessible native controls", async (
     "autocomplete",
     "new-password",
   );
+  expect(screen.getByLabelText("비밀번호")).toHaveAttribute("minlength", "8");
 
   cleanup();
   render(await ForgotPasswordPage({ searchParams: Promise.resolve({}) }));
@@ -169,6 +170,23 @@ it("renders the four public auth forms with accessible native controls", async (
   );
 });
 
+it("renders an unavailable account state without a broken login form", async () => {
+  render(
+    await LoginPage({
+      searchParams: Promise.resolve({ error: "unavailable" }),
+    }),
+  );
+  expect(screen.getByText(/실시간 연결 준비 중입니다/)).toHaveAttribute(
+    "role",
+    "status",
+  );
+  expect(screen.getByRole("link", { name: "데모 보기" })).toHaveAttribute(
+    "href",
+    "/demo",
+  );
+  expect(document.querySelector("form")).toBeNull();
+});
+
 it("calls only the assigned Supabase password method and redirects on success", async () => {
   const loginResponse = await login(request(handlers[0].path, handlers[0].fields));
   expect(mocks.signInWithPassword).toHaveBeenCalledWith({
@@ -177,7 +195,7 @@ it("calls only the assigned Supabase password method and redirects on success", 
   });
   expect(mocks.requireAuth).toHaveBeenCalled();
   expect(mocks.ensureHome).toHaveBeenCalledWith("user-a");
-  expect(loginResponse.headers.get("location")).toBe("https://app.test/");
+  expect(loginResponse.headers.get("location")).toBe("https://app.test/dashboard");
 
   const signupResponse = await signup(request(handlers[1].path, handlers[1].fields));
   expect(mocks.signUp).toHaveBeenCalledWith({
@@ -210,6 +228,72 @@ it("calls only the assigned Supabase password method and redirects on success", 
     "https://app.test/login?reset=1",
   );
   expect(mocks.createSupabaseSession).toHaveBeenCalledTimes(4);
+});
+
+it("explains confirmation, repeat signup, and password recovery states", async () => {
+  render(
+    await SignupPage({
+      searchParams: Promise.resolve({ sent: "1" }),
+    }),
+  );
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "새 계정이라면 확인 메일이 도착합니다",
+  );
+  expect(
+    screen.getByRole("link", { name: "비밀번호를 재설정해 주세요." }),
+  ).toHaveAttribute("href", "/forgot-password");
+
+  cleanup();
+  render(
+    await SignupPage({
+      searchParams: Promise.resolve({ error: "weak_password" }),
+    }),
+  );
+  expect(screen.getByRole("alert")).toHaveTextContent("8자 이상");
+
+  cleanup();
+  render(
+    await LoginPage({
+      searchParams: Promise.resolve({ error: "email_not_confirmed" }),
+    }),
+  );
+  expect(screen.getByRole("alert")).toHaveTextContent("가입 확인 메일");
+});
+
+it("maps provider rate limits and actionable auth errors back to the forms", async () => {
+  mocks.signInWithPassword.mockResolvedValueOnce({
+    data: {},
+    error: { status: 400, code: "email_not_confirmed" },
+  });
+  const unconfirmed = await login(
+    request(handlers[0].path, handlers[0].fields),
+  );
+  expect(unconfirmed.headers.get("location")).toBe(
+    "https://app.test/login?error=email_not_confirmed",
+  );
+
+  mocks.signUp.mockResolvedValueOnce({
+    data: {},
+    error: { status: 422, code: "weak_password" },
+  });
+  const weakPassword = await signup(
+    request(handlers[1].path, handlers[1].fields),
+  );
+  expect(weakPassword.headers.get("location")).toBe(
+    "https://app.test/signup?error=weak_password",
+  );
+
+  mocks.signInWithPassword.mockResolvedValueOnce({
+    data: {},
+    error: { status: 429, code: "over_request_rate_limit" },
+  });
+  const rateLimitedLogin = await login(
+    request(handlers[0].path, handlers[0].fields),
+  );
+  expect(rateLimitedLogin.status).toBe(429);
+  await expect(rateLimitedLogin.json()).resolves.toEqual({
+    error: "rate_limited",
+  });
 });
 
 it.each(handlers)("maps $name provider throttling without caching", async (entry) => {

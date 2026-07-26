@@ -16,8 +16,17 @@ export async function POST(request: NextRequest) {
   if (typeof password !== "string" || !password) {
     return Response.json({ error: "invalid_form" }, { status: 400 });
   }
-  const session = createSupabaseSession(request, runtimeAuthEnv());
-  const { error } = await session.supabase.auth.updateUser({ password });
+  let session;
+  let error;
+  try {
+    session = createSupabaseSession(request, runtimeAuthEnv());
+    ({ error } = await session.supabase.auth.updateUser({ password }));
+  } catch {
+    return NextResponse.redirect(
+      new URL("/reset-password?error=unavailable", request.url),
+      303,
+    );
+  }
   if (error?.status === 429) {
     return session.applySessionCookies(
       NextResponse.json({ error: "rate_limited" }, { status: 429 }),

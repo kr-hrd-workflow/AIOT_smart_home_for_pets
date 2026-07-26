@@ -14,7 +14,26 @@ import { demoDashboardData } from "../lib/demo-data";
 import { useDashboard } from "../lib/use-dashboard";
 
 const root = resolve(import.meta.dirname, "..");
-const { zones, calibration: _calibration, ...summary } = demoDashboardData;
+const { zones, calibration: _calibration, ...baseSummary } = demoDashboardData;
+const summary = {
+  ...baseSummary,
+  activity: [
+    {
+      subject_id: "dog_001",
+      today_active_seconds: 1_260,
+      today_observed_seconds: 5_400,
+      current_state: "active",
+      last_observed_at: "2026-07-15T01:42:00Z",
+    },
+    {
+      subject_id: "cat_001",
+      today_active_seconds: 840,
+      today_observed_seconds: 4_980,
+      current_state: "still",
+      last_observed_at: "2026-07-15T01:41:00Z",
+    },
+  ],
+};
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -61,6 +80,59 @@ describe("PetCareClient", () => {
 
     fetchMock.mockResolvedValueOnce(json({ ...summary, extra: true }));
     await expect(client.getSummary()).rejects.toThrow("Invalid dashboard summary");
+  });
+
+  it("requires exact dog-then-cat activity coverage", async () => {
+    const activity = [
+      {
+        subject_id: "dog_001",
+        today_active_seconds: 1_260,
+        today_observed_seconds: 5_400,
+        current_state: "active",
+        last_observed_at: "2026-07-15T01:42:00Z",
+      },
+      {
+        subject_id: "cat_001",
+        today_active_seconds: 840,
+        today_observed_seconds: 4_980,
+        current_state: "still",
+        last_observed_at: "2026-07-15T01:41:00Z",
+      },
+    ];
+    const valid = { ...summary, activity };
+    const invalid = [
+      Object.fromEntries(Object.entries(valid).filter(([key]) => key !== "activity")),
+      { ...valid, activity: [...activity].reverse() },
+      {
+        ...valid,
+        activity: [
+          { ...activity[0], today_active_seconds: 5_401 },
+          activity[1],
+        ],
+      },
+      {
+        ...valid,
+        activity: [
+          { ...activity[0], last_observed_at: null },
+          activity[1],
+        ],
+      },
+      {
+        ...valid,
+        activity: [{ ...activity[0], extra: true }, activity[1]],
+      },
+    ];
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(json(valid));
+    for (const body of invalid) fetchMock.mockResolvedValueOnce(json(body));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new PetCareClient();
+    await expect(client.getSummary()).resolves.toEqual(valid);
+    for (const body of invalid) {
+      await expect(client.getSummary()).rejects.toThrow("Invalid dashboard summary");
+    }
   });
 
   it("rejects invalid behavior, seven-day, and calibration time relations", async () => {

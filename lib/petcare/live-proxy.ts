@@ -14,8 +14,6 @@ const PRIVATE_HEADERS = {
   Pragma: "no-cache",
   "X-Content-Type-Options": "nosniff",
 };
-const MJPEG_CONTENT_TYPE = "multipart/x-mixed-replace; boundary=frame";
-
 type JsonObject = Record<string, unknown>;
 
 function exact(value: unknown, keys: readonly string[]): value is JsonObject {
@@ -34,6 +32,18 @@ function oneOf(value: unknown, choices: readonly string[]) {
 
 function finite(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function nonNegativeInteger(value: unknown): value is number {
+  return finite(value) && Number.isInteger(value) && value >= 0;
+}
+
+function timestamp(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /(?:Z|[+-]\d{2}:\d{2})$/.test(value) &&
+    Number.isFinite(Date.parse(value))
+  );
 }
 
 function nullableString(value: unknown) {
@@ -166,12 +176,36 @@ function isBehavior(value: unknown) {
   );
 }
 
+function isActivity(value: unknown) {
+  return (
+    exact(value, [
+      "subject_id",
+      "today_active_seconds",
+      "today_observed_seconds",
+      "current_state",
+      "last_observed_at",
+    ]) &&
+    oneOf(value.subject_id, ["dog_001", "cat_001"]) &&
+    nonNegativeInteger(value.today_active_seconds) &&
+    nonNegativeInteger(value.today_observed_seconds) &&
+    value.today_active_seconds <= value.today_observed_seconds &&
+    oneOf(value.current_state, ["active", "still", "unknown"]) &&
+    (value.current_state === "unknown"
+      ? value.last_observed_at === null || timestamp(value.last_observed_at)
+      : timestamp(value.last_observed_at))
+  );
+}
+
 function isAnomaly(value: unknown) {
   return (
     exact(value, ["id", "subject_id", "anomaly_type", "severity", "mismatch_kind", "message", "occurred_at"]) &&
     finite(value.id) &&
     (value.subject_id === null || oneOf(value.subject_id, ["dog_001", "cat_001"])) &&
-    oneOf(value.anomaly_type, ["no_meal_12h", "bed_sensor_mismatch"]) &&
+    (value.anomaly_type === "no_meal_12h" ||
+      value.anomaly_type === "bed_sensor_mismatch" ||
+      (value.anomaly_type === "repetitive_motion" &&
+        value.subject_id !== null &&
+        value.mismatch_kind === null)) &&
     value.severity === "warning" &&
     (value.mismatch_kind === null || oneOf(value.mismatch_kind, ["unconfirmed_pressure", "sensor_check"])) &&
     typeof value.message === "string" &&
@@ -181,7 +215,7 @@ function isAnomaly(value: unknown) {
 
 function isDashboardSummary(value: unknown): value is DashboardSummary {
   return (
-    exact(value, ["generated_at", "health", "devices", "latest_sensors", "camera", "bed", "behaviors", "anomalies"]) &&
+    exact(value, ["generated_at", "health", "devices", "latest_sensors", "camera", "bed", "behaviors", "anomalies", "activity"]) &&
     typeof value.generated_at === "string" &&
     isHealth(value.health) &&
     Array.isArray(value.devices) &&
@@ -193,7 +227,12 @@ function isDashboardSummary(value: unknown): value is DashboardSummary {
     Array.isArray(value.behaviors) &&
     value.behaviors.every(isBehavior) &&
     Array.isArray(value.anomalies) &&
-    value.anomalies.every(isAnomaly)
+    value.anomalies.every(isAnomaly) &&
+    Array.isArray(value.activity) &&
+    value.activity.length === 2 &&
+    value.activity[0]?.subject_id === "dog_001" &&
+    value.activity[1]?.subject_id === "cat_001" &&
+    value.activity.every(isActivity)
   );
 }
 
@@ -298,7 +337,10 @@ export async function proxyStatus(
       {
         home: { id: resolved.home.id, state: "ready" },
         agent: { id: route.agentId, state: "online", last_seen_at: seenAt },
-        camera: { id: route.cameraId, state: "online", last_seen_at: seenAt },
+        camera:
+          dashboard.camera.state === "online"
+            ? { id: route.cameraId, state: "online", last_seen_at: seenAt }
+            : null,
         dashboard,
       },
       { headers: PRIVATE_HEADERS },
@@ -352,9 +394,11 @@ export async function proxyMjpeg(
         return offline(knownRoute);
       }
       clearTimeout(timeout);
+      const responseHeaders = new Headers(PRIVATE_HEADERS);
+      responseHeaders.set("Content-Type", contentType);
       return new Response(upstream.body, {
         status: 200,
-        headers: { ...PRIVATE_HEADERS, "Content-Type": MJPEG_CONTENT_TYPE },
+        headers: responseHeaders,
       });
     } finally {
       clearTimeout(timeout);

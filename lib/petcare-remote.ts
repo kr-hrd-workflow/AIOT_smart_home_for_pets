@@ -15,6 +15,11 @@ export type PetCareStatus = {
 };
 
 export type Enrollment = { code: string; expiresAt: string };
+export type PicoProduct = "entrance-01" | "petzone-01";
+export type PicoProvisioned = {
+  status: "provisioned";
+  product: PicoProduct;
+};
 
 export type PetCareClip = {
   id: string;
@@ -27,6 +32,10 @@ export type PetCareClip = {
 
 export interface PetCareRemoteClient {
   enroll(): Promise<Enrollment>;
+  provisionPico(
+    product: PicoProduct,
+    wifi: { ssid: string; password: string },
+  ): Promise<PicoProvisioned>;
   getStatus(signal?: AbortSignal): Promise<PetCareStatus>;
   getClips(): Promise<PetCareClip[]>;
   deleteClip(id: string): Promise<void>;
@@ -47,6 +56,7 @@ export interface PetCareAccountClient {
 
 type JsonObject = Record<string, unknown>;
 type Guard<T> = (value: unknown) => value is T;
+const LOCAL_HOME_AGENT = "http://127.0.0.1:8000";
 
 function isObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -60,8 +70,28 @@ function hasExactKeys(
   return keys.every((key) => Object.prototype.hasOwnProperty.call(value, key));
 }
 
+function isPicoProvisioned(value: unknown): value is PicoProvisioned {
+  return (
+    hasExactKeys(value, ["status", "product"]) &&
+    value.status === "provisioned" &&
+    (value.product === "entrance-01" || value.product === "petzone-01")
+  );
+}
+
 function isNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return isNumber(value) && Number.isInteger(value) && value >= 0;
+}
+
+function isUtcTimestamp(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /(?:Z|[+-]\d{2}:\d{2})$/.test(value) &&
+    Number.isFinite(Date.parse(value))
+  );
 }
 
 function isNullableNumber(value: unknown): boolean {
@@ -133,6 +163,26 @@ function isBehavior(value: unknown): boolean {
   );
 }
 
+function isActivityStatus(value: unknown): boolean {
+  return (
+    hasExactKeys(value, [
+      "subject_id",
+      "today_active_seconds",
+      "today_observed_seconds",
+      "current_state",
+      "last_observed_at",
+    ]) &&
+    isOneOf(value.subject_id, ["dog_001", "cat_001"]) &&
+    isNonNegativeInteger(value.today_active_seconds) &&
+    isNonNegativeInteger(value.today_observed_seconds) &&
+    value.today_active_seconds <= value.today_observed_seconds &&
+    isOneOf(value.current_state, ["active", "still", "unknown"]) &&
+    (value.current_state === "unknown"
+      ? value.last_observed_at === null || isUtcTimestamp(value.last_observed_at)
+      : isUtcTimestamp(value.last_observed_at))
+  );
+}
+
 function isAnomaly(value: unknown): boolean {
   return (
     hasExactKeys(value, [
@@ -147,7 +197,11 @@ function isAnomaly(value: unknown): boolean {
     isNumber(value.id) &&
     (value.subject_id === null ||
       isOneOf(value.subject_id, ["dog_001", "cat_001"])) &&
-    isOneOf(value.anomaly_type, ["no_meal_12h", "bed_sensor_mismatch"]) &&
+    (value.anomaly_type === "no_meal_12h" ||
+      value.anomaly_type === "bed_sensor_mismatch" ||
+      (value.anomaly_type === "repetitive_motion" &&
+        value.subject_id !== null &&
+        value.mismatch_kind === null)) &&
     value.severity === "warning" &&
     (value.mismatch_kind === null ||
       isOneOf(value.mismatch_kind, ["unconfirmed_pressure", "sensor_check"])) &&
@@ -289,6 +343,7 @@ function isDashboardSummary(value: unknown): value is DashboardSummary {
       "bed",
       "behaviors",
       "anomalies",
+      "activity",
     ]) &&
     typeof value.generated_at === "string" &&
     isHealth(value.health) &&
@@ -301,7 +356,12 @@ function isDashboardSummary(value: unknown): value is DashboardSummary {
     Array.isArray(value.behaviors) &&
     value.behaviors.every(isBehavior) &&
     Array.isArray(value.anomalies) &&
-    value.anomalies.every(isAnomaly)
+    value.anomalies.every(isAnomaly) &&
+    Array.isArray(value.activity) &&
+    value.activity.length === 2 &&
+    value.activity[0]?.subject_id === "dog_001" &&
+    value.activity[1]?.subject_id === "cat_001" &&
+    value.activity.every(isActivityStatus)
   );
 }
 
@@ -436,6 +496,35 @@ async function requestEmpty(
   if (response.status !== status) return rejectResponse(response);
 }
 
+async function provisionPico(
+  product: PicoProduct,
+  wifi: { ssid: string; password: string },
+): Promise<PicoProvisioned> {
+  const response = await fetch(
+    `${LOCAL_HOME_AGENT}/api/pico/${product}/provision`,
+    {
+      method: "POST",
+      mode: "cors",
+      credentials: "omit",
+      referrerPolicy: "no-referrer",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        wifi_ssid: wifi.ssid,
+        wifi_password: wifi.password,
+      }),
+    },
+  );
+  if (response.status !== 200) return rejectResponse(response);
+  const body: unknown = await response.json().catch(() => undefined);
+  if (!isPicoProvisioned(body) || body.product !== product) {
+    throw new PetCareRemoteError(response.status);
+  }
+  return body;
+}
+
 export function createPetCareRemoteClient(): PetCareRemoteClient {
   return {
     enroll: () =>
@@ -444,6 +533,7 @@ export function createPetCareRemoteClient(): PetCareRemoteClient {
       }),
     getStatus: (signal) =>
       requestJson("/api/petcare/status", 200, isStatus, { signal }, true),
+    provisionPico,
     getClips: async () =>
       (await requestJson("/api/petcare/clips", 200, isClipList)).clips,
     deleteClip: (id) =>

@@ -68,9 +68,14 @@ export const demoDashboardData: DashboardData = {
     { id: 2, subject_id: "cat_001", behavior_type: "resting", started_at: "2026-07-14T23:10:00Z", ended_at: "2026-07-14T23:48:00Z", duration_seconds: 2280 },
   ],
   anomalies: [
+    { id: 4, subject_id: "dog_001", anomaly_type: "repetitive_motion", severity: "warning", mismatch_kind: null, message: "짧은 시간에 반복 이동이 관측됐습니다. 건강 판단이 아닌 카메라 관측 알림입니다.", occurred_at: "2026-07-15T01:41:00Z" },
     { id: 3, subject_id: null, anomaly_type: "bed_sensor_mismatch", severity: "warning", mismatch_kind: "unconfirmed_pressure", message: "침대 압력은 감지됐지만 카메라 확인이 없습니다.", occurred_at: "2026-07-15T01:40:00Z" },
     { id: 2, subject_id: "cat_001", anomaly_type: "bed_sensor_mismatch", severity: "warning", mismatch_kind: "sensor_check", message: "침대 센서 확인 필요", occurred_at: "2026-07-15T01:20:00Z" },
     { id: 1, subject_id: "dog_001", anomaly_type: "no_meal_12h", severity: "warning", mismatch_kind: null, message: "12시간 식사 기록 없음", occurred_at: "2026-07-15T00:10:00Z" },
+  ],
+  activity: [
+    { subject_id: "dog_001", today_active_seconds: 1260, today_observed_seconds: 5400, current_state: "active", last_observed_at: "2026-07-15T01:42:00Z" },
+    { subject_id: "cat_001", today_active_seconds: 840, today_observed_seconds: 4980, current_state: "still", last_observed_at: "2026-07-15T01:41:00Z" },
   ],
   zones: [
     { zone_name: "food_bowl", x1: 40, y1: 260, x2: 260, y2: 470, enabled: true, updated_at: observedAt },

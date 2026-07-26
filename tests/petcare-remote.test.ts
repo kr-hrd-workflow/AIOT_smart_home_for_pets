@@ -84,6 +84,66 @@ describe("createPetCareRemote", () => {
     );
   });
 
+  it("sends Pico Wi-Fi only to the local Home Agent and rejects a mismatched product", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: "provisioned",
+            product: "entrance-01",
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: "provisioned",
+            product: "petzone-01",
+          }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createPetCareRemoteClient();
+
+    await expect(
+      client.provisionPico("entrance-01", {
+        ssid: "test-network",
+        password: "password-for-test",
+      }),
+    ).resolves.toEqual({
+      status: "provisioned",
+      product: "entrance-01",
+    });
+    await expect(
+      client.provisionPico("entrance-01", {
+        ssid: "test-network",
+        password: "password-for-test",
+      }),
+    ).rejects.toMatchObject({ status: 200 });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "http://127.0.0.1:8000/api/pico/entrance-01/provision",
+      {
+        method: "POST",
+        mode: "cors",
+        credentials: "omit",
+        referrerPolicy: "no-referrer",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          wifi_ssid: "test-network",
+          wifi_password: "password-for-test",
+        }),
+      },
+    );
+  });
+
   it("maps BFF agent_offline to structured error", async () => {
     vi.stubGlobal(
       "fetch",
@@ -241,6 +301,136 @@ describe("createPetCareRemote", () => {
   });
 
   const malformedStatuses: Array<[string, unknown]> = [
+    [
+      "missing activity",
+      validStatus(
+        Object.fromEntries(
+          Object.entries(dashboardSummary).filter(([key]) => key !== "activity"),
+        ),
+      ),
+    ],
+    [
+      "reordered activity",
+      validStatus({
+        ...dashboardSummary,
+        activity: [
+          {
+            subject_id: "cat_001",
+            today_active_seconds: 840,
+            today_observed_seconds: 4_980,
+            current_state: "still",
+            last_observed_at: "2026-07-15T01:41:00Z",
+          },
+          {
+            subject_id: "dog_001",
+            today_active_seconds: 1_260,
+            today_observed_seconds: 5_400,
+            current_state: "active",
+            last_observed_at: "2026-07-15T01:42:00Z",
+          },
+        ],
+      }),
+    ],
+    [
+      "malformed activity",
+      validStatus({
+        ...dashboardSummary,
+        activity: [
+          {
+            subject_id: "dog_001",
+            today_active_seconds: 5_401,
+            today_observed_seconds: 5_400,
+            current_state: "active",
+            last_observed_at: "2026-07-15T01:42:00Z",
+          },
+          {
+            subject_id: "cat_001",
+            today_active_seconds: 840,
+            today_observed_seconds: 4_980,
+            current_state: "still",
+            last_observed_at: "2026-07-15T01:41:00Z",
+          },
+        ],
+      }),
+    ],
+    [
+      "fractional activity counter",
+      validStatus({
+        ...dashboardSummary,
+        activity: [
+          {
+            subject_id: "dog_001",
+            today_active_seconds: 1_260.5,
+            today_observed_seconds: 5_400,
+            current_state: "active",
+            last_observed_at: "2026-07-15T01:42:00Z",
+          },
+          dashboardSummary.activity[1],
+        ],
+      }),
+    ],
+    [
+      "active activity without timestamp",
+      validStatus({
+        ...dashboardSummary,
+        activity: [
+          {
+            ...dashboardSummary.activity[0],
+            last_observed_at: null,
+          },
+          dashboardSummary.activity[1],
+        ],
+      }),
+    ],
+    [
+      "activity timestamp without timezone",
+      validStatus({
+        ...dashboardSummary,
+        activity: [
+          {
+            ...dashboardSummary.activity[0],
+            last_observed_at: "2026-07-15T01:42:00",
+          },
+          dashboardSummary.activity[1],
+        ],
+      }),
+    ],
+    [
+      "invalid activity timestamp",
+      validStatus({
+        ...dashboardSummary,
+        activity: [
+          {
+            ...dashboardSummary.activity[0],
+            last_observed_at: "2026-99-99T01:42:00Z",
+          },
+          dashboardSummary.activity[1],
+        ],
+      }),
+    ],
+    [
+      "extra activity field",
+      validStatus({
+        ...dashboardSummary,
+        activity: [
+          {
+            subject_id: "dog_001",
+            today_active_seconds: 1_260,
+            today_observed_seconds: 5_400,
+            current_state: "active",
+            last_observed_at: "2026-07-15T01:42:00Z",
+            extra: true,
+          },
+          {
+            subject_id: "cat_001",
+            today_active_seconds: 840,
+            today_observed_seconds: 4_980,
+            current_state: "still",
+            last_observed_at: "2026-07-15T01:41:00Z",
+          },
+        ],
+      }),
+    ],
     [
       "device",
       validStatus({

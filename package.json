@@ -14,6 +14,8 @@
     "test:e2e:demo:dev": "PETCARE_E2E_TARGET=demo-dev playwright test --project=demo-dev",
     "test:e2e:demo:production": "npm run build && PETCARE_E2E_TARGET=demo-production playwright test --project=demo-production",
     "test:e2e:connected": "PETCARE_E2E_TARGET=connected playwright test --project=connected",
+    "render:hero:desktop": "remotion render remotion/index.tsx PetCareHeroLoopDesktop public/landing-apartment-cinematic-loop.mp4 --codec h264 --crf 24 --pixel-format yuv420p --concurrency 1",
+    "render:hero:mobile": "remotion render remotion/index.tsx PetCareHeroLoopMobile public/landing-apartment-cinematic-loop-mobile.mp4 --codec h264 --crf 24 --pixel-format yuv420p --concurrency 1",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },
