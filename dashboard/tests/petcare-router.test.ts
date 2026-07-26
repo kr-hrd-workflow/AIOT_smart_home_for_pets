@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const calls = vi.hoisted(() => ({
   account: vi.fn(),
+  activityCleanup: vi.fn(),
   agentEnroll: vi.fn(),
   clipUpload: vi.fn(),
   deleteClip: vi.fn(),
@@ -26,6 +27,9 @@ vi.mock("../lib/petcare/account-delete", () => ({
 }));
 vi.mock("../lib/petcare/agent-enroll", () => ({
   handleAgentEnroll: calls.agentEnroll,
+}));
+vi.mock("../lib/petcare/agent-cleanup", () => ({
+  handleAgentActivityCleanup: calls.activityCleanup,
 }));
 vi.mock("../lib/petcare/clip-upload", () => ({
   uploadSignedClip: calls.clipUpload,
@@ -74,6 +78,7 @@ beforeEach(() => {
   const ok = () => Promise.resolve(Response.json({ ok: true }));
   for (const handler of [
     calls.account,
+    calls.activityCleanup,
     calls.agentEnroll,
     calls.clipUpload,
     calls.deleteClip,
@@ -117,6 +122,7 @@ describe("routePetCare", () => {
 
   it.each([
     ["/api/petcare/agent/enroll", calls.agentEnroll],
+    ["/api/petcare/agent/cleanup", calls.activityCleanup],
     ["/api/petcare/agent/clips", calls.clipUpload],
   ])("keeps public agent route %s Supabase-independent", async (path, handler) => {
     const response = await routePetCare(request(path, "POST"), env, ctx);
@@ -228,6 +234,7 @@ describe("routePetCare", () => {
     ["/api/petcare/clips", "POST", "GET"],
     ["/api/petcare/account", "GET", "DELETE"],
     ["/api/petcare/agent/enroll", "GET", "POST"],
+    ["/api/petcare/agent/cleanup", "GET", "POST"],
     ["/api/petcare/installer", "POST", "GET"],
     ["/api/petcare/operator/installer", "POST", "PUT"],
   ])("closes method %s %s", async (path, method, allow) => {

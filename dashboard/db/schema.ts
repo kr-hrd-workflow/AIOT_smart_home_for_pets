@@ -196,6 +196,23 @@ export const tenantCleanup = sqliteTable("tenant_cleanup", {
   lastError: text("last_error"),
 });
 
+export const activityCleanupCommands = sqliteTable(
+  "activity_cleanup_commands",
+  {
+    id: text("id").primaryKey(),
+    homeId: text("home_id").notNull().references(() => homes.id),
+    agentId: text("agent_id").notNull().references(() => agents.id),
+    type: text("type", { enum: ["delete_activity_observations"] }).notNull(),
+    status: text("status", { enum: ["pending", "acknowledged"] }).notNull(),
+    createdAt: text("created_at").notNull(),
+    acknowledgedAt: text("acknowledged_at"),
+  },
+  (table) => [
+    uniqueIndex("activity_cleanup_commands_home_id_unique").on(table.homeId),
+    index("activity_cleanup_commands_agent_status_idx").on(table.agentId, table.status),
+  ],
+);
+
 export const reconcileState = sqliteTable("reconcile_state", {
   name: text("name").primaryKey(),
   cursor: text("cursor"),

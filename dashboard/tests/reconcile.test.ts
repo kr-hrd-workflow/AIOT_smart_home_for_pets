@@ -44,6 +44,7 @@ async function applyMigrations() {
   for (const migration of [
     "0000_petcare_tenancy.sql",
     "0001_petcare_tunnels_clips.sql",
+    "0002_activity_cleanup_commands.sql",
   ]) {
     const sql = readFileSync(
       resolve(import.meta.dirname, `../drizzle/${migration}`),
@@ -114,6 +115,17 @@ async function seedHomeOnly(suffix: string) {
     .bind(homeId, ownerSub, "2026-07-20T00:00:00.000Z")
     .run();
   return { homeId, ownerSub };
+}
+
+async function acknowledgeLocalActivityCleanup(home: { homeId: string; agentId: string }) {
+  await db
+    .prepare(`
+      INSERT INTO activity_cleanup_commands
+        (id, home_id, agent_id, type, status, created_at, acknowledged_at)
+      VALUES (?, ?, ?, 'delete_activity_observations', 'acknowledged', ?, ?)
+    `)
+    .bind(`command-${home.homeId}`, home.homeId, home.agentId, NOW_ISO, NOW_ISO)
+    .run();
 }
 
 async function seedClip(input: {
@@ -224,7 +236,7 @@ describe("reconcilePetCare", () => {
       db
         .prepare(
           "INSERT INTO upload_nonces (agent_id, nonce, used_at, expires_at) VALUES (?, ?, ?, ?), (?, ?, ?, ?)",
-        )
+      )
         .bind(
           home.agentId,
           "expired-nonce",
@@ -604,6 +616,7 @@ describe("reconcilePetCare", () => {
           NOW_ISO,
         ),
     ]);
+    await acknowledgeLocalActivityCleanup(home);
     const otherBefore = await tenantSnapshot(other.homeId);
     const calls: string[] = [];
     const bucket = new Proxy(clips, {
@@ -775,9 +788,10 @@ describe("reconcilePetCare", () => {
       db
         .prepare(
           "INSERT INTO tenant_cleanup (owner_sub, home_id, status, started_at, updated_at) VALUES (?, ?, 'cleanup_pending', ?, ?)",
-        )
+      )
         .bind(home.ownerSub, home.homeId, NOW_ISO, NOW_ISO),
     ]);
+    await acknowledgeLocalActivityCleanup(home);
     let startDelete!: () => void;
     const started = new Promise<void>((resolve) => {
       startDelete = resolve;
@@ -853,6 +867,44 @@ describe("reconcilePetCare", () => {
     expect(await count("homes")).toBe(0);
   });
 
+  it("keeps the cleanup tombstone until Home acknowledges local activity deletion", async () => {
+    const home = await seedHome("local-ack");
+    await new PetCareRepository(db).beginTenantCleanup(home.ownerSub, NOW_ISO);
+
+    const pending = await reconcilePetCare(env(), NOW);
+    expect(pending.cleanedTenants).toBe(0);
+    expect(pending.retryableFailures).toBe(0);
+    expect(await count("tenant_cleanup")).toBe(1);
+    expect(await count("homes")).toBe(1);
+
+    await db
+      .prepare(
+        "UPDATE activity_cleanup_commands SET status = 'acknowledged', acknowledged_at = ? WHERE home_id = ?",
+      )
+      .bind(NOW_ISO, home.homeId)
+      .run();
+    const completed = await reconcilePetCare(env(), NOW);
+    expect(completed.cleanedTenants).toBe(1);
+    expect(await count("tenant_cleanup")).toBe(0);
+    expect(await count("homes")).toBe(0);
+  });
+
+  it("does not complete a cleanup that has no local activity acknowledgement command", async () => {
+    const home = await seedHome("missing-command", { deleted: true });
+    await db
+      .prepare(
+        "INSERT INTO tenant_cleanup (owner_sub, home_id, status, started_at, updated_at) VALUES (?, ?, 'cleanup_pending', ?, ?)",
+      )
+      .bind(home.ownerSub, home.homeId, NOW_ISO, NOW_ISO)
+      .run();
+
+    const result = await reconcilePetCare(env(), NOW);
+    expect(result.cleanedTenants).toBe(0);
+    expect(result.retryableFailures).toBe(0);
+    expect(await count("tenant_cleanup")).toBe(1);
+    expect(await count("homes")).toBe(1);
+  });
+
   it("completes tenant cleanup when a revoked route lease has expired", async () => {
     const home = await seedHome("expired-cleanup-lease", { deleted: true });
     await db.batch([
@@ -873,9 +925,10 @@ describe("reconcilePetCare", () => {
       db
         .prepare(
           "INSERT INTO tenant_cleanup (owner_sub, home_id, status, started_at, updated_at) VALUES (?, ?, 'cleanup_pending', ?, ?)",
-        )
+      )
         .bind(home.ownerSub, home.homeId, NOW_ISO, NOW_ISO),
     ]);
+    await acknowledgeLocalActivityCleanup(home);
 
     const result = await reconcilePetCare(env(), NOW);
 
@@ -904,9 +957,10 @@ describe("reconcilePetCare", () => {
       db
         .prepare(
           "INSERT INTO object_deletion_jobs (object_key, home_id, requested_at) VALUES (?, ?, ?)",
-        )
+      )
         .bind("clips/delete-retry.mp4", home.homeId, NOW_ISO),
     ]);
+    await acknowledgeLocalActivityCleanup(home);
     const failingBucket = new Proxy(clips, {
       get(target, property, receiver) {
         if (property === "delete") return async () => { throw new Error("r2-failed"); };

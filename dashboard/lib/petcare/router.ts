@@ -8,6 +8,7 @@ import {
   type AuthSessionHandle,
 } from "../auth/session";
 import { deletePetCareAccountData } from "./account-delete";
+import { handleAgentActivityCleanup } from "./agent-cleanup";
 import { handleAgentEnroll } from "./agent-enroll";
 import { uploadSignedClip } from "./clip-upload";
 import { deleteClip, listClips, readClip } from "./clips";
@@ -80,6 +81,12 @@ export async function routePetCare(
       routeName = "agent_enroll";
       return request.method === "POST"
         ? await handleAgentEnroll(request, env, now)
+        : methodNotAllowed("POST");
+    }
+    if (url.pathname === "/api/petcare/agent/cleanup") {
+      routeName = "agent_activity_cleanup";
+      return request.method === "POST"
+        ? await handleAgentActivityCleanup(request, env, now)
         : methodNotAllowed("POST");
     }
     if (url.pathname === "/api/petcare/agent/clips") {

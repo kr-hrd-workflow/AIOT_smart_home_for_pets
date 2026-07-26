@@ -99,6 +99,13 @@ export type TenantCleanupRecord = {
   status: "cleanup_pending";
 };
 
+export type ActivityCleanupCommand = {
+  commandId: string;
+  homeId: string;
+  publicKey: string;
+  type: "delete_activity_observations";
+};
+
 type RouteRow = {
   home_id: string;
   agent_id: string;
@@ -1034,6 +1041,7 @@ export class PetCareRepository {
       .bind(ownerSub)
       .first<{ id: string }>();
     if (!home) return { status: "absent" };
+    const commandId = `clc_${crypto.randomUUID().replaceAll("-", "")}`;
     try {
       await this.db.batch([
         this.db
@@ -1043,6 +1051,18 @@ export class PetCareRepository {
             WHERE id = ? AND owner_sub = ?
           `)
           .bind(now, now, home.id, ownerSub),
+        this.db
+          .prepare(`
+            INSERT INTO activity_cleanup_commands (
+              id, home_id, agent_id, type, status, created_at
+            )
+            SELECT ?, h.id, a.id, 'delete_activity_observations', 'pending', ?
+            FROM homes h
+            JOIN agents a ON a.home_id = h.id AND a.revoked_at IS NULL
+            JOIN tenant_cleanup tc ON tc.home_id = h.id AND tc.owner_sub = h.owner_sub
+            WHERE h.id = ? AND h.owner_sub = ?
+          `)
+          .bind(commandId, now, home.id, ownerSub),
         this.db
           .prepare(`
             UPDATE homes SET deleted_at = COALESCE(deleted_at, ?)
@@ -1116,6 +1136,16 @@ export class PetCareRepository {
             )
           `)
           .bind(home.id, ownerSub, ownerSub),
+        this.db
+          .prepare(`
+            INSERT INTO tenant_cleanup (owner_sub, home_id, status, started_at, updated_at)
+            SELECT NULL, NULL, NULL, NULL, NULL
+            WHERE (
+              SELECT COUNT(*) FROM activity_cleanup_commands ac
+              WHERE ac.home_id = ? AND ac.id = ? AND ac.status = 'pending'
+            ) <> 1
+          `)
+          .bind(home.id, commandId),
       ]);
       return { homeId: home.id, status: "cleanup_pending" };
     } catch (error) {
@@ -1148,6 +1178,74 @@ export class PetCareRepository {
       `)
       .bind(now, code, ownerSub, homeId)
       .run();
+  }
+
+  async requireActivityCleanupAgent(
+    agentId: string,
+    commandId: string | undefined,
+    allowAcknowledged: boolean,
+  ): Promise<ActivityCleanupCommand | null> {
+    const row = await this.db
+      .prepare(`
+        SELECT ac.id AS command_id, ac.home_id, a.public_key, ac.type
+        FROM tenant_cleanup tc
+        JOIN agents a ON a.home_id = tc.home_id AND a.id = ? AND a.revoked_at IS NOT NULL
+        JOIN activity_cleanup_commands ac ON ac.home_id = tc.home_id AND ac.agent_id = a.id
+        WHERE ac.status ${allowAcknowledged ? "IN ('pending', 'acknowledged')" : "= 'pending'"}
+          AND (? IS NULL OR ac.id = ?)
+        LIMIT 1
+      `)
+      .bind(agentId, commandId ?? null, commandId ?? null)
+      .first<{
+        command_id: string;
+        home_id: string;
+        public_key: string;
+        type: "delete_activity_observations";
+      }>();
+    return row ? {
+      commandId: row.command_id,
+      homeId: row.home_id,
+      publicKey: row.public_key,
+      type: row.type,
+    } : null;
+  }
+
+  async acknowledgeActivityCleanup(
+    agentId: string,
+    commandId: string,
+    now: string,
+  ): Promise<void> {
+    const changed = await this.db
+      .prepare(`
+        UPDATE activity_cleanup_commands
+        SET status = 'acknowledged', acknowledged_at = COALESCE(acknowledged_at, ?)
+        WHERE id = ? AND agent_id = ? AND status = 'pending'
+          AND EXISTS (
+            SELECT 1 FROM tenant_cleanup tc
+            JOIN agents a ON a.home_id = tc.home_id AND a.id = activity_cleanup_commands.agent_id
+              AND a.revoked_at IS NOT NULL
+            WHERE tc.home_id = activity_cleanup_commands.home_id
+          )
+      `)
+      .bind(now, commandId, agentId)
+      .run();
+    if (changed.meta.changes === 1) return;
+    const acknowledged = await this.requireActivityCleanupAgent(agentId, commandId, true);
+    if (acknowledged?.commandId === commandId) return;
+    throw new PetCareError(401, "invalid_agent_signature");
+  }
+
+  async isActivityCleanupAcknowledged(homeId: string): Promise<boolean> {
+    const row = await this.db
+      .prepare(`
+        SELECT ac.status FROM activity_cleanup_commands ac
+        JOIN tenant_cleanup tc ON tc.home_id = ac.home_id
+        WHERE ac.home_id = ?
+        LIMIT 1
+      `)
+      .bind(homeId)
+      .first<{ status: "pending" | "acknowledged" }>();
+    return row?.status === "acknowledged";
   }
 
   async completeTenantCleanup(ownerSub: string, homeId: string, now: string): Promise<void> {
@@ -1184,6 +1282,10 @@ export class PetCareRepository {
               WHERE h.id = ? AND h.owner_sub = ? AND tc.owner_sub = ?
                 AND NOT EXISTS (SELECT 1 FROM clips WHERE home_id = h.id)
                 AND NOT EXISTS (SELECT 1 FROM object_deletion_jobs WHERE home_id = h.id)
+                AND EXISTS (
+                  SELECT 1 FROM activity_cleanup_commands ac
+                  WHERE ac.home_id = h.id AND ac.status = 'acknowledged'
+                )
                 AND NOT EXISTS (
                   SELECT 1 FROM tunnel_routes tr WHERE tr.home_id = h.id AND (
                     tr.status <> 'revoked' OR
@@ -1219,6 +1321,14 @@ export class PetCareRepository {
             DELETE FROM cameras WHERE home_id = ? AND EXISTS (
               SELECT 1 FROM homes h JOIN tenant_cleanup tc ON tc.home_id = h.id
               WHERE h.id = cameras.home_id AND h.owner_sub = ? AND tc.owner_sub = ?
+            )
+          `)
+          .bind(homeId, ownerSub, ownerSub),
+        this.db
+          .prepare(`
+            DELETE FROM activity_cleanup_commands WHERE home_id = ? AND EXISTS (
+              SELECT 1 FROM homes h JOIN tenant_cleanup tc ON tc.home_id = h.id
+              WHERE h.id = activity_cleanup_commands.home_id AND h.owner_sub = ? AND tc.owner_sub = ?
             )
           `)
           .bind(homeId, ownerSub, ownerSub),

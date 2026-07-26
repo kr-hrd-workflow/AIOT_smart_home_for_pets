@@ -186,6 +186,18 @@ export async function verifyClipSignature(
   headers: SignedClipHeaders,
   publicKey: string,
 ): Promise<void> {
+  await verifyEd25519Signature(
+    headers.signature,
+    canonicalClipRequest(headers),
+    publicKey,
+  );
+}
+
+export async function verifyEd25519Signature(
+  signature: Uint8Array,
+  canonical: Uint8Array,
+  publicKey: string,
+): Promise<void> {
   try {
     const rawKey = decodeBase64Url(publicKey, 32);
     const key = await crypto.subtle.importKey(
@@ -198,8 +210,8 @@ export async function verifyClipSignature(
     const valid = await crypto.subtle.verify(
       { name: "Ed25519" },
       key,
-      Uint8Array.from(headers.signature).buffer,
-      Uint8Array.from(canonicalClipRequest(headers)).buffer,
+      Uint8Array.from(signature).buffer,
+      Uint8Array.from(canonical).buffer,
     );
     if (!valid) throw new PetCareError(401, "invalid_agent_signature");
   } catch (error) {

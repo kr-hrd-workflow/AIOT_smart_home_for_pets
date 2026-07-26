@@ -82,6 +82,63 @@ beforeEach(() => {
 afterEach(() => fake.dispose());
 
 describe("PetCareRepository", () => {
+  it("atomically seeds one pending local activity cleanup command before revoking its agent", async () => {
+    await seedHome("a");
+
+    await expect(repo.beginTenantCleanup("owner-a", now)).resolves.toEqual({
+      homeId: "home-a",
+      status: "cleanup_pending",
+    });
+    await repo.beginTenantCleanup("owner-a", now);
+
+    const commands = await db
+      .prepare("SELECT home_id, agent_id, type, status FROM activity_cleanup_commands")
+      .all();
+    expect(commands.results).toEqual([{
+      home_id: "home-a",
+      agent_id: "agent-a",
+      type: "delete_activity_observations",
+      status: "pending",
+    }]);
+    expect(
+      await db.prepare("SELECT revoked_at FROM agents WHERE id = 'agent-a'").first(),
+    ).toEqual({ revoked_at: now });
+  });
+
+  it("binds local cleanup polling and idempotent acknowledgement to the revoked agent", async () => {
+    await seedHome("a");
+    await seedHome("b");
+    await repo.beginTenantCleanup("owner-a", now);
+    const command = await db
+      .prepare("SELECT id FROM activity_cleanup_commands WHERE home_id = ?")
+      .bind("home-a")
+      .first<{ id: string }>();
+
+    await expect(
+      repo.requireActivityCleanupAgent("agent-a", undefined, false),
+    ).resolves.toMatchObject({
+      commandId: command?.id,
+      homeId: "home-a",
+      publicKey: "public-a",
+      type: "delete_activity_observations",
+    });
+    await expect(
+      repo.requireActivityCleanupAgent("agent-b", undefined, false),
+    ).resolves.toBeNull();
+    await expect(
+      repo.acknowledgeActivityCleanup("agent-a", "clc_ffffffffffffffffffffffffffffffff", now),
+    ).rejects.toMatchObject({ status: 401, code: "invalid_agent_signature" });
+
+    await repo.acknowledgeActivityCleanup("agent-a", command!.id, now);
+    await repo.acknowledgeActivityCleanup("agent-a", command!.id, now);
+    await expect(
+      repo.requireActivityCleanupAgent("agent-a", undefined, false),
+    ).resolves.toBeNull();
+    await expect(
+      repo.requireActivityCleanupAgent("agent-a", command!.id, true),
+    ).resolves.toMatchObject({ commandId: command!.id });
+  });
+
   it("never resolves another home's inactive tunnel", async () => {
     await seedHome("a");
     await seedHome("b", "revoked");
@@ -326,6 +383,11 @@ describe("PetCareRepository", () => {
       "UPDATE tunnel_routes SET lease_id = ?, lease_expires_at = ? WHERE home_id = ?",
       "expired-lease",
       "2026-07-19T23:59:00.000Z",
+      "home-a",
+    );
+    await run(
+      "UPDATE activity_cleanup_commands SET status = 'acknowledged', acknowledged_at = ? WHERE home_id = ?",
+      now,
       "home-a",
     );
 
