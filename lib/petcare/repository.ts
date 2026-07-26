@@ -1243,6 +1243,22 @@ export class PetCareRepository {
     } : null;
   }
 
+  async findActiveActivityCleanupAgent(
+    agentId: string,
+  ): Promise<{ publicKey: string } | null> {
+    const row = await this.db
+      .prepare(`
+        SELECT a.public_key
+        FROM agents a
+        JOIN homes h ON h.id = a.home_id AND h.deleted_at IS NULL
+        WHERE a.id = ? AND a.revoked_at IS NULL
+        LIMIT 1
+      `)
+      .bind(agentId)
+      .first<{ public_key: string }>();
+    return row ? { publicKey: row.public_key } : null;
+  }
+
   async acknowledgeActivityCleanup(
     agentId: string,
     commandId: string,

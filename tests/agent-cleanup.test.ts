@@ -8,6 +8,7 @@ const repository = vi.hoisted(() => ({
   acknowledgeActivityCleanup: vi.fn(),
   checkRateLimit: vi.fn(),
   consumeNonce: vi.fn(),
+  findActiveActivityCleanupAgent: vi.fn(),
   requireActivityCleanupAgent: vi.fn(),
 }));
 
@@ -16,6 +17,7 @@ vi.mock("../lib/petcare/repository", () => ({
     acknowledgeActivityCleanup = repository.acknowledgeActivityCleanup;
     checkRateLimit = repository.checkRateLimit;
     consumeNonce = repository.consumeNonce;
+    findActiveActivityCleanupAgent = repository.findActiveActivityCleanupAgent;
     requireActivityCleanupAgent = repository.requireActivityCleanupAgent;
   },
 }));
@@ -70,6 +72,24 @@ async function signedRequest(
   });
 }
 
+function oversizedRequest(body: ReadableStream<Uint8Array>, contentLength?: string): Request {
+  const headers = new Headers({
+    "Content-Type": "application/json",
+    "X-PetCare-Agent-Id": AGENT_ID,
+    "X-PetCare-Timestamp": "0",
+    "X-PetCare-Nonce": encodeBase64Url(new Uint8Array(16)),
+    "X-PetCare-Content-SHA256": encodeBase64Url(new Uint8Array(32)),
+    "X-PetCare-Signature": encodeBase64Url(new Uint8Array(64)),
+  });
+  if (contentLength) headers.set("Content-Length", contentLength);
+  return new Request("https://pets.example/api/petcare/agent/cleanup", {
+    method: "POST",
+    headers,
+    body,
+    duplex: "half",
+  });
+}
+
 beforeEach(async () => {
   vi.clearAllMocks();
   const keys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
@@ -84,6 +104,7 @@ beforeEach(async () => {
   repository.checkRateLimit.mockResolvedValue(undefined);
   repository.consumeNonce.mockResolvedValue(undefined);
   repository.acknowledgeActivityCleanup.mockResolvedValue(undefined);
+  repository.findActiveActivityCleanupAgent.mockResolvedValue(null);
 });
 
 describe("agent activity cleanup", () => {
@@ -98,6 +119,18 @@ describe("agent activity cleanup", () => {
     });
     expect(repository.requireActivityCleanupAgent).toHaveBeenCalledWith(AGENT_ID, undefined, false);
     expect(repository.checkRateLimit).toHaveBeenCalledWith(AGENT_ID, "activity-cleanup", 30, 60, NOW);
+    expect(repository.consumeNonce).toHaveBeenCalledWith(AGENT_ID, "MDEyMzQ1Njc4OWFiY2RlZg", NOW.toISOString());
+  });
+
+  it("returns an empty 204 for a signed active agent with no pending cleanup", async () => {
+    repository.requireActivityCleanupAgent.mockResolvedValueOnce(null);
+    repository.findActiveActivityCleanupAgent.mockResolvedValueOnce({ publicKey });
+
+    const response = await handleAgentActivityCleanup(await signedRequest(), { DB: {} as never }, NOW);
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(repository.findActiveActivityCleanupAgent).toHaveBeenCalledWith(AGENT_ID);
     expect(repository.consumeNonce).toHaveBeenCalledWith(AGENT_ID, "MDEyMzQ1Njc4OWFiY2RlZg", NOW.toISOString());
   });
 
@@ -126,6 +159,20 @@ describe("agent activity cleanup", () => {
       status: 409,
       code: "replay",
     });
+  });
+
+  it("rejects an invalid signature from an otherwise active agent", async () => {
+    repository.requireActivityCleanupAgent.mockResolvedValueOnce(null);
+    repository.findActiveActivityCleanupAgent.mockResolvedValueOnce({ publicKey });
+    const signed = await signedRequest();
+    const headers = new Headers(signed.headers);
+    headers.set("X-PetCare-Signature", encodeBase64Url(new Uint8Array(64).fill(1)));
+
+    await expect(handleAgentActivityCleanup(new Request(signed, { headers }), { DB: {} as never }, NOW)).rejects.toMatchObject({
+      status: 401,
+      code: "invalid_agent_signature",
+    });
+    expect(repository.consumeNonce).not.toHaveBeenCalled();
   });
 
   it("rejects a non-cleanup or foreign agent before nonce consumption", async () => {
@@ -163,5 +210,43 @@ describe("agent activity cleanup", () => {
       code: "invalid_cleanup_request",
     });
     expect(repository.requireActivityCleanupAgent).not.toHaveBeenCalled();
+  });
+
+  it("rejects declared cleanup bodies over 128 bytes before reading them", async () => {
+    let cancelled = false;
+    const request = oversizedRequest(new ReadableStream({
+      pull() {
+        throw new Error("body must not be read");
+      },
+      cancel() {
+        cancelled = true;
+      },
+    }), "129");
+
+    await expect(parseSignedCleanupRequest(request)).rejects.toMatchObject({
+      status: 400,
+      code: "invalid_cleanup_request",
+    });
+    expect(cancelled).toBe(true);
+  });
+
+  it("cancels an oversized cleanup stream before buffering its next chunk", async () => {
+    let cancelled = false;
+    let pulls = 0;
+    const request = oversizedRequest(new ReadableStream({
+      pull(controller) {
+        if (pulls++ === 0) controller.enqueue(new Uint8Array(1024));
+        else controller.close();
+      },
+      cancel() {
+        cancelled = true;
+      },
+    }));
+
+    await expect(parseSignedCleanupRequest(request)).rejects.toMatchObject({
+      status: 400,
+      code: "invalid_cleanup_request",
+    });
+    expect(cancelled).toBe(true);
   });
 });
