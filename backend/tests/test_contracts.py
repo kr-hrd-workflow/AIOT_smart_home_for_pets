@@ -166,12 +166,29 @@ def test_float_fields_do_not_coerce_integers() -> None:
         CameraStatus(state="online", fps=1, inference_ms=1.0, last_frame_at=NOW, reason=None)
 
 
+def test_anomaly_output_accepts_repetitive_motion_for_pet() -> None:
+    anomaly = AnomalyEventOut.model_validate(
+        {
+            "id": 1,
+            "subject_id": "dog_001",
+            "anomaly_type": "repetitive_motion",
+            "severity": "warning",
+            "mismatch_kind": None,
+            "message": "repeated movement",
+            "occurred_at": NOW,
+        }
+    )
+    assert anomaly.anomaly_type == "repetitive_motion"
+
+
 @pytest.mark.parametrize(
     "payload",
     [
         {"id": 1, "subject_id": None, "anomaly_type": "no_meal_12h", "severity": "warning", "mismatch_kind": None, "message": "x", "occurred_at": NOW},
         {"id": 1, "subject_id": "dog_001", "anomaly_type": "bed_sensor_mismatch", "severity": "warning", "mismatch_kind": "unconfirmed_pressure", "message": "x", "occurred_at": NOW},
         {"id": 1, "subject_id": None, "anomaly_type": "bed_sensor_mismatch", "severity": "warning", "mismatch_kind": "sensor_check", "message": "x", "occurred_at": NOW},
+        {"id": 1, "subject_id": None, "anomaly_type": "repetitive_motion", "severity": "warning", "mismatch_kind": None, "message": "x", "occurred_at": NOW},
+        {"id": 1, "subject_id": "dog_001", "anomaly_type": "repetitive_motion", "severity": "warning", "mismatch_kind": "sensor_check", "message": "x", "occurred_at": NOW},
     ],
 )
 def test_anomaly_output_rejects_invalid_relation(payload: dict[str, object]) -> None:

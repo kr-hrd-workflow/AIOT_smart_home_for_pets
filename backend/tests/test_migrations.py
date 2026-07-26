@@ -782,12 +782,12 @@ EXPECTED_CHECK_DEFINITIONS = {
     ("activity_observations", "ck_activity_observations_camera_id", "CHECK (camera_id::text = 'pc-webcam-01'::text)"),
     ("activity_observations", "ck_activity_observations_subject_id", "CHECK (subject_id::text = ANY (ARRAY['dog_001'::character varying, 'cat_001'::character varying]::text[]))"),
     ("activity_observations", "ck_activity_observations_observed_at_second", "CHECK (observed_at = date_trunc('second'::text, observed_at))"),
-    ("activity_observations", "ck_activity_observations_center_x", "CHECK (center_x >= 0 AND center_x < 640)"),
-    ("activity_observations", "ck_activity_observations_center_y", "CHECK (center_y >= 0 AND center_y < 480)"),
+    ("activity_observations", "ck_activity_observations_center_x", "CHECK (0 <= center_x AND center_x < 640)"),
+    ("activity_observations", "ck_activity_observations_center_y", "CHECK (0 <= center_y AND center_y < 480)"),
     ("activity_observations", "ck_activity_observations_distance", "CHECK (distance >= 0::double precision AND distance > '-Infinity'::double precision AND distance < 'Infinity'::double precision)"),
-    ("anomaly_events", "ck_anomaly_events_anomaly_type", "CHECK (anomaly_type::text = ANY (ARRAY['no_meal_12h'::character varying, 'bed_sensor_mismatch'::character varying]::text[]))"),
+    ("anomaly_events", "ck_anomaly_events_anomaly_type", "CHECK (anomaly_type::text = ANY (ARRAY['no_meal_12h'::character varying, 'bed_sensor_mismatch'::character varying, 'repetitive_motion'::character varying]::text[]))"),
     ("anomaly_events", "ck_anomaly_events_message", "CHECK (length(message) > 0)"),
-    ("anomaly_events", "ck_anomaly_events_relation", "CHECK ((anomaly_type::text = 'no_meal_12h'::text AND (subject_id::text = ANY (ARRAY['dog_001'::character varying, 'cat_001'::character varying]::text[])) AND mismatch_kind IS NULL AND source_behavior_event_id IS NOT NULL OR anomaly_type::text = 'bed_sensor_mismatch'::text AND mismatch_kind::text = 'sensor_check'::text AND (subject_id::text = ANY (ARRAY['dog_001'::character varying, 'cat_001'::character varying]::text[])) AND source_behavior_event_id IS NULL OR anomaly_type::text = 'bed_sensor_mismatch'::text AND mismatch_kind::text = 'unconfirmed_pressure'::text AND subject_id IS NULL AND source_behavior_event_id IS NULL) IS TRUE)"),
+    ("anomaly_events", "ck_anomaly_events_relation", "CHECK ((anomaly_type::text = 'no_meal_12h'::text AND (subject_id::text = ANY (ARRAY['dog_001'::character varying, 'cat_001'::character varying]::text[])) AND mismatch_kind IS NULL AND source_behavior_event_id IS NOT NULL OR anomaly_type::text = 'bed_sensor_mismatch'::text AND mismatch_kind::text = 'sensor_check'::text AND (subject_id::text = ANY (ARRAY['dog_001'::character varying, 'cat_001'::character varying]::text[])) AND source_behavior_event_id IS NULL OR anomaly_type::text = 'bed_sensor_mismatch'::text AND mismatch_kind::text = 'unconfirmed_pressure'::text AND subject_id IS NULL AND source_behavior_event_id IS NULL OR anomaly_type::text = 'repetitive_motion'::text AND (subject_id::text = ANY (ARRAY['dog_001'::character varying, 'cat_001'::character varying]::text[])) AND mismatch_kind IS NULL AND source_behavior_event_id IS NULL) IS TRUE)"),
     ("anomaly_events", "ck_anomaly_events_severity", "CHECK (severity::text = 'warning'::text)"),
     ("bed_calibrations", "ck_bed_calibrations_baselines", "CHECK (left_baseline >= 0::double precision AND left_baseline <= 4095::double precision AND left_baseline > '-Infinity'::double precision AND left_baseline < 'Infinity'::double precision AND center_baseline >= 0::double precision AND center_baseline <= 4095::double precision AND center_baseline > '-Infinity'::double precision AND center_baseline < 'Infinity'::double precision AND right_baseline >= 0::double precision AND right_baseline <= 4095::double precision AND right_baseline > '-Infinity'::double precision AND right_baseline < 'Infinity'::double precision)"),
     ("bed_calibrations", "ck_bed_calibrations_device_id", "CHECK (device_id::text = 'petzone-01'::text)"),
@@ -924,6 +924,36 @@ def test_activity_observations_revision_is_self_contained_and_reversible() -> No
     assert source.count("CREATE TABLE activity_observations") == 1
     assert source.count('op.execute("CREATE INDEX ix_activity_observations_subject_time') == 1
     assert source.count('op.execute("DROP TABLE activity_observations")') == 1
+
+
+def test_repetitive_motion_downgrade_removes_only_new_rows(database_url: str) -> None:
+    config = alembic_config(database_url)
+    command.downgrade(config, "base")
+    command.upgrade(config, "head")
+    engine = create_engine(database_url)
+    reset_data(engine)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "INSERT INTO anomaly_events(subject_id,anomaly_type,mismatch_kind,source_behavior_event_id,source_key,message,occurred_at) VALUES (NULL,'bed_sensor_mismatch','unconfirmed_pressure',NULL,'keep-old','sensor mismatch','2026-07-15T12:00:00Z')"
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO anomaly_events(subject_id,anomaly_type,mismatch_kind,source_behavior_event_id,source_key,message,occurred_at) VALUES ('dog_001','repetitive_motion',NULL,NULL,'remove-new','repeated movement','2026-07-15T12:00:01Z')"
+        )
+
+    command.downgrade(config, "0003_activity_observations")
+    with engine.connect() as connection:
+        assert connection.execute(
+            text("SELECT anomaly_type,source_key FROM anomaly_events ORDER BY source_key")
+        ).all() == [("bed_sensor_mismatch", "keep-old")]
+    with engine.connect() as connection:
+        transaction = connection.begin()
+        with pytest.raises(IntegrityError) as caught:
+            connection.exec_driver_sql(
+                "INSERT INTO anomaly_events(subject_id,anomaly_type,mismatch_kind,source_behavior_event_id,source_key,message,occurred_at) VALUES ('dog_001','repetitive_motion',NULL,NULL,'old-check','repeated movement','2026-07-15T12:00:02Z')"
+            )
+        assert sqlstate(caught.value) == "23514"
+        transaction.rollback()
+    engine.dispose()
 
 
 def test_upgrade_downgrade_upgrade_restores_exact_schema(database_url: str) -> None:

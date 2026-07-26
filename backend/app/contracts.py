@@ -23,7 +23,7 @@ SensorType = Literal[
 Unit = Literal["C", "%", "bool", "g", "adc"]
 SubjectId = Literal["dog_001", "cat_001"]
 BehaviorType = Literal["eating", "resting"]
-AnomalyType = Literal["no_meal_12h", "bed_sensor_mismatch"]
+AnomalyType = Literal["no_meal_12h", "bed_sensor_mismatch", "repetitive_motion"]
 MismatchKind = Literal["unconfirmed_pressure", "sensor_check"]
 RestCloseReason = Literal["pressure_exit", "camera_exit", "sensor_loss", "camera_loss", "shutdown", "restart"]
 ZoneName = Literal["food_bowl", "pet_bed"]
@@ -210,6 +210,8 @@ class AnomalyEventOut(StrictModel):
         if not self.message:
             raise ValueError("message must not be empty")
         if self.anomaly_type == "no_meal_12h":
+            valid = self.subject_id is not None and self.mismatch_kind is None
+        elif self.anomaly_type == "repetitive_motion":
             valid = self.subject_id is not None and self.mismatch_kind is None
         elif self.mismatch_kind == "sensor_check":
             valid = self.subject_id is not None

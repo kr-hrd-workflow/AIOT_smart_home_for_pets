@@ -193,12 +193,13 @@ class BehaviorEvent(Base):
 class AnomalyEvent(Base):
     __tablename__ = "anomaly_events"
     __table_args__ = (
-        CheckConstraint("anomaly_type IN ('no_meal_12h','bed_sensor_mismatch')", name="anomaly_type"),
+        CheckConstraint("anomaly_type IN ('no_meal_12h','bed_sensor_mismatch','repetitive_motion')", name="anomaly_type"),
         CheckConstraint("severity='warning'", name="severity"),
         CheckConstraint(
             "((anomaly_type='no_meal_12h' AND subject_id IN ('dog_001','cat_001') AND mismatch_kind IS NULL AND source_behavior_event_id IS NOT NULL) OR "
             "(anomaly_type='bed_sensor_mismatch' AND mismatch_kind='sensor_check' AND subject_id IN ('dog_001','cat_001') AND source_behavior_event_id IS NULL) OR "
-            "(anomaly_type='bed_sensor_mismatch' AND mismatch_kind='unconfirmed_pressure' AND subject_id IS NULL AND source_behavior_event_id IS NULL)) IS TRUE",
+            "(anomaly_type='bed_sensor_mismatch' AND mismatch_kind='unconfirmed_pressure' AND subject_id IS NULL AND source_behavior_event_id IS NULL) OR "
+            "(anomaly_type='repetitive_motion' AND subject_id IN ('dog_001','cat_001') AND mismatch_kind IS NULL AND source_behavior_event_id IS NULL)) IS TRUE",
             name="relation",
         ),
         CheckConstraint("length(message)>0", name="message"),
