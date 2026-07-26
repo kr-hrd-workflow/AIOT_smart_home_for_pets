@@ -348,9 +348,63 @@ def test_persist_frame_rolls_back_camera_event_activity_and_anomaly_together() -
         )
     sessions = sessionmaker(bind=database, expire_on_commit=False)
     session = sessions()
+    center_x = 200
+    history = [
+        ActivityObservation(
+            camera_id="pc-webcam-01",
+            subject_id="dog_001",
+            observed_at=NOW + timedelta(seconds=offset),
+            center_x=center_x,
+            center_y=200,
+            moving=False,
+            distance=0,
+        )
+        for offset in range(-29, -12)
+    ]
+    for offset, step in zip(range(-12, -5), (54, -54, 54, -54, 54, -54, 54), strict=True):
+        center_x += step
+        history.append(
+            ActivityObservation(
+                camera_id="pc-webcam-01",
+                subject_id="dog_001",
+                observed_at=NOW + timedelta(seconds=offset),
+                center_x=center_x,
+                center_y=200,
+                moving=True,
+                distance=54,
+            )
+        )
+    history.append(
+        ActivityObservation(
+            camera_id="pc-webcam-01",
+            subject_id="dog_001",
+            observed_at=NOW + timedelta(seconds=-5),
+            center_x=center_x,
+            center_y=200,
+            moving=False,
+            distance=0,
+        )
+    )
+    for offset, step in zip(range(-4, 0), (54, 52, 52, 52), strict=True):
+        center_x += step
+        history.append(
+            ActivityObservation(
+                camera_id="pc-webcam-01",
+                subject_id="dog_001",
+                observed_at=NOW + timedelta(seconds=offset),
+                center_x=center_x,
+                center_y=200,
+                moving=True,
+                distance=step,
+            )
+    )
+    session.add_all(history)
+    session.commit()
+    history_ids = [row.id for row in history]
 
     def fail_activity_flush(current: object, *_args: object) -> None:
         if any(isinstance(row, ActivityObservation) for row in current.new):  # type: ignore[attr-defined]
+            assert any(isinstance(row, AnomalyEvent) for row in current.new)  # type: ignore[attr-defined]
             assert not any(isinstance(row, ClipTriggerOutbox) for row in current.new)  # type: ignore[attr-defined]
             raise RuntimeError("activity flush failed")
 
@@ -359,7 +413,7 @@ def test_persist_frame_rolls_back_camera_event_activity_and_anomaly_together() -
     processed = camera_module.ProcessedFrame(
         jpeg=b"", detections=(camera_module.CameraDetectionIn(
             camera_id="pc-webcam-01", subject_id="dog_001", detected_type="dog", confidence=0.9,
-            bbox_x=0, bbox_y=0, bbox_width=640, bbox_height=480, center_x=200, center_y=200,
+            bbox_x=0, bbox_y=0, bbox_width=640, bbox_height=480, center_x=center_x + 52, center_y=200,
             zone_name=None, observed_at=NOW,
         ),), fps=1.0, inference_ms=1.0, observed_at=NOW, bed_subject_ids=(), selected_bed_subject_id=None,
     )
@@ -368,7 +422,8 @@ def test_persist_frame_rolls_back_camera_event_activity_and_anomaly_together() -
         persisted._persist_frame(processed)
 
     with sessions() as check:
-        assert [check.scalar(select(func.count()).select_from(model)) for model in (CameraEvent, ActivityObservation, AnomalyEvent, ClipTriggerOutbox)] == [0, 0, 0, 0]
+        assert [check.scalar(select(func.count()).select_from(model)) for model in (CameraEvent, ActivityObservation, AnomalyEvent, ClipTriggerOutbox)] == [0, len(history), 0, 0]
+        assert [row.id for row in check.scalars(select(ActivityObservation).order_by(ActivityObservation.id))] == history_ids
     database.dispose()
 
 
