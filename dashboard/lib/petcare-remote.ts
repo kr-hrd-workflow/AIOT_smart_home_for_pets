@@ -82,6 +82,18 @@ function isNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+function isNonNegativeInteger(value: unknown): value is number {
+  return isNumber(value) && Number.isInteger(value) && value >= 0;
+}
+
+function isUtcTimestamp(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /(?:Z|[+-]\d{2}:\d{2})$/.test(value) &&
+    Number.isFinite(Date.parse(value))
+  );
+}
+
 function isNullableNumber(value: unknown): boolean {
   return value === null || isNumber(value);
 }
@@ -161,13 +173,13 @@ function isActivityStatus(value: unknown): boolean {
       "last_observed_at",
     ]) &&
     isOneOf(value.subject_id, ["dog_001", "cat_001"]) &&
-    isNumber(value.today_active_seconds) &&
-    value.today_active_seconds >= 0 &&
-    isNumber(value.today_observed_seconds) &&
-    value.today_observed_seconds >= 0 &&
+    isNonNegativeInteger(value.today_active_seconds) &&
+    isNonNegativeInteger(value.today_observed_seconds) &&
     value.today_active_seconds <= value.today_observed_seconds &&
     isOneOf(value.current_state, ["active", "still", "unknown"]) &&
-    isNullableString(value.last_observed_at)
+    (value.current_state === "unknown"
+      ? value.last_observed_at === null || isUtcTimestamp(value.last_observed_at)
+      : isUtcTimestamp(value.last_observed_at))
   );
 }
 

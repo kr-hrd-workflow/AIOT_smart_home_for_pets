@@ -354,6 +354,61 @@ describe("createPetCareRemote", () => {
       }),
     ],
     [
+      "fractional activity counter",
+      validStatus({
+        ...dashboardSummary,
+        activity: [
+          {
+            subject_id: "dog_001",
+            today_active_seconds: 1_260.5,
+            today_observed_seconds: 5_400,
+            current_state: "active",
+            last_observed_at: "2026-07-15T01:42:00Z",
+          },
+          dashboardSummary.activity[1],
+        ],
+      }),
+    ],
+    [
+      "active activity without timestamp",
+      validStatus({
+        ...dashboardSummary,
+        activity: [
+          {
+            ...dashboardSummary.activity[0],
+            last_observed_at: null,
+          },
+          dashboardSummary.activity[1],
+        ],
+      }),
+    ],
+    [
+      "activity timestamp without timezone",
+      validStatus({
+        ...dashboardSummary,
+        activity: [
+          {
+            ...dashboardSummary.activity[0],
+            last_observed_at: "2026-07-15T01:42:00",
+          },
+          dashboardSummary.activity[1],
+        ],
+      }),
+    ],
+    [
+      "invalid activity timestamp",
+      validStatus({
+        ...dashboardSummary,
+        activity: [
+          {
+            ...dashboardSummary.activity[0],
+            last_observed_at: "2026-99-99T01:42:00Z",
+          },
+          dashboardSummary.activity[1],
+        ],
+      }),
+    ],
+    [
       "extra activity field",
       validStatus({
         ...dashboardSummary,
