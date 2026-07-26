@@ -105,6 +105,27 @@ describe("PetCareRepository", () => {
     ).toEqual({ revoked_at: now });
   });
 
+  it("seeds one pending command for an agent already revoked by normal enrollment cleanup", async () => {
+    await seedHome("a");
+    await run("UPDATE agents SET revoked_at = ? WHERE id = ?", now, "agent-a");
+
+    await expect(repo.beginTenantCleanup("owner-a", now)).resolves.toEqual({
+      homeId: "home-a",
+      status: "cleanup_pending",
+    });
+    await repo.beginTenantCleanup("owner-a", now);
+
+    const commands = await db
+      .prepare("SELECT home_id, agent_id, type, status FROM activity_cleanup_commands")
+      .all();
+    expect(commands.results).toEqual([{
+      home_id: "home-a",
+      agent_id: "agent-a",
+      type: "delete_activity_observations",
+      status: "pending",
+    }]);
+  });
+
   it("backfills one pending command when a legacy cleanup is retried", async () => {
     await seedHome("a");
     await run("UPDATE homes SET deleted_at = ? WHERE id = ?", now, "home-a");

@@ -1088,9 +1088,11 @@ export class PetCareRepository {
             )
             SELECT ?, h.id, a.id, 'delete_activity_observations', 'pending', ?
             FROM homes h
-            JOIN agents a ON a.home_id = h.id AND a.revoked_at IS NULL
+            JOIN agents a ON a.home_id = h.id
             JOIN tenant_cleanup tc ON tc.home_id = h.id AND tc.owner_sub = h.owner_sub
             WHERE h.id = ? AND h.owner_sub = ?
+            ORDER BY a.revoked_at IS NULL DESC, a.revoked_at DESC, a.id
+            LIMIT 1
           `)
           .bind(commandId, now, home.id, ownerSub),
         this.db
