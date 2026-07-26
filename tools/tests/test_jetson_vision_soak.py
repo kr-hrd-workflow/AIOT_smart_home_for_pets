@@ -14,6 +14,7 @@ from tools.jetson_vision_soak import (
     BRINGUP_CHECKS,
     BRINGUP_SCHEMA,
     HARNESS_SCHEMA,
+    _collect_live_sample,
     _multipart_jpegs,
     _unique_jpeg_count,
     collect_authenticated_soak,
@@ -183,6 +184,7 @@ def passing_samples() -> dict[str, object]:
         "collector_finished_monotonic": 3600.0,
         "observations": observations,
         "live_samples": live_samples,
+        "stream_lifecycle": {"opened": 3, "closed": 3, "reconnects": 2, "active_streams": 0},
         "calibrations": calibrations,
         "wall_monotonic_guard": {
             "duration_seconds": 3600.0,
@@ -324,6 +326,8 @@ def test_home_age_p99_threshold_fails_closed() -> None:
     [
         (("candidate_sha",), "c" * 40, "candidate_sha"),
         (("observations", 0, "inference_fps"), 2.99, "inference_fps"),
+        (("stream_lifecycle", "reconnects"), 1, "stream_reconnect"),
+        (("stream_lifecycle", "closed"), 2, "stream_shutdown"),
         (("calibrations", 0, "age_seconds"), 1.001, "clock_calibration"),
         (("calibrations", 0, "offset_ms"), -150.001, "clock_calibration"),
         (("wall_monotonic_guard", "max_discontinuity_seconds"), 0.0251, "wall_monotonic_guard"),
@@ -443,7 +447,7 @@ class OperationClock:
 
 
 class FakeJetson:
-    def __init__(self, clock: FakeClock) -> None:
+    def __init__(self, clock: FakeClock, *, live_attempts: list[int | None] | None = None) -> None:
         self.clock = clock
         self.status_calls = 0
         self.frame_calls = 0
@@ -451,6 +455,10 @@ class FakeJetson:
         self.operations: list[tuple[str, str, bool | None]] = []
         self.receipts: dict[str, SimpleNamespace] = {}
         self.deleted: set[str] = set()
+        self.live_streams: list[FakeLiveStream] = []
+        self.live_stream_calls = 0
+        self.active_live_streams = 0
+        self.live_attempts = list(live_attempts or [0])
         self.closed = False
 
     def _offline(self) -> bool:
@@ -475,6 +483,13 @@ class FakeJetson:
     def calibrate_clock(self) -> object:
         self.calibration_calls += 1
         return SimpleNamespace(measured_monotonic=self.clock.value, offset_ms=0.0, half_rtt_ms=1.0)
+
+    def live_stream(self) -> object:
+        failure_after = self.live_attempts[self.live_stream_calls] if self.live_stream_calls < len(self.live_attempts) else None
+        stream = FakeLiveStream(self, failure_after=failure_after)
+        self.live_stream_calls += 1
+        self.live_streams.append(stream)
+        return stream
 
     def put_clip(self, command_id: str, command: Mapping[str, object], *, first: bool = True) -> object:
         self.operations.append(("PUT", command_id, first))
@@ -510,6 +525,47 @@ class FakeJetson:
         return 204
 
     def close(self) -> None:
+        self.closed = True
+
+
+class FakeLiveStream:
+    def __init__(self, jetson: FakeJetson, *, failure_after: int | None) -> None:
+        self.jetson = jetson
+        self.failure_after = failure_after
+        self.closed = False
+        self._iterator: object | None = None
+
+    def __iter__(self):
+        iterator = self._chunks()
+        self._iterator = iterator
+        return iterator
+
+    def _chunks(self):
+        self.jetson.active_live_streams += 1
+        try:
+            frame_number = 0
+            while True:
+                if self.failure_after is not None and frame_number >= self.failure_after:
+                    raise OSError("live stream disconnected")
+                if self.failure_after is None and frame_number % 30 == 0:
+                    self.jetson.clock.sleep(1.0)
+                frame = b"\xff\xd8" + f"{frame_number:08d}".encode() + b"\xff\xd9"
+                yield (
+                    b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                    + str(len(frame)).encode()
+                    + b"\r\n\r\n" + frame + b"\r\n"
+                )
+                frame_number += 1
+        finally:
+            self.closed = True
+            self.jetson.active_live_streams -= 1
+
+    def close(self) -> None:
+        iterator = self._iterator
+        if iterator is not None:
+            close = getattr(iterator, "close", None)
+            if callable(close):
+                close()
         self.closed = True
 
 
@@ -613,7 +669,18 @@ def test_collector_uses_authenticated_jetson_and_live_home_apis_for_real_monoton
     evidence = evaluate_soak(payload, expected_candidate_sha=CANDIDATE)
 
     assert payload["collector_finished_monotonic"] - payload["collector_started_monotonic"] == 3600.0  # type: ignore[operator]
-    assert jetson.status_calls == 3601 and jetson.frame_calls == 3592 and jetson.calibration_calls == 5
+    live_samples = payload["live_samples"]
+    connected_times = [item["monotonic"] for item in payload["observations"] if item["connected"]]
+    assert [item["monotonic"] for item in live_samples] == connected_times  # type: ignore[index]
+    assert all(item["duration_seconds"] == pytest.approx(1.0) for item in live_samples)  # type: ignore[index]
+    assert {(item["total_frames"], item["unique_frames"]) for item in live_samples} == {(30, 30)}  # type: ignore[index]
+    assert jetson.live_stream_calls == 4
+    assert all(stream.closed for stream in jetson.live_streams)
+    assert jetson.active_live_streams == 0
+    assert payload["stream_lifecycle"] == {"opened": 4, "closed": 4, "reconnects": 3, "active_streams": 0}
+    assert evidence["checks"]["stream_reconnect"] is True  # type: ignore[index]
+    assert evidence["checks"]["stream_shutdown"] is True  # type: ignore[index]
+    assert jetson.status_calls == 3600 and jetson.frame_calls == 3591 and jetson.calibration_calls == 5
     assert [(method, first) for method, _command_id, first in jetson.operations if method == "PUT"] == [
         ("PUT", True),
         ("PUT", False),
@@ -627,6 +694,36 @@ def test_collector_uses_authenticated_jetson_and_live_home_apis_for_real_monoton
     assert set(home.targets) == {"/api/sensors/latest", "/api/health", "/api/camera/status"}
     failed_checks = [name for name, passed in evidence["checks"].items() if not passed]  # type: ignore[union-attr]
     assert evidence["status"] == "PASS", (failed_checks, payload["scenarios"], payload["calibrations"])
+
+
+def test_persistent_live_sample_discards_partial_attempt_before_reconnect() -> None:
+    clock = FakeClock()
+    jetson = FakeJetson(clock, live_attempts=[10])
+    state = {"stream": None, "parser": None, "opened": 0, "closed": 0, "reconnects": 0}
+
+    sample = _collect_live_sample(jetson, clock.monotonic, state)
+    parser_close = getattr(state["parser"], "close")
+    stream_close = getattr(state["stream"], "close")
+    parser_close()
+    stream_close()
+
+    assert sample == {"duration_seconds": 1.0, "total_frames": 30, "unique_frames": 30}
+    assert state["opened"] == 2 and state["reconnects"] == 1
+    assert all(stream.closed for stream in jetson.live_streams)
+    assert jetson.active_live_streams == 0
+
+
+def test_persistent_live_sample_closes_both_failed_attempts() -> None:
+    clock = FakeClock()
+    jetson = FakeJetson(clock, live_attempts=[0, 0])
+    state = {"stream": None, "parser": None, "opened": 0, "closed": 0, "reconnects": 0}
+
+    with pytest.raises(RuntimeError, match="live stream reconnect failed"):
+        _collect_live_sample(jetson, clock.monotonic, state)
+
+    assert state == {"stream": None, "parser": None, "opened": 2, "closed": 2, "reconnects": 1}
+    assert all(stream.closed for stream in jetson.live_streams)
+    assert jetson.active_live_streams == 0
 
 
 def test_tegrastats_parser_keeps_only_gate_metrics() -> None:

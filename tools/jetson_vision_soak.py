@@ -32,7 +32,7 @@ FORBIDDEN_EVIDENCE_NAMES = (
 )
 SOAK_CHECKS = (
     "candidate_sha", "duration", "capture_coverage", "authenticated_collection",
-    "inference_fps", "live_fps", "observation_gap", "home_age", "healthy_gap", "clock_calibration",
+    "inference_fps", "live_fps", "stream_reconnect", "stream_shutdown", "observation_gap", "home_age", "healthy_gap", "clock_calibration",
     "wall_monotonic_guard", "preview", "clips", "event_scenarios", "resources",
     "temperature", "boot_id", "kernel", "locked_clocks", "sensor_independence",
     "temporary_files", "webcam_recovery",
@@ -60,6 +60,7 @@ ALL_EVENT_ROLES = (*ACCEPTED_EVENT_ROLES, "deadline_expired")
 class JetsonCollectorClient(Protocol):
     def status(self) -> object: ...
     def next_frame(self, zones: Mapping[str, object]) -> object: ...
+    def live_stream(self) -> Iterable[bytes]: ...
     def calibrate_clock(self) -> object: ...
     def put_clip(self, command_id: str, command: Mapping[str, object], *, first: bool = True) -> object: ...
     def download_clip(self, command_id: str, destination: Path) -> object: ...
@@ -181,6 +182,63 @@ def _multipart_jpegs(
 
 def _unique_jpeg_count(frames: Iterable[bytes]) -> int:
     return len({hashlib.sha256(frame).digest() for frame in frames})
+
+
+def _close_live_stream(state: dict[str, object]) -> None:
+    parser = state["parser"]
+    stream = state["stream"]
+    state["parser"] = None
+    state["stream"] = None
+    if stream is not None:
+        state["closed"] = int(state["closed"]) + 1
+    error: Exception | None = None
+    for value in (parser, stream):
+        close = getattr(value, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception as caught:
+                error = error or caught
+    if error is not None:
+        raise error
+
+
+def _collect_live_sample(
+    jetson: JetsonCollectorClient, monotonic: Callable[[], float], state: dict[str, object],
+) -> dict[str, object]:
+    started = monotonic()
+    last_error: Exception | None = None
+    for _ in range(2):
+        frames: list[bytes] = []
+        try:
+            if state["stream"] is None:
+                stream = jetson.live_stream()
+                if not callable(getattr(stream, "close", None)):
+                    raise ValueError("live stream is not closable")
+                state["stream"] = stream
+                state["parser"] = _multipart_jpegs(stream)  # type: ignore[arg-type]
+                state["opened"] = int(state["opened"]) + 1
+                state["reconnects"] = int(state["opened"]) - 1
+            parser = state["parser"]
+            while len(frames) < 30:
+                frames.append(next(parser))  # type: ignore[arg-type]
+        except Exception as caught:
+            last_error = caught
+            try:
+                _close_live_stream(state)
+            except Exception as close_error:
+                last_error = close_error
+            continue
+        duration = monotonic() - started
+        if not 0 < duration <= 1.1:
+            _close_live_stream(state)
+            raise ValueError("invalid live sample duration")
+        return {
+            "duration_seconds": duration,
+            "total_frames": len(frames),
+            "unique_frames": _unique_jpeg_count(frames),
+        }
+    raise RuntimeError("live stream reconnect failed") from last_error
 
 
 def _p99(values: Iterable[float]) -> float:
@@ -520,6 +578,15 @@ def evaluate_soak(
         if not 0 < live_duration <= 1.1 or not 0 <= unique_frames <= total_frames:
             raise ValueError("invalid live sample")
         live_fps.append(unique_frames / live_duration)
+    lifecycle = payload.get("stream_lifecycle")
+    if type(lifecycle) is not dict or set(lifecycle) != {"opened", "closed", "reconnects", "active_streams"}:
+        raise ValueError("invalid stream lifecycle")
+    lifecycle_opened = _integer(lifecycle["opened"], "stream opens")
+    lifecycle_closed = _integer(lifecycle["closed"], "stream closes")
+    lifecycle_reconnects = _integer(lifecycle["reconnects"], "stream reconnects")
+    lifecycle_active = _integer(lifecycle["active_streams"], "active streams")
+    if min(lifecycle_opened, lifecycle_closed, lifecycle_reconnects, lifecycle_active) < 0:
+        raise ValueError("invalid stream lifecycle")
     healthy_gaps = [
         current - previous
         for previous, current in zip(connected_times, connected_times[1:])
@@ -642,6 +709,8 @@ def evaluate_soak(
         "authenticated_collection": authenticated,
         "inference_fps": bool(inference) and min(inference) >= 3.0,
         "live_fps": live_times == connected_times and all(fps >= 30.0 for fps in live_fps),
+        "stream_reconnect": lifecycle_opened >= len(windows) + 1 and lifecycle_reconnects == lifecycle_opened - 1,
+        "stream_shutdown": lifecycle_opened == lifecycle_closed and lifecycle_active == 0,
         "observation_gap": bool(healthy_gaps) and _p99(healthy_gaps) <= 1.0,
         "home_age": bool(home_ages) and min(home_ages) >= 0 and _p99(home_ages) <= 1.5 and max(home_ages) <= 3.0,
         "healthy_gap": (
@@ -1308,6 +1377,7 @@ def collect_authenticated_soak(
     else:
         scenario_wait = wait_until
     observations: list[dict[str, object]] = []
+    live_samples: list[dict[str, object]] = []
     previews: list[dict[str, object]] = []
     sensors: list[dict[str, object]] = []
     calibrations: list[dict[str, object]] = []
@@ -1348,58 +1418,66 @@ def collect_authenticated_soak(
     first_boot: str | None = None
     last_boot: str | None = None
     sample_index = 0
-    while True:
-        now_monotonic = monotonic()
-
-        connected = False
-        authenticated = False
-        inference_fps: float | None = None
-        home_age: float | None = None
-        preview_valid = False
-        try:
-            status = jetson.status()
-            authenticated = True
-            boot_id = getattr(status, "boot_id")
-            if type(boot_id) is not str:
-                raise ValueError("invalid authenticated status")
-            first_boot = first_boot or boot_id
-            last_boot = boot_id
-            frame = jetson.next_frame({"pet_bed": (0, 0, 640, 480)})
-            observed_at = getattr(frame, "observed_at")
-            if not isinstance(observed_at, datetime) or observed_at.tzinfo is None:
-                raise ValueError("invalid frame timestamp")
-            inference_fps = _number(getattr(frame, "fps"), "frame FPS")
-            home_age = (utc_now().astimezone(UTC) - observed_at.astimezone(UTC)).total_seconds()
-            jpeg = getattr(frame, "jpeg")
-            preview_valid = type(jpeg) is bytes and jpeg.startswith(b"\xff\xd8") and jpeg.endswith(b"\xff\xd9")
-            connected = preview_valid
-        except Exception:
+    live_state: dict[str, object] = {"stream": None, "parser": None, "opened": 0, "closed": 0, "reconnects": 0}
+    try:
+        while True:
             connected = False
+            authenticated = False
+            inference_fps: float | None = None
+            home_age: float | None = None
+            preview_valid = False
+            try:
+                status = jetson.status()
+                authenticated = True
+                boot_id = getattr(status, "boot_id")
+                if type(boot_id) is not str:
+                    raise ValueError("invalid authenticated status")
+                first_boot = first_boot or boot_id
+                last_boot = boot_id
+                frame = jetson.next_frame({"pet_bed": (0, 0, 640, 480)})
+                observed_at = getattr(frame, "observed_at")
+                if not isinstance(observed_at, datetime) or observed_at.tzinfo is None:
+                    raise ValueError("invalid frame timestamp")
+                inference_fps = _number(getattr(frame, "fps"), "frame FPS")
+                home_age = (utc_now().astimezone(UTC) - observed_at.astimezone(UTC)).total_seconds()
+                jpeg = getattr(frame, "jpeg")
+                preview_valid = type(jpeg) is bytes and jpeg.startswith(b"\xff\xd8") and jpeg.endswith(b"\xff\xd9")
+                connected = preview_valid
+            except Exception:
+                connected = False
 
-        sensor_ok, health_ok, camera_state = _home_sample(home)
-        sampled_at = monotonic()
-        observations.append({
-            "monotonic": sampled_at,
-            "connected": connected,
-            "authenticated_status": authenticated,
-            "inference_fps": inference_fps if connected else None,
-            "home_age_seconds": home_age if connected else None,
-            "preview_valid": preview_valid,
-        })
-        sensors.append({
-            "monotonic": sampled_at,
-            "success": sensor_ok,
-            "health_success": health_ok,
-            "camera_state": camera_state,
-        })
-        if connected:
-            previews.append({"monotonic": sampled_at, "width": 640, "height": 480, "format": "jpeg"})
+            sensor_ok, health_ok, camera_state = _home_sample(home)
+            sampled_at = monotonic()
+            observations.append({
+                "monotonic": sampled_at,
+                "connected": connected,
+                "authenticated_status": authenticated,
+                "inference_fps": inference_fps if connected else None,
+                "home_age_seconds": home_age if connected else None,
+                "preview_valid": preview_valid,
+            })
+            sensors.append({
+                "monotonic": sampled_at,
+                "success": sensor_ok,
+                "health_success": health_ok,
+                "camera_state": camera_state,
+            })
+            if connected:
+                live_sample = _collect_live_sample(jetson, monotonic, live_state)
+                previews.append({"monotonic": sampled_at, "width": 640, "height": 480, "format": "jpeg"})
+                live_sample["monotonic"] = sampled_at
+                live_samples.append(live_sample)
+            else:
+                _close_live_stream(live_state)
 
-        if sampled_at - started >= 3600.0:
-            break
-        sample_index += 1
-        target = started + min(3600.0, float(sample_index))
-        sleep(max(0.0, target - monotonic()))
+            if sampled_at - started >= 3599.0:
+                sleep(max(0.0, started + 3600.0 - monotonic()))
+                break
+            sample_index += 1
+            target = started + min(3600.0, float(sample_index))
+            sleep(max(0.0, target - monotonic()))
+    finally:
+        _close_live_stream(live_state)
 
     finished = monotonic()
     scenario_thread.join(5.0)
@@ -1422,6 +1500,13 @@ def collect_authenticated_soak(
         "collector_started_monotonic": started,
         "collector_finished_monotonic": finished,
         "observations": observations,
+        "live_samples": live_samples,
+        "stream_lifecycle": {
+            "opened": live_state["opened"],
+            "closed": live_state["closed"],
+            "reconnects": live_state["reconnects"],
+            "active_streams": int(live_state["stream"] is not None),
+        },
         "calibrations": calibrations,
         "wall_monotonic_guard": final.get("wall_monotonic_guard"),
         "previews": previews,
