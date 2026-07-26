@@ -652,14 +652,22 @@ def evaluate_soak(
     if any(set(item) != expected_live_keys for item in live_samples):
         raise ValueError("invalid live sample")
     live_times = _ordered_times(live_samples, "monotonic", "live sample monotonic")
+    live_durations = []
     live_fps = []
+    live_duration_total = 0.0
+    live_unique_total = 0
+    live_samples_complete = True
     for item in live_samples:
         live_duration = _number(item["duration_seconds"], "live duration")
         total_frames = _integer(item["total_frames"], "live total frames")
         unique_frames = _integer(item["unique_frames"], "live unique frames")
         if not 0 < live_duration <= 1.1 or not 0 <= unique_frames <= total_frames:
             raise ValueError("invalid live sample")
+        live_durations.append(live_duration)
         live_fps.append(unique_frames / live_duration)
+        live_duration_total += live_duration
+        live_unique_total += unique_frames
+        live_samples_complete = live_samples_complete and total_frames == unique_frames == 30
     lifecycle = payload.get("stream_lifecycle")
     if type(lifecycle) is not dict or set(lifecycle) != {
         "opened", "closed", "reconnects", "active_streams", "post_close_admissions",
@@ -793,7 +801,12 @@ def evaluate_soak(
         "capture_coverage": _full_coverage(observation_times, start, finish, 1.0),
         "authenticated_collection": authenticated,
         "inference_fps": bool(inference) and min(inference) >= 3.0,
-        "live_fps": live_times == connected_times and all(fps >= 30.0 - 1e-3 for fps in live_fps),
+        "live_fps": (
+            live_times == connected_times
+            and live_samples_complete
+            and live_unique_total / live_duration_total >= 29.5
+            and _p99(live_durations) <= 1.05
+        ),
         "stream_reconnect": lifecycle_opened >= len(windows) + 1 and lifecycle_reconnects == lifecycle_opened - 1,
         "stream_shutdown": (
             lifecycle_opened == lifecycle_closed

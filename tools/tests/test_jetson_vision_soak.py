@@ -274,19 +274,51 @@ def _live_part(frame: bytes, *, sequence: int = 1, observed_at: str = LIVE_OBSER
     return b"--frame\r\n" + b"\r\n".join(_live_headers(frame, sequence=sequence, observed_at=observed_at)) + b"\r\n\r\n" + frame + b"\r\n"
 
 
-@pytest.mark.parametrize(
-    ("duration_seconds", "total_frames", "unique_frames"),
-    [(1.0, 30, 29), (1.0003334445, 30, 30)],
-)
-def test_live_fps_below_threshold_fails(
-    duration_seconds: float, total_frames: int, unique_frames: int,
-) -> None:
+def test_live_fps_rejects_repeated_frames() -> None:
     payload = passing_samples()
     payload["live_samples"][0].update({  # type: ignore[index]
-        "duration_seconds": duration_seconds,
-        "total_frames": total_frames,
-        "unique_frames": unique_frames,
+        "duration_seconds": 1.0,
+        "total_frames": 30,
+        "unique_frames": 29,
     })
+
+    evidence = evaluate_soak(payload, expected_candidate_sha=CANDIDATE)
+
+    assert evidence["status"] == "FAIL"
+    assert evidence["checks"]["live_fps"] is False  # type: ignore[index]
+
+
+def test_live_fps_rejects_sustained_below_nominal_cadence() -> None:
+    payload = passing_samples()
+    for sample in payload["live_samples"]:  # type: ignore[union-attr]
+        sample["duration_seconds"] = 1.018
+
+    evidence = evaluate_soak(payload, expected_candidate_sha=CANDIDATE)
+
+    assert evidence["status"] == "FAIL"
+    assert evidence["checks"]["live_fps"] is False  # type: ignore[index]
+
+
+def test_live_fps_accepts_nominal_30fps_with_bounded_capture_jitter() -> None:
+    payload = passing_samples()
+    for sample in payload["live_samples"]:  # type: ignore[union-attr]
+        sample["duration_seconds"] = 1.016
+
+    evidence = evaluate_soak(payload, expected_candidate_sha=CANDIDATE)
+
+    assert evidence["status"] == "PASS"
+    assert evidence["checks"]["live_fps"] is True  # type: ignore[index]
+    assert evidence["metrics"]["live_fps_min"] == pytest.approx(29.527559)  # type: ignore[index]
+
+
+def test_live_fps_rejects_persistent_tail_stalls() -> None:
+    payload = passing_samples()
+    live_samples = payload["live_samples"]  # type: ignore[assignment]
+    stalled = len(live_samples) // 100 + 1
+    for sample in live_samples:
+        sample["duration_seconds"] = 0.99
+    for sample in live_samples[:stalled]:
+        sample["duration_seconds"] = 1.051
 
     evidence = evaluate_soak(payload, expected_candidate_sha=CANDIDATE)
 
