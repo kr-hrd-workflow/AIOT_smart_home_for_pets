@@ -72,7 +72,7 @@ API 문서는 외부 OpenAPI route를 노출하지 않으며 `/docs`, `/redoc`, 
     "anomalies": ["no_meal_12h", "bed_sensor_mismatch", "repetitive_motion"]
   },
   "schema": {
-    "application_tables": ["devices", "sensor_readings", "cameras", "zones", "camera_events", "activity_observations", "behavior_events", "anomaly_events", "clip_trigger_outbox", "bed_calibrations", "rest_sessions"],
+    "application_tables": ["devices", "sensor_readings", "cameras", "zones", "camera_events", "activity_observations", "activity_cleanup_state", "behavior_events", "anomaly_events", "clip_trigger_outbox", "bed_calibrations", "rest_sessions"],
     "metadata_table": "alembic_version",
     "core_tables_before_clip_outbox": 9,
     "global_open_constraints": ["one open behavior event per behavior_type", "one open rest session globally"]

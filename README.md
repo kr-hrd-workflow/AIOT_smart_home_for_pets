@@ -40,6 +40,10 @@ PetCare는 두 대의 Raspberry Pi Pico 2 W, Windows Home Agent, Jetson 카메�
 
 Pico는 FSR의 `0..4095` ADC 원값만 발행합니다. 침대 baseline, polarity, 안정성, 점유 hysteresis, 카메라 융합, dog/cat 소유권과 handoff는 백엔드 책임입니다.
 
+## 계정 삭제와 활동 기록
+
+로그인한 사용자가 PetCare 계정 데이터를 삭제하면 Sites는 해당 Home Agent에만 유효한 Ed25519 서명 정리 명령을 대기열에 넣습니다. Home Agent는 외부에서 들어오는 삭제 포트를 열지 않고 Sites를 주기적으로 확인하며, 명령을 받으면 로컬 PostgreSQL의 `activity_observations`만 트랜잭션으로 삭제하고 활동 수집을 즉시 중지한 뒤 ACK를 보냅니다. Home Agent가 오프라인이면 웹 응답은 `cleanup_pending`으로 남고, 로컬 삭제 ACK 전에는 tenant 정리를 완료로 처리하지 않습니다. 같은 Home Agent의 재시도는 멱등이며, 새 Home Agent를 명시적으로 등록해야만 활동 수집이 다시 활성화됩니다.
+
 <!-- petcare-docs:architecture -->
 ```json
 {

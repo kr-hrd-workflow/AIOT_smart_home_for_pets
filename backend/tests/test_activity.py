@@ -12,7 +12,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.activity import activity_statuses, record_activity
 from app.contracts import CameraDetectionIn
-from app.models import ActivityObservation, AnomalyEvent
+from app.models import ActivityCleanupState, ActivityObservation, AnomalyEvent
 
 
 REPETITIVE_MOTION_MESSAGE = "짧은 시간에 반복 이동이 관측됐습니다. 건강 판단이 아닌 카메라 관측 알림입니다."
@@ -32,6 +32,15 @@ def session() -> Iterator[Session]:
             "observed_at DATETIME NOT NULL, center_x INTEGER NOT NULL, center_y INTEGER NOT NULL, "
             "moving BOOLEAN NOT NULL, distance FLOAT NOT NULL, "
             "created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL)"
+        )
+        connection.exec_driver_sql(
+            "CREATE TABLE activity_cleanup_state ("
+            "singleton INTEGER PRIMARY KEY, agent_id TEXT, activity_enabled BOOLEAN NOT NULL, "
+            "command_id TEXT, applied_at DATETIME, updated_at DATETIME NOT NULL)"
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO activity_cleanup_state(singleton, activity_enabled, updated_at) "
+            "VALUES (1, TRUE, CURRENT_TIMESTAMP)"
         )
         connection.exec_driver_sql(
             "CREATE TABLE anomaly_events ("
@@ -257,6 +266,19 @@ def dot_history(at: datetime, second_x: int) -> tuple[list[ActivityObservation],
 
 def test_person_detection_is_ignored(session: Session) -> None:
     assert record_activity(session, detection(datetime(2026, 7, 26, tzinfo=UTC), subject_id=None)) is None
+    assert rows(session) == []
+
+
+def test_disabled_activity_collection_does_not_recreate_rows(session: Session) -> None:
+    state = session.get(ActivityCleanupState, 1)
+    assert state is not None
+    state.agent_id = "agent_01"
+    state.activity_enabled = False
+    state.command_id = "clc_" + "1" * 32
+    state.applied_at = datetime(2026, 7, 26, tzinfo=UTC)
+    session.commit()
+
+    assert record_activity(session, detection(datetime(2026, 7, 26, 0, 0, 1, tzinfo=UTC))) is None
     assert rows(session) == []
 
 

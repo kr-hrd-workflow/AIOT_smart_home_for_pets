@@ -165,6 +165,33 @@ class ActivityObservation(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 
 
+class ActivityCleanupState(Base):
+    __tablename__ = "activity_cleanup_state"
+    __table_args__ = (
+        CheckConstraint("singleton=1", name="singleton"),
+        CheckConstraint(
+            "agent_id IS NULL OR (length(agent_id) BETWEEN 1 AND 128 AND agent_id ~ '^[A-Za-z0-9._:-]+$')",
+            name="agent_id",
+        ),
+        CheckConstraint(
+            "command_id IS NULL OR command_id ~ '^clc_[0-9a-f]{32}$'",
+            name="command_id",
+        ),
+        CheckConstraint(
+            "(activity_enabled AND command_id IS NULL AND applied_at IS NULL) OR "
+            "(NOT activity_enabled AND agent_id IS NOT NULL AND command_id IS NOT NULL AND applied_at IS NOT NULL)",
+            name="state",
+        ),
+    )
+
+    singleton = Column(SmallInteger, primary_key=True, nullable=False)
+    agent_id = Column(String(128), nullable=True)
+    activity_enabled = Column(Boolean, nullable=False, server_default=text("TRUE"))
+    command_id = Column(String(36), nullable=True)
+    applied_at = Column(DateTime(timezone=True), nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+
+
 class BehaviorEvent(Base):
     __tablename__ = "behavior_events"
     __table_args__ = (

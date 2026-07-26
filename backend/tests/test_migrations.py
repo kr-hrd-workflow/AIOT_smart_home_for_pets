@@ -24,6 +24,7 @@ APP_TABLES = {
     "rest_sessions",
     "clip_trigger_outbox",
     "activity_observations",
+    "activity_cleanup_state",
 }
 EXPECTED_COLUMNS = {
     "devices": ("device_id", "status", "last_seen_at", "created_at", "updated_at"),
@@ -37,9 +38,18 @@ EXPECTED_COLUMNS = {
     "rest_sessions": ("id", "subject_id", "behavior_event_id", "started_at", "last_confirmed_at", "ended_at", "duration_seconds", "close_reason", "created_at", "updated_at"),
     "clip_trigger_outbox": ("id", "event_type", "event_id", "occurred_at", "created_at", "deadline_at", "next_attempt_at", "attempts", "last_error", "remote_boot_id", "remote_command_id", "put_started_at", "accepted_at", "processed_at", "terminal_reason"),
     "activity_observations": ("id", "camera_id", "subject_id", "observed_at", "center_x", "center_y", "moving", "distance", "created_at"),
+    "activity_cleanup_state": ("singleton", "agent_id", "activity_enabled", "command_id", "applied_at", "updated_at"),
 }
 
 EXPECTED_COLUMN_SIGNATURES = {
+    "activity_cleanup_state": [
+        ["singleton", "SMALLINT", False, None, False],
+        ["agent_id", "VARCHAR(128)", True, None, False],
+        ["activity_enabled", "BOOLEAN", False, "true", False],
+        ["command_id", "VARCHAR(36)", True, None, False],
+        ["applied_at", "TIMESTAMP_TZ=True", True, None, False],
+        ["updated_at", "TIMESTAMP_TZ=True", False, "CURRENT_TIMESTAMP", False],
+    ],
     "clip_trigger_outbox": [
         ["id", "BIGINT", False, None, True],
         ["event_type", "VARCHAR(32)", False, None, False],
@@ -761,8 +771,18 @@ EXPECTED_CHECK_NAMES = {
         "ck_activity_observations_center_y",
         "ck_activity_observations_distance",
     },
+    "activity_cleanup_state": {
+        "ck_activity_cleanup_state_singleton",
+        "ck_activity_cleanup_state_agent_id",
+        "ck_activity_cleanup_state_command_id",
+        "ck_activity_cleanup_state_state",
+    },
 }
 EXPECTED_CHECK_DEFINITIONS = {
+    ("activity_cleanup_state", "ck_activity_cleanup_state_agent_id", "CHECK (agent_id IS NULL OR length(agent_id::text) >= 1 AND length(agent_id::text) <= 128 AND agent_id::text ~ '^[A-Za-z0-9._:-]+$'::text)"),
+    ("activity_cleanup_state", "ck_activity_cleanup_state_command_id", "CHECK (command_id IS NULL OR command_id::text ~ '^clc_[0-9a-f]{32}$'::text)"),
+    ("activity_cleanup_state", "ck_activity_cleanup_state_singleton", "CHECK (singleton = 1)"),
+    ("activity_cleanup_state", "ck_activity_cleanup_state_state", "CHECK (activity_enabled AND command_id IS NULL AND applied_at IS NULL OR NOT activity_enabled AND agent_id IS NOT NULL AND command_id IS NOT NULL AND applied_at IS NOT NULL)"),
     ("clip_trigger_outbox", "ck_clip_trigger_outbox_accepted_identity", "CHECK ((remote_boot_id IS NULL) = (accepted_at IS NULL) AND (accepted_at IS NULL OR remote_command_id IS NOT NULL))"),
     ("clip_trigger_outbox", "ck_clip_trigger_outbox_accepted_put", "CHECK (accepted_at IS NULL OR put_started_at IS NOT NULL)"),
     ("clip_trigger_outbox", "ck_clip_trigger_outbox_accepted_window", "CHECK (accepted_at IS NULL OR accepted_at >= (created_at - '00:00:00.2'::interval) AND accepted_at <= deadline_at)"),
@@ -831,6 +851,7 @@ EXPECTED_UNIQUES = {
     "rest_sessions": {("behavior_event_id",)},
     "clip_trigger_outbox": {("event_type", "event_id")},
     "activity_observations": {("camera_id", "subject_id", "observed_at")},
+    "activity_cleanup_state": set(),
 }
 EXPECTED_PRIMARY_KEYS = {
     "devices": ("device_id",), "cameras": ("camera_id",), "zones": ("zone_name",),
@@ -838,6 +859,7 @@ EXPECTED_PRIMARY_KEYS = {
     "anomaly_events": ("id",), "bed_calibrations": ("id",), "rest_sessions": ("id",),
     "clip_trigger_outbox": ("id",),
     "activity_observations": ("id",),
+    "activity_cleanup_state": ("singleton",),
 }
 EXPECTED_FOREIGN_KEYS = {
     ("sensor_readings", ("device_id",), "devices", ("device_id",), "RESTRICT"),
@@ -926,6 +948,20 @@ def test_activity_observations_revision_is_self_contained_and_reversible() -> No
     assert source.count('op.execute("DROP TABLE activity_observations")') == 1
 
 
+def test_activity_cleanup_revision_is_self_contained_seeded_and_reversible() -> None:
+    source = (
+        Path(__file__).parents[1]
+        / "migrations"
+        / "versions"
+        / "0005_activity_cleanup_state.py"
+    ).read_text(encoding="utf-8")
+    assert 'down_revision = "0004_repetitive_motion"' in source
+    assert "app.models" not in source
+    assert source.count("CREATE TABLE activity_cleanup_state") == 1
+    assert source.count("INSERT INTO activity_cleanup_state") == 1
+    assert source.count('op.execute("DROP TABLE activity_cleanup_state")') == 1
+
+
 def test_repetitive_motion_downgrade_removes_only_new_rows(database_url: str) -> None:
     config = alembic_config(database_url)
     command.downgrade(config, "base")
@@ -992,6 +1028,13 @@ def test_upgrade_downgrade_upgrade_restores_exact_schema(database_url: str) -> N
             ("food_bowl", 40, 260, 260, 470, True),
             ("pet_bed", 320, 180, 630, 470, True),
         ]
+        cleanup_state = connection.execute(
+            text(
+                "SELECT singleton,agent_id,activity_enabled,command_id,applied_at "
+                "FROM activity_cleanup_state"
+            )
+        ).one()
+        assert tuple(cleanup_state) == (1, None, True, None, None)
         functions = connection.execute(text("SELECT proname FROM pg_proc JOIN pg_namespace n ON n.oid=pronamespace WHERE n.nspname=current_schema() AND prokind='f' ORDER BY proname")).scalars().all()
         assert functions == ["ck_anomaly_source_behavior", "ck_rest_session_behavior"]
         triggers = connection.execute(

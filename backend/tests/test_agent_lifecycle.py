@@ -46,10 +46,31 @@ def test_build_composes_concrete_dependencies_without_starting_background_work(
     queue = object()
     admission = object()
     delivery = object()
+    cleanup_client = object()
+    cleanup_repository = object()
+    cleanup_worker = SimpleNamespace(last_error=None)
 
     monkeypatch.setattr(lifecycle, "load_runtime_config", lambda path: calls.append(("config", path)) or runtime)
     monkeypatch.setattr(lifecycle, "load_config", lambda: calls.append(("app-config",)) or app_config)
     monkeypatch.setattr(lifecycle, "SignedClipUploadClient", lambda **kwargs: calls.append(("upload-client", kwargs)) or upload_client)
+    monkeypatch.setattr(
+        lifecycle,
+        "SignedActivityCleanupClient",
+        lambda **kwargs: calls.append(("cleanup-client", kwargs)) or cleanup_client,
+    )
+    monkeypatch.setattr(
+        lifecycle,
+        "ActivityCleanupRepository",
+        lambda factory: calls.append(("cleanup-repository", factory)) or cleanup_repository,
+    )
+    monkeypatch.setattr(
+        lifecycle,
+        "ActivityCleanupWorker",
+        lambda repository, client, **kwargs: calls.append(
+            ("cleanup-worker", repository, client, kwargs)
+        )
+        or cleanup_worker,
+    )
     monkeypatch.setattr(lifecycle, "JetsonVisionClient", lambda config: calls.append(("jetson", config)) or jetson)
     monkeypatch.setattr(lifecycle, "SqlAlchemyClipOutboxRepository", lambda factory: calls.append(("repository", factory)) or repository)
 
@@ -80,6 +101,8 @@ def test_build_composes_concrete_dependencies_without_starting_background_work(
     assert ("app-config",) in calls
     assert ("jetson", jetson_config) in calls
     assert ("repository", session_factory) in calls
+    assert ("cleanup-repository", session_factory) in calls
+    assert lifecycle._state_for(result).cleanup_worker is cleanup_worker
     assert any(call[:3] == ("queue", config_path.parent / "clip-upload-queue", upload_client) for call in calls)
     delivery_call = next(call for call in calls if call[0] == "delivery")
     assert delivery_call[4]["work_dir"] == config_path.parent / "clip-delivery"
@@ -109,6 +132,18 @@ def test_build_without_jetson_keeps_the_upload_queue_and_skips_clip_workers(
             calls.append(f"queue:stop:{timeout_seconds}")
 
     queue = Queue()
+    cleanup_calls: list[str] = []
+
+    class CleanupWorker:
+        last_error = None
+
+        def start(self) -> None:
+            cleanup_calls.append("cleanup:start")
+
+        def stop(self, *, timeout_seconds: float) -> None:
+            assert 0 <= timeout_seconds <= 6.0
+            cleanup_calls.append("cleanup:stop")
+
     monkeypatch.setattr(lifecycle, "load_runtime_config", lambda _path: runtime)
     monkeypatch.setattr(
         lifecycle,
@@ -116,6 +151,13 @@ def test_build_without_jetson_keeps_the_upload_queue_and_skips_clip_workers(
         lambda: SimpleNamespace(camera_source="disabled", jetson_config=None),
     )
     monkeypatch.setattr(lifecycle, "SignedClipUploadClient", lambda **_kwargs: object())
+    monkeypatch.setattr(lifecycle, "SignedActivityCleanupClient", lambda **_kwargs: object())
+    monkeypatch.setattr(lifecycle, "ActivityCleanupRepository", lambda factory: factory)
+    monkeypatch.setattr(
+        lifecycle,
+        "ActivityCleanupWorker",
+        lambda *_args, **_kwargs: CleanupWorker(),
+    )
 
     class UploadQueue:
         @classmethod
@@ -147,6 +189,7 @@ def test_build_without_jetson_keeps_the_upload_queue_and_skips_clip_workers(
     assert components.upload_queue is queue
     start_agent_components(components)
     stop_agent_components(components)
+    assert cleanup_calls == ["cleanup:start", "cleanup:stop"]
     assert calls == ["queue:start", "queue:stop:45.0"]
 
 

@@ -18,6 +18,12 @@ Sites 자체는 공개입니다. production `/demo`는 fixture-only 화면으로
 
 Supabase 프로젝트와 런타임 공개 키는 PetCare 운영자가 한 번 구성합니다. 고객은 PetCare 계정 가입·로그인만 하며 Supabase URL, publishable key, secret/service-role key, JWKS URL을 입력하지 않습니다. Windows Home Agent 설치 파일에도 Supabase 자격 증명을 포함하지 않습니다.
 
+## 계정 삭제 시 로컬 활동 데이터
+
+Sites 계정 삭제는 D1/R2와 외부 연결 정리만으로 완료되지 않습니다. Sites는 삭제 대상 tenant의 폐기된 Home Agent 공개키에 결합된 `delete_activity_observations` 명령을 만들고, Home Agent가 기존 Ed25519 개인키로 서명한 outbound poll을 보낼 때만 그 명령을 반환합니다. Home Agent는 활동 관측 행만 삭제하고 새 활동 쓰기를 차단한 뒤 ACK합니다. Sites는 ACK 전까지 `cleanup_pending`을 유지하므로, 오프라인 PC의 로컬 활동 데이터가 삭제됐다고 잘못 표시하지 않습니다.
+
+이 경로는 브라우저나 인터넷에서 Home Agent로 들어오는 파괴적 API를 추가하지 않습니다. nonce 재사용, 오래된 timestamp, 다른 agent, 잘못된 digest/signature는 거부되며, 요청·응답은 `private, no-store`입니다. 센서, 행동, 휴식, 이상 관측 및 운영 로그는 이 명령으로 삭제하지 않습니다.
+
 <!-- petcare-docs:privacy-contract -->
 ```json
 {

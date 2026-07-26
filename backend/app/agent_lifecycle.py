@@ -13,7 +13,8 @@ from weakref import WeakKeyDictionary
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from sqlalchemy.orm import Session
 
-from .agent_client import SignedClipUploadClient
+from .account_cleanup import ActivityCleanupRepository, ActivityCleanupWorker
+from .agent_client import SignedActivityCleanupClient, SignedClipUploadClient
 from .agent_config import load_runtime_config
 from .clip_delivery import ClipAdmissionWorker, ClipDeliveryWorker, utc_now
 from .clip_outbox import SqlAlchemyClipOutboxRepository
@@ -44,6 +45,7 @@ class _LifecycleState:
     started: bool = False
     stopped: bool = False
     last_error: str | None = None
+    cleanup_worker: ActivityCleanupWorker | None = None
 
 
 _states: WeakKeyDictionary[AgentLifecycleComponents, _LifecycleState] = WeakKeyDictionary()
@@ -63,7 +65,10 @@ def _component_health_state(components: AgentLifecycleComponents) -> tuple[str, 
     state = _state_for(components)
     with _states_lock:
         name = "running" if state.started and not state.stopped else "stopped"
-        return name, state.last_error
+        cleanup_error = (
+            None if state.cleanup_worker is None else state.cleanup_worker.last_error
+        )
+        return name, state.last_error or cleanup_error
 
 
 def _ffprobe_path(tools_path: Path) -> Path:
@@ -92,11 +97,12 @@ def build_agent_components(
     config_path = Path(config_path)
     runtime = load_runtime_config(config_path)
     app_config = load_config()
+    private_key = _private_key(runtime.private_key.get_secret_value())
     upload_client = SignedClipUploadClient(
         origin=runtime.origin,
         agent_id=runtime.agent_id,
         camera_id=runtime.camera_id,
-        private_key=_private_key(runtime.private_key.get_secret_value()),
+        private_key=private_key,
         now=now,
     )
     upload_queue = ClipUploadQueue.open(
@@ -128,7 +134,19 @@ def build_agent_components(
         upload_queue,
         now(),
     )
-    _state_for(components)
+    cleanup_client = SignedActivityCleanupClient(
+        origin=runtime.origin,
+        agent_id=runtime.agent_id,
+        private_key=private_key,
+        now=now,
+    )
+    cleanup_worker = ActivityCleanupWorker(
+        ActivityCleanupRepository(session_factory),
+        cleanup_client,
+        agent_id=runtime.agent_id,
+        now=now,
+    )
+    _state_for(components).cleanup_worker = cleanup_worker
     return components
 
 
@@ -138,16 +156,28 @@ def start_agent_components(components: AgentLifecycleComponents) -> None:
         if state.started or state.stopped:
             return
 
-    components.upload_queue.start()
-    if components.jetson_client is not None:
-        assert components.clip_admission is not None
-        assert components.clip_delivery is not None
-        try:
-            components.jetson_client.calibrate_clock()
-        except Exception:
-            state.last_error = "jetson_unavailable"
-        components.clip_admission.start()
-        components.clip_delivery.start()
+    cleanup_started = False
+    try:
+        if state.cleanup_worker is not None:
+            state.cleanup_worker.start()
+            cleanup_started = True
+        components.upload_queue.start()
+        if components.jetson_client is not None:
+            assert components.clip_admission is not None
+            assert components.clip_delivery is not None
+            try:
+                components.jetson_client.calibrate_clock()
+            except Exception:
+                state.last_error = "jetson_unavailable"
+            components.clip_admission.start()
+            components.clip_delivery.start()
+    except BaseException:
+        if cleanup_started:
+            try:
+                state.cleanup_worker.stop(timeout_seconds=5.0)
+            except BaseException:
+                pass
+        raise
     with _states_lock:
         state.started = True
 
@@ -185,6 +215,10 @@ def stop_agent_components(
     deadline = time.monotonic() + timeout_seconds
     first_error: BaseException | None = None
     operations: list[tuple[float, Callable[[float], None]]] = []
+    if state.cleanup_worker is not None:
+        operations.append(
+            (6.0, lambda timeout: state.cleanup_worker.stop(timeout_seconds=timeout))
+        )
     if components.jetson_client is not None:
         assert components.clip_admission is not None
         assert components.clip_delivery is not None

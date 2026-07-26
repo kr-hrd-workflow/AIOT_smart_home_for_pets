@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import secrets
 import stat
 from collections.abc import Callable
@@ -22,12 +23,16 @@ from app.agent_config import (
     require_https_origin,
     write_runtime_config,
 )
+from app.account_cleanup import ActivityCleanupCommand, ActivityCleanupError
 from app.clip_contracts import ClipMetadata, UploadReceipt, utc_text
 
 
 ENROLL_PATH = "/api/petcare/agent/enroll"
 UPLOAD_PATH = "/api/petcare/agent/clips"
+CLEANUP_PATH = "/api/petcare/agent/cleanup"
 HTTP_TIMEOUT_SECONDS = 30.0
+CLEANUP_HTTP_TIMEOUT_SECONDS = 5.0
+_CLEANUP_COMMAND_ID = re.compile(rb"clc_[0-9a-f]{32}\Z")
 
 
 class EnrollmentError(RuntimeError):
@@ -210,6 +215,123 @@ def enroll(
     )
     write_runtime_config(path, config, windows_identity_sid=windows_identity_sid)
     return config
+
+
+class SignedActivityCleanupClient:
+    def __init__(
+        self,
+        *,
+        origin: str,
+        agent_id: str,
+        private_key: Ed25519PrivateKey,
+        transport: httpx.BaseTransport | None = None,
+        now: Callable[[], datetime] | None = None,
+        nonce: Callable[[], str] | None = None,
+    ) -> None:
+        require_https_origin(origin)
+        if (
+            type(agent_id) is not str
+            or not agent_id
+            or agent_id != agent_id.strip()
+            or len(agent_id) > 128
+        ):
+            raise ValueError("agent_id is required")
+        if not isinstance(private_key, Ed25519PrivateKey):
+            raise TypeError("private_key must be Ed25519PrivateKey")
+        self.agent_id = agent_id
+        self.private_key = private_key
+        self._client = httpx.Client(
+            base_url=origin,
+            timeout=httpx.Timeout(CLEANUP_HTTP_TIMEOUT_SECONDS),
+            transport=transport,
+        )
+        self._now = now or (lambda: datetime.now().astimezone())
+        self._nonce = nonce or (lambda: b64url(secrets.token_bytes(16)))
+
+    def close(self) -> None:
+        self._client.close()
+
+    @staticmethod
+    def _private_no_store(response: httpx.Response) -> bool:
+        directives = {
+            directive.strip().lower()
+            for directive in response.headers.get("Cache-Control", "").split(",")
+        }
+        return "private" in directives and "no-store" in directives and "public" not in directives
+
+    def _post(self, body: bytes) -> httpx.Response:
+        now = self._now()
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ActivityCleanupError("cleanup clock must be timezone-aware")
+        try:
+            nonce = validate_code(self._nonce())
+        except ValueError as cause:
+            raise ActivityCleanupError("invalid cleanup nonce") from cause
+        timestamp = str(int(now.timestamp()))
+        digest = b64url(hashlib.sha256(body).digest())
+        canonical = "\n".join(
+            (
+                "PETCARE-CLEANUP-V1",
+                "POST",
+                CLEANUP_PATH,
+                self.agent_id,
+                timestamp,
+                nonce,
+                digest,
+                "",
+            )
+        ).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            "X-PetCare-Agent-Id": self.agent_id,
+            "X-PetCare-Timestamp": timestamp,
+            "X-PetCare-Nonce": nonce,
+            "X-PetCare-Content-SHA256": digest,
+            "X-PetCare-Signature": b64url(self.private_key.sign(canonical)),
+        }
+        try:
+            return self._client.post(CLEANUP_PATH, headers=headers, content=body)
+        except httpx.HTTPError as cause:
+            raise ActivityCleanupError("activity cleanup request failed") from cause
+
+    def poll(self) -> ActivityCleanupCommand | None:
+        response = self._post(b'{"action":"poll"}')
+        if response.status_code == 401:
+            return None
+        if (
+            response.status_code != 200
+            or response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+            != "application/json"
+            or not self._private_no_store(response)
+        ):
+            raise ActivityCleanupError("invalid cleanup response")
+        prefix = b'{"commandId":"'
+        suffix = b'","type":"delete_activity_observations"}'
+        if not response.content.startswith(prefix) or not response.content.endswith(suffix):
+            raise ActivityCleanupError("invalid cleanup response")
+        command_id = response.content[len(prefix) : -len(suffix)]
+        if _CLEANUP_COMMAND_ID.fullmatch(command_id) is None:
+            raise ActivityCleanupError("invalid cleanup response")
+        expected = prefix + command_id + suffix
+        if response.content != expected:
+            raise ActivityCleanupError("invalid cleanup response")
+        return ActivityCleanupCommand(command_id.decode("ascii"), "delete_activity_observations")
+
+    def ack(self, command_id: str) -> None:
+        if (
+            type(command_id) is not str
+            or not command_id.isascii()
+            or _CLEANUP_COMMAND_ID.fullmatch(command_id.encode("ascii")) is None
+        ):
+            raise ActivityCleanupError("invalid cleanup command")
+        body = b'{"action":"ack","commandId":"' + command_id.encode("ascii") + b'"}'
+        response = self._post(body)
+        if (
+            response.status_code != 204
+            or response.content
+            or not self._private_no_store(response)
+        ):
+            raise ActivityCleanupError("invalid cleanup response")
 
 
 class SignedClipUploadClient:

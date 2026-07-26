@@ -6,6 +6,7 @@ from math import hypot, isfinite
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
+from .account_cleanup import activity_collection_enabled
 from .contracts import ActivityStatus, CameraDetectionIn
 from .models import ActivityObservation, AnomalyEvent
 
@@ -177,6 +178,8 @@ def _record_repetitive_motion(session: Session, row: ActivityObservation) -> Non
 
 def record_activity(session: Session, detection: CameraDetectionIn) -> ActivityObservation | None:
     if detection.subject_id is None:
+        return None
+    if not activity_collection_enabled(session):
         return None
 
     observed_at = detection.observed_at.astimezone(UTC).replace(microsecond=0)

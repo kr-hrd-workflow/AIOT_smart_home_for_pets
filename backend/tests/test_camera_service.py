@@ -17,7 +17,14 @@ from app.camera_service import CameraService
 from app.config import AppConfig
 from app.contracts import CameraStatus
 from app.events import CameraFrameCommitted, DeviceStatusCommitted
-from app.models import ActivityObservation, AnomalyEvent, Camera, CameraEvent, ClipTriggerOutbox
+from app.models import (
+    ActivityCleanupState,
+    ActivityObservation,
+    AnomalyEvent,
+    Camera,
+    CameraEvent,
+    ClipTriggerOutbox,
+)
 from app.rule_ingress import IngressTicket, RuleEnvelope, RuleIngress
 from app.vision import CameraUnavailable, VisionPipeline
 
@@ -85,9 +92,14 @@ class FakeSession:
             self.new.append(row)
         self.calls.append(f"add:{type(row).__name__}")
 
-    def execute(self, _statement: object) -> object:
+    def execute(self, statement: object) -> object:
+        descriptions = getattr(statement, "column_descriptions", ())
+        entity = descriptions[0].get("entity") if descriptions else None
+
         class Result:
-            def scalar_one_or_none(self) -> None:
+            def scalar_one_or_none(self) -> object | None:
+                if entity is ActivityCleanupState:
+                    return ActivityCleanupState(singleton=1, activity_enabled=True)
                 return None
 
             def scalars(self) -> tuple[object, ...]:
@@ -335,6 +347,15 @@ def test_persist_frame_rolls_back_camera_event_activity_and_anomaly_together() -
             "CREATE TABLE activity_observations (id INTEGER PRIMARY KEY, camera_id TEXT NOT NULL, subject_id TEXT NOT NULL, "
             "observed_at DATETIME NOT NULL, center_x INTEGER NOT NULL, center_y INTEGER NOT NULL, moving BOOLEAN NOT NULL, "
             "distance FLOAT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL)"
+        )
+        connection.exec_driver_sql(
+            "CREATE TABLE activity_cleanup_state (singleton INTEGER PRIMARY KEY, agent_id TEXT, "
+            "activity_enabled BOOLEAN NOT NULL, command_id TEXT, applied_at DATETIME, "
+            "updated_at DATETIME NOT NULL)"
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO activity_cleanup_state(singleton,activity_enabled,updated_at) "
+            "VALUES (1,TRUE,CURRENT_TIMESTAMP)"
         )
         connection.exec_driver_sql(
             "CREATE TABLE anomaly_events (id INTEGER PRIMARY KEY, subject_id TEXT, anomaly_type TEXT NOT NULL, severity TEXT NOT NULL, "
