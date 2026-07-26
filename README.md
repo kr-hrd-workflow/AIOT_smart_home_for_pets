@@ -27,6 +27,10 @@ PetCare 웹은 React 19와 [vinext](https://github.com/cloudflare/vinext)로 동
 
 고객은 Supabase나 Cloudflare 프로젝트, URL, 키 또는 JWKS를 설정하지 않습니다. PetCare 운영자가 Sites runtime의 `SUPABASE_URL`과 `SUPABASE_PUBLISHABLE_KEY`를 구성합니다. Home Agent 등록과 원격 상태·영상 연결을 운영할 때는 `.env.example`의 `CF_*` 8개 서버 값도 운영자가 구성합니다.
 
+운영 Supabase Auth의 Site URL은 `https://kr-hrd-petcare-aiot.parkccccc3.chatgpt.site`로 고정합니다. Redirect URL allowlist에는 `https://kr-hrd-petcare-aiot.parkccccc3.chatgpt.site/auth/callback`과 비밀번호 복구용 `https://kr-hrd-petcare-aiot.parkccccc3.chatgpt.site/auth/callback?next=/reset-password`만 등록합니다. 이메일 확인은 유지하며, 일반 고객 가입·복구 메일을 보내려면 운영자가 별도 Custom SMTP를 구성해야 합니다.
+
+`CF_*` 값이 하나라도 없으면 로그인 사용자의 10분 코드를 저장하지 않고 API가 `503 enrollment_unavailable`로 조기 실패합니다. 화면은 이를 “원격 연결 준비 중”으로 안내하므로, 설치 후 마지막 단계에서야 실패하는 가짜 등록 흐름을 만들지 않습니다.
+
 ## 활동·휴식·반복 이동 표시
 
 `오늘 활동 추정`은 카메라가 dog/cat을 실제로 관측한 1초 bucket만 합산하고 `카메라 관측 N분 기준`을 함께 표시합니다. 관측 coverage가 0이면 `0분` 대신 `관측 없음`을 표시합니다. `오늘 휴식 추정`은 FSR·카메라 융합 결과이므로 활동과 별도로 유지합니다.
@@ -104,3 +108,5 @@ Sites는 공개로 배포하고 `.openai/hosting.json`의 기존 opaque project 
 설치 파일 릴리스는 `packaging/windows/release`의 고정 EXE와 SHA-256 sidecar를 사용합니다. 운영 배포 시에만 임시 업로드 토큰을 Sites secret으로 설정해 고정 R2 키에 업로드하고, 업로드 직후 secret을 제거한 같은 버전을 다시 배포합니다. 정상 운영 runtime에는 이 임시 토큰이 남지 않습니다.
 
 Jetson 비전 서비스는 JetPack 4.6.6/L4T 32.7.6/TensorRT 8.2.1 실기기에서 USB 카메라·서명 프리뷰와 단기 고유 프레임 30 FPS 게이트까지 통과했습니다. 60분 soak, 실제 Pico·센서 설치와 깨끗한 Windows PC에서의 Home Agent 전체 설치는 `NOT RUN`입니다. 연결된 Cloudflare 계정에는 Zone과 Access가 없어 Sites에서 신규 Home Agent를 운영 등록하는 외부 게이트는 현재 `BLOCKED`입니다.
+
+`worker/index.ts`에는 D1/R2·터널·계정 정리를 수행하는 scheduled handler가 구현돼 있지만, 현재 Sites 프로젝트에서 시간별 trigger와 R2 lifecycle이 실제로 연결됐다는 운영 증거는 없습니다. 코드 테스트와 별개로 이 두 운영 설정은 `NOT VERIFIED`이며, provider에서 trigger/lifecycle을 구성하고 실제 실행 영수증을 남기기 전에는 7일 물리 삭제를 완료로 간주하지 않습니다.

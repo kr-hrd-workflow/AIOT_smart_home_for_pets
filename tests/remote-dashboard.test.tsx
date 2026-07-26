@@ -242,6 +242,37 @@ it("prevents duplicate enrollment, reports failure, and permits retry", async ()
   expect(screen.getByText("2026-07-20T01:10:00Z")).toBeInTheDocument();
 });
 
+it("explains when managed remote enrollment is not configured", async () => {
+  const enroll = vi
+    .fn()
+    .mockRejectedValue(Object.assign(new Error("unavailable"), { status: 503 }));
+  const { client, media, accountClient } = mockRemote({
+    getStatus: vi.fn().mockResolvedValue({
+      home: { id: "home-1", state: "needs_enrollment" },
+      agent: null,
+      camera: null,
+      dashboard: null,
+    }),
+    enroll,
+  });
+  render(
+    <RemoteDashboardView
+      client={client}
+      media={media}
+      accountClient={accountClient}
+    />,
+  );
+
+  const button = await screen.findByRole("button", {
+    name: "10분 코드 만들기",
+  });
+  button.click();
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "원격 연결 준비 중입니다",
+  );
+});
+
 it("keeps the setup checklist visible when optional runtime data is absent", async () => {
   const { client, media, accountClient } = mockRemote({
     getStatus: vi.fn().mockResolvedValue({
