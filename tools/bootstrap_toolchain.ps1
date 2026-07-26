@@ -13,6 +13,7 @@ $Manifest = Get-Content -Raw -LiteralPath $ManifestPath | ConvertFrom-Json
 $ManifestHash = (Get-FileHash -LiteralPath $ManifestPath -Algorithm SHA256).Hash
 $RuntimeRoot = Join-Path $Root '.runtime'
 if (-not $OutputPath) { $OutputPath = Join-Path $RuntimeRoot 'toolchain.json' }
+. (Join-Path $PSScriptRoot 'visual_studio_identity.ps1')
 
 $RequiredKeys = @(
   'git_path','bash_path','uv_path','python_path','node_path','npm_cli_path','cmake_path','ctest_path','ninja_path',
@@ -128,7 +129,7 @@ function Expand-Managed([string]$Name, [string]$Archive) {
   return $target
 }
 
-function Assert-WingetPackage([string]$Id, [string]$Version, [string[]]$OverrideComponents = @(), [switch]$VerifyOnly) {
+function Assert-WingetPackage([string]$Id, [string]$Version, [switch]$VerifyOnly) {
   $winget = (Get-Command winget.exe -ErrorAction Stop).Source
   if ($VerifyOnly) {
     & $winget show --id $Id --exact --version $Version --source winget --accept-source-agreements *> $null
@@ -139,17 +140,54 @@ function Assert-WingetPackage([string]$Id, [string]$Version, [string[]]$Override
   $present = ($LASTEXITCODE -eq 0 -and (($lines -join "`n") -match [regex]::Escape($Version)))
   if (-not $present -and -not $CheckOnly -and -not $VerifyOnly) {
     $arguments = @('install','--id',$Id,'--version',$Version,'--exact','--silent','--accept-package-agreements','--accept-source-agreements')
-    if ($OverrideComponents.Count) {
-      $vsTarget = Join-Path $RuntimeRoot 'managed/vs'
-      $override = "--wait --quiet --norestart --nocache --installPath `"$vsTarget`" " + (($OverrideComponents | ForEach-Object { "--add $_" }) -join ' ')
-      $arguments += @('--override', $override)
-    }
     & $winget @arguments
     if ($LASTEXITCODE) { throw "winget installation failed: $Id@$Version" }
     $lines = & $winget list --id $Id --exact --source winget --accept-source-agreements 2>&1
     $present = ($LASTEXITCODE -eq 0 -and (($lines -join "`n") -match [regex]::Escape($Version)))
   }
   if (-not $present) { throw "exact winget package is absent or mismatched: $Id@$Version" }
+}
+
+function Get-VisualStudioBuildToolsInstances([string]$RequiredComponent = '') {
+  $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+  if (-not (Test-Path -LiteralPath $vswhere)) { return @() }
+  $arguments = @('-utf8','-products','Microsoft.VisualStudio.Product.BuildTools')
+  if ($RequiredComponent) { $arguments += @('-requires', $RequiredComponent) }
+  $arguments += @('-format','json')
+  $previousConsoleOutputEncoding = [Console]::OutputEncoding
+  try {
+    [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+    $jsonLines = & $vswhere @arguments
+    if ($LASTEXITCODE) { throw 'vswhere failed to enumerate Visual Studio Build Tools' }
+  } finally {
+    [Console]::OutputEncoding = $previousConsoleOutputEncoding
+  }
+  if (-not $jsonLines) { return @() }
+  return ConvertFrom-VisualStudioBuildToolsJson -Json ($jsonLines -join "`n")
+}
+
+function Assert-VisualStudioPackage([string]$Id, [string]$Version, [string[]]$RequiredComponents) {
+  $instances = @(Get-VisualStudioBuildToolsInstances)
+  $instance = Select-ExactVisualStudioBuildToolsInstance -Instances $instances -Version $Version
+  if (-not $instance -and -not $CheckOnly) {
+    $winget = (Get-Command winget.exe -ErrorAction Stop).Source
+    $vsTarget = Join-Path $RuntimeRoot 'managed/vs'
+    $override = "--wait --quiet --norestart --nocache --installPath `"$vsTarget`" " + (($RequiredComponents | ForEach-Object { "--add $_" }) -join ' ')
+    & $winget install --id $Id --version $Version --exact --silent --accept-package-agreements --accept-source-agreements --override $override | Out-Host
+    if ($LASTEXITCODE) { throw "winget installation failed: $Id@$Version" }
+    $instances = @(Get-VisualStudioBuildToolsInstances)
+    $instance = Select-ExactVisualStudioBuildToolsInstance -Instances $instances -Version $Version
+  }
+  if (-not $instance) { throw "exact Visual Studio Build Tools instance is absent or unhealthy: $Id@$Version" }
+  foreach ($component in $RequiredComponents) {
+    $componentInstances = @(Get-VisualStudioBuildToolsInstances -RequiredComponent $component)
+    $componentInstance = Select-ExactVisualStudioBuildToolsInstance `
+      -Instances $componentInstances `
+      -Version $Version `
+      -InstallationPath $instance.installationPath
+    if (-not $componentInstance) { throw "missing Visual Studio component: $component" }
+  }
+  return [string]$instance.installationPath
 }
 
 if ($FixtureRoot) {
@@ -169,7 +207,7 @@ foreach ($name in @('uv','python','node','cmake','ninja','arm_gnu')) {
 
 $components = @($managed.visual_studio.components)
 Assert-WingetPackage $managed.git.windows_id $managed.git.version
-Assert-WingetPackage $managed.visual_studio.windows_id $managed.visual_studio.version $components
+$vsInstall = Assert-VisualStudioPackage $managed.visual_studio.windows_id $managed.visual_studio.version $components
 Assert-WingetPackage $managed.postgresql.windows_id $managed.postgresql.version -VerifyOnly
 Assert-WingetPackage $managed.mosquitto.windows_id $managed.mosquitto.version -VerifyOnly
 
@@ -207,16 +245,6 @@ if ((& $cmakePath --version | Select-Object -First 1) -notmatch '4\.3\.4') { thr
 if ((& $ninjaPath --version) -ne '1.13.2') { throw 'managed Ninja version mismatch' }
 if ((& (Join-Path $armBin 'arm-none-eabi-gcc.exe') --version | Select-Object -First 1) -notmatch '14\.2\.1') { throw 'managed Arm GNU version mismatch' }
 
-$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
-$previousConsoleOutputEncoding = [Console]::OutputEncoding
-try {
-  [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
-  $vsInstall = (& $vswhere -utf8 -latest -products Microsoft.VisualStudio.Product.BuildTools -version '[17.14,17.15)' -property installationPath | Select-Object -First 1)
-} finally { [Console]::OutputEncoding = $previousConsoleOutputEncoding }
-if (-not $vsInstall) { throw 'Visual Studio Build Tools 17.14 is missing' }
-foreach ($component in $components) {
-  if (-not (& $vswhere -products Microsoft.VisualStudio.Product.BuildTools -version '[17.14,17.15)' -requires $component -property installationPath)) { throw "missing Visual Studio component: $component" }
-}
 $vsDevCmd = Join-Path $vsInstall 'Common7/Tools/VsDevCmd.bat'
 $msvcRoot = Get-ChildItem -LiteralPath (Join-Path $vsInstall 'VC/Tools/MSVC') -Directory | Where-Object Name -Like '14.44.*' | Sort-Object Name -Descending | Select-Object -First 1
 if (-not $msvcRoot) { throw 'MSVC 14.44 toolset is missing' }

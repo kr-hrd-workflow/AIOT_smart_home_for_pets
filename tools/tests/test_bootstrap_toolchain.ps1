@@ -2,8 +2,50 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $bootstrap = Join-Path $root 'tools/bootstrap_toolchain.ps1'
 $build = Join-Path $root 'tools/build_pico_host.ps1'
+$visualStudioIdentity = Join-Path $root 'tools/visual_studio_identity.ps1'
 $fixture = Join-Path $root '.runtime/tests/windows-fixture'
 $output = Join-Path $root '.runtime/tests/toolchain-fixture.json'
+
+. $visualStudioIdentity
+$healthyInstance = [pscustomobject]@{
+  installationPath = 'C:\managed\vs'
+  isComplete = $true
+  isLaunchable = $true
+  isRebootRequired = $false
+  catalog = [pscustomobject]@{ productSemanticVersion = '17.14.35+37411.7.-june.2026-' }
+}
+$wrongPatchInstance = [pscustomobject]@{
+  installationPath = 'C:\newer\vs'
+  isComplete = $true
+  isLaunchable = $true
+  isRebootRequired = $false
+  catalog = [pscustomobject]@{ productSemanticVersion = '17.14.37+40000.1' }
+}
+$incompleteInstance = [pscustomobject]@{
+  installationPath = 'C:\incomplete\vs'
+  isComplete = $false
+  isLaunchable = $true
+  isRebootRequired = $false
+  catalog = [pscustomobject]@{ productSemanticVersion = '17.14.35+37411.7.-june.2026-' }
+}
+$selectedInstance = Select-ExactVisualStudioBuildToolsInstance `
+  -Instances @($wrongPatchInstance, $incompleteInstance, $healthyInstance) `
+  -Version '17.14.35'
+if ($selectedInstance.installationPath -ne $healthyInstance.installationPath) {
+  throw 'ASSERT: exact healthy Visual Studio instance was not selected'
+}
+if (Select-ExactVisualStudioBuildToolsInstance -Instances @($wrongPatchInstance) -Version '17.14.35') {
+  throw 'ASSERT: mismatched Visual Studio patch version was accepted'
+}
+$serializedInstances = @($wrongPatchInstance, $incompleteInstance, $healthyInstance) | ConvertTo-Json -Depth 4
+$parsedInstances = @(ConvertFrom-VisualStudioBuildToolsJson -Json $serializedInstances)
+if ($parsedInstances.Count -ne 3) {
+  throw 'ASSERT: vswhere JSON instances were not flattened'
+}
+$selectedParsedInstance = Select-ExactVisualStudioBuildToolsInstance -Instances $parsedInstances -Version '17.14.35'
+if ($selectedParsedInstance.installationPath -ne $healthyInstance.installationPath) {
+  throw 'ASSERT: exact Visual Studio instance was lost while parsing vswhere JSON'
+}
 
 $parameters = (Get-Command -Name $bootstrap).Parameters
 if ($null -eq $parameters) { throw 'ASSERT: bootstrap parameters are not discoverable' }
