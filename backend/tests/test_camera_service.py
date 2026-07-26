@@ -404,7 +404,10 @@ def test_persist_frame_rolls_back_camera_event_activity_and_anomaly_together() -
 
     def fail_activity_flush(current: object, *_args: object) -> None:
         if any(isinstance(row, ActivityObservation) for row in current.new):  # type: ignore[attr-defined]
-            assert any(isinstance(row, AnomalyEvent) for row in current.new)  # type: ignore[attr-defined]
+            assert any(
+                isinstance(row, AnomalyEvent) and row.anomaly_type == "repetitive_motion"
+                for row in current.new  # type: ignore[attr-defined]
+            )
             assert not any(isinstance(row, ClipTriggerOutbox) for row in current.new)  # type: ignore[attr-defined]
             raise RuntimeError("activity flush failed")
 
