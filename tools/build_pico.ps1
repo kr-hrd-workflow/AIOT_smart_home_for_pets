@@ -40,36 +40,69 @@ foreach ($Key in $RequiredKeys) {
   }
 }
 
-$GitPath = $Runtime.paths.git_path
-function Get-AbsoluteGitDirectory([string]$Path) {
-  $PreviousErrorActionPreference = $ErrorActionPreference
-  try {
-    $ErrorActionPreference = 'Continue'
-    $Output = @(& $GitPath -C $Path rev-parse --absolute-git-dir 2>$null)
-    $ExitCode = $LASTEXITCODE
-  } finally {
-    $ErrorActionPreference = $PreviousErrorActionPreference
+if (-not ('PetCare.NativeFileIdentity' -as [type])) {
+  Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+
+namespace PetCare {
+  public static class NativeFileIdentity {
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ByHandleFileInformation {
+      public uint FileAttributes;
+      public System.Runtime.InteropServices.ComTypes.FILETIME CreationTime;
+      public System.Runtime.InteropServices.ComTypes.FILETIME LastAccessTime;
+      public System.Runtime.InteropServices.ComTypes.FILETIME LastWriteTime;
+      public uint VolumeSerialNumber;
+      public uint FileSizeHigh;
+      public uint FileSizeLow;
+      public uint NumberOfLinks;
+      public uint FileIndexHigh;
+      public uint FileIndexLow;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern SafeFileHandle CreateFile(
+      string fileName, uint desiredAccess, uint shareMode, IntPtr securityAttributes,
+      uint creationDisposition, uint flagsAndAttributes, IntPtr templateFile);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetFileInformationByHandle(
+      SafeFileHandle handle, out ByHandleFileInformation information);
+
+    public static string Get(string path) {
+      const uint ShareAll = 0x1 | 0x2 | 0x4;
+      const uint OpenExisting = 3;
+      const uint BackupSemantics = 0x02000000;
+      using (SafeFileHandle handle = CreateFile(
+        path, 0, ShareAll, IntPtr.Zero, OpenExisting, BackupSemantics, IntPtr.Zero)) {
+        if (handle.IsInvalid) {
+          throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
+        ByHandleFileInformation information;
+        if (!GetFileInformationByHandle(handle, out information)) {
+          throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
+        return information.VolumeSerialNumber.ToString("X8") + ":" +
+          information.FileIndexHigh.ToString("X8") +
+          information.FileIndexLow.ToString("X8");
+      }
+    }
   }
-  if ($ExitCode -or $Output.Count -ne 1) {
-    return $null
-  }
-  $GitDirectory = ([string]$Output[0]).Trim()
-  if (-not $GitDirectory -or -not [IO.Path]::IsPathRooted($GitDirectory)) { return $null }
-  [IO.Path]::GetFullPath($GitDirectory.Replace('/', '\')).TrimEnd('\')
+}
+'@
 }
 
-$RootGitDirectory = Get-AbsoluteGitDirectory $Root
-if (-not $RootGitDirectory) { throw 'current workspace Git identity is invalid' }
+$RootFileIdentity = [PetCare.NativeFileIdentity]::Get($Root)
 
 $AsciiRoot = $null
 foreach ($Letter in 'P','Q','R','S','T','U','V','W','X','Y','Z') {
   if (-not (Get-PSDrive -Name $Letter -PSProvider FileSystem -ErrorAction SilentlyContinue)) { continue }
   $Candidate = "${Letter}:\"
-  $CandidateGitDirectory = Get-AbsoluteGitDirectory $Candidate
-  if (-not $CandidateGitDirectory -or
-      -not [string]::Equals($CandidateGitDirectory, $RootGitDirectory, [StringComparison]::OrdinalIgnoreCase)) {
-    continue
-  }
+  try { $CandidateFileIdentity = [PetCare.NativeFileIdentity]::Get($Candidate) } catch { continue }
+  if ($CandidateFileIdentity -ne $RootFileIdentity) { continue }
   $CandidateAuthority = Join-Path $Candidate 'tools/platform-manifest.json'
   $CandidateRuntime = Join-Path $Candidate '.runtime/toolchain.json'
   if ((Test-Path -LiteralPath $CandidateAuthority) -and (Test-Path -LiteralPath $CandidateRuntime) -and
@@ -93,6 +126,7 @@ function Get-EffectivePath([string]$Path) {
 $EffectivePaths = @{}
 foreach ($Key in $RequiredKeys) { $EffectivePaths[$Key] = Get-EffectivePath $Runtime.paths.$Key }
 
+$GitPath = $Runtime.paths.git_path
 function Assert-PicoSdkIdentity([string]$Path) {
   $SdkPath = [IO.Path]::GetFullPath($Path)
   $Origin = (& $GitPath -C $SdkPath remote get-url origin).Trim()
