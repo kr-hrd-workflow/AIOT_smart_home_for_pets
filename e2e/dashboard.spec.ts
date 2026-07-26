@@ -438,7 +438,7 @@ test.describe("animated public landing", () => {
     });
     await expect(landing).toHaveAttribute("data-landing-scene", "hero");
     await expect(video).toHaveCount(1);
-    await expect(video).toHaveAttribute("src", /scene-01-arrival\.mp4$/);
+    await expect(video).toHaveAttribute("src", /^blob:/);
     await expect.poll(() => video.evaluate((element) => element.readyState)).toBeGreaterThanOrEqual(1);
     await expect(scene).toHaveClass(/has-video-frame/);
     await expect(page.getByRole("link", { name: "로그인" }).first()).toHaveAttribute(

@@ -34,6 +34,8 @@ type SegmentRuntime = ScrollWorldSegment & {
   element: HTMLDivElement;
   image: HTMLImageElement;
   video?: HTMLVideoElement;
+  clipController?: AbortController;
+  clipObjectUrl?: string;
   playbackFrame?: number;
   ready: boolean;
   targetTime: number;
@@ -361,7 +363,6 @@ export function mountScrollWorld(
     video.preload = "auto";
     video.setAttribute("muted", "");
     video.setAttribute("playsinline", "");
-    video.src = runtime.clip;
     video.addEventListener("loadedmetadata", () => {
       runtime.ready = true;
       driveToTarget(runtime);
@@ -385,6 +386,41 @@ export function mountScrollWorld(
     );
     runtime.video = video;
     runtime.element.appendChild(video);
+
+    const applyDirectClip = () => {
+      if (!closed && runtime.video === video) video.src = runtime.clip;
+    };
+    if (typeof fetch !== "function" || typeof URL.createObjectURL !== "function") {
+      applyDirectClip();
+      return;
+    }
+
+    const controller = new AbortController();
+    runtime.clipController = controller;
+    void (async () => {
+      try {
+        const response = await fetch(runtime.clip, {
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error("Unable to load landing clip");
+        const blob = await response.blob();
+        if (closed || controller.signal.aborted || runtime.video !== video) return;
+
+        const objectUrl = URL.createObjectURL(blob);
+        if (closed || controller.signal.aborted || runtime.video !== video) {
+          URL.revokeObjectURL(objectUrl);
+          return;
+        }
+        runtime.clipObjectUrl = objectUrl;
+        video.src = objectUrl;
+      } catch {
+        if (!controller.signal.aborted) applyDirectClip();
+      } finally {
+        if (runtime.clipController === controller) {
+          runtime.clipController = undefined;
+        }
+      }
+    })();
   };
 
   const update = () => {
@@ -483,6 +519,8 @@ export function mountScrollWorld(
     runtimes.forEach((runtime) => {
       if (runtime.video && !runtime.video.paused) runtime.video.pause();
       cancelPlaybackFrame(runtime);
+      runtime.clipController?.abort();
+      if (runtime.clipObjectUrl) URL.revokeObjectURL(runtime.clipObjectUrl);
     });
     delete options.root.dataset.scrollWorldActive;
     delete options.root.dataset.landingScene;

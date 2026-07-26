@@ -25,7 +25,7 @@ PetCare 웹은 React 19와 [vinext](https://github.com/cloudflare/vinext)로 동
 4. 고객은 Pico 2 W를 Home Agent PC에 USB로 한 번 연결하고 Wi-Fi를 입력합니다. 현관 `entrance-01`과 생활공간 `petzone-01`은 이후 Wi-Fi/MQTT로 동작합니다.
 5. Jetson 카메라는 로컬 `http://127.0.0.1:8000/setup`에서 pairing 파일로 연결합니다. 등록이 끝나면 Home Agent가 자동으로 다시 연결하고 로그인한 Sites 대시보드에 상태와 인증된 라이브 영상을 표시합니다. Jetson 온라인 상태까지 확인되어야 연결 완료로 표시됩니다.
 
-고객은 Supabase 프로젝트, URL, 키 또는 JWKS를 설정하지 않습니다. PetCare 운영자가 Sites runtime의 `SUPABASE_URL`과 `SUPABASE_PUBLISHABLE_KEY`를 한 번 구성합니다.
+고객은 Supabase나 Cloudflare 프로젝트, URL, 키 또는 JWKS를 설정하지 않습니다. PetCare 운영자가 Sites runtime의 `SUPABASE_URL`과 `SUPABASE_PUBLISHABLE_KEY`를 구성합니다. Home Agent 등록과 원격 상태·영상 연결을 운영할 때는 `.env.example`의 `CF_*` 8개 서버 값도 운영자가 구성합니다.
 
 ## 활동·휴식·반복 이동 표시
 
@@ -36,7 +36,7 @@ PetCare 웹은 React 19와 [vinext](https://github.com/cloudflare/vinext)로 동
 ## 보안
 
 - Supabase claims의 issuer, `authenticated` audience, expiry를 서버에서 확인하고 `sub`를 tenant 소유권 키로 사용합니다.
-- secret/service-role key는 Sites runtime, 브라우저, 설치 파일, Git에 넣지 않습니다.
+- Supabase secret/service-role key는 Sites runtime, 브라우저, 설치 파일, Git에 넣지 않습니다. Cloudflare API token과 Access client secret은 Sites secret으로만 저장합니다.
 - Wi-Fi 비밀번호는 로그인한 대시보드에서 고객 PC의 loopback Home Agent로 직접 전달되며 Sites나 Supabase에 저장하지 않습니다.
 - Home Agent 설치 파일은 아직 코드서명 전이므로 SmartScreen 확인이 나타날 수 있습니다.
 - 설치 파일은 공개 정적 asset이 아니며, 서버가 R2 객체의 고정 크기와 SHA-256 메타데이터를 확인한 뒤 로그인 세션에만 반환합니다.
@@ -99,8 +99,8 @@ Playwright Chromium은 `dashboard/node_modules/playwright/cli.js install chromiu
 
 ## 배포와 검수 상태
 
-Sites는 공개로 배포하되, 정상 운영 runtime에는 `SUPABASE_URL`과 `SUPABASE_PUBLISHABLE_KEY`만 설정합니다. `.openai/hosting.json`의 기존 opaque project ID와 `DB`/`CLIPS` binding을 재사용합니다.
+Sites는 공개로 배포하고 `.openai/hosting.json`의 기존 opaque project ID와 `DB`/`CLIPS` binding을 재사용합니다. 공개 랜딩·인증에는 `SUPABASE_URL`과 `SUPABASE_PUBLISHABLE_KEY`가 필요합니다. Home Agent 등록과 원격 상태·영상에는 `.env.example`의 `CF_*` 8개 값이 추가로 필요하며 token/client secret은 Sites secret으로 저장합니다.
 
 설치 파일 릴리스는 `packaging/windows/release`의 고정 EXE와 SHA-256 sidecar를 사용합니다. 운영 배포 시에만 임시 업로드 토큰을 Sites secret으로 설정해 고정 R2 키에 업로드하고, 업로드 직후 secret을 제거한 같은 버전을 다시 배포합니다. 정상 운영 runtime에는 이 임시 토큰이 남지 않습니다.
 
-Jetson 비전 서비스는 JetPack 4.6.6/L4T 32.7.6/TensorRT 8.2.1 실기기에서 기존 USB 카메라와 서명 프리뷰까지 통과했습니다. 새 고유 프레임 30 FPS 라이브·재연결·60분 soak는 최종 후보 SHA로 다시 측정하기 전까지 `NOT RUN`입니다. 실제 Pico·센서 설치와 깨끗한 Windows PC에서의 Home Agent 전체 설치도 아직 `NOT RUN`입니다.
+Jetson 비전 서비스는 JetPack 4.6.6/L4T 32.7.6/TensorRT 8.2.1 실기기에서 USB 카메라·서명 프리뷰와 단기 고유 프레임 30 FPS 게이트까지 통과했습니다. 60분 soak, 실제 Pico·센서 설치와 깨끗한 Windows PC에서의 Home Agent 전체 설치는 `NOT RUN`입니다. 연결된 Cloudflare 계정에는 Zone과 Access가 없어 Sites에서 신규 Home Agent를 운영 등록하는 외부 게이트는 현재 `BLOCKED`입니다.

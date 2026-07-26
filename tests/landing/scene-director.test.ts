@@ -406,13 +406,19 @@ it("cancels a pending landing scrub when the scroll world unmounts", () => {
   expect(raf.pending()).toBe(0);
 });
 
-it("streams nearby clips directly, keeps posters until the requested frame paints, and cleans up", async () => {
+it("loads nearby clips through cached blob URLs, keeps posters until the requested frame paints, and cleans up", async () => {
   const playSpy = vi
     .spyOn(HTMLMediaElement.prototype, "play")
     .mockResolvedValue();
   vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
-  const fetchSpy = vi.spyOn(globalThis, "fetch");
-  const createObjectURL = vi.spyOn(URL, "createObjectURL");
+  const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+    ok: true,
+    blob: async () => new Blob(["video"], { type: "video/mp4" }),
+  } as Response);
+  const createObjectURL = vi
+    .spyOn(URL, "createObjectURL")
+    .mockReturnValueOnce("blob:arrival")
+    .mockReturnValueOnce("blob:connector");
   const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL");
   const root = document.createElement("main");
   const stage = document.createElement("div");
@@ -435,8 +441,14 @@ it("streams nearby clips directly, keeps posters until the requested frame paint
   });
   expect(stage.querySelectorAll("video")).toHaveLength(2);
 
-  expect(fetchSpy).not.toHaveBeenCalled();
-  expect(createObjectURL).not.toHaveBeenCalled();
+  await vi.waitFor(() =>
+    expect(stage.querySelector("video")).toHaveAttribute("src", "blob:arrival"),
+  );
+  expect(fetchSpy).toHaveBeenCalledWith(
+    "/arrival.mp4",
+    expect.objectContaining({ signal: expect.any(AbortSignal) }),
+  );
+  expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
   for (const video of stage.querySelectorAll("video")) {
     expect(video.autoplay).toBe(false);
     expect(video.loop).toBe(false);
@@ -446,7 +458,7 @@ it("streams nearby clips directly, keeps posters until the requested frame paint
 
   const firstScene = stage.querySelector<HTMLElement>(".scroll-world-scene");
   const firstVideo = firstScene?.querySelector("video");
-  expect(firstVideo).toHaveAttribute("src", "/arrival.mp4");
+  expect(firstVideo).toHaveAttribute("src", "blob:arrival");
   expect(firstScene).not.toHaveClass("has-video-frame");
   Object.defineProperty(firstVideo, "duration", { value: 10 });
   Object.defineProperty(firstVideo, "requestVideoFrameCallback", {
@@ -488,7 +500,72 @@ it("streams nearby clips directly, keeps posters until the requested frame paint
   expect(firstScene).not.toHaveClass("has-video-frame");
 
   cleanup();
-  expect(revokeObjectURL).not.toHaveBeenCalled();
+  expect(revokeObjectURL).toHaveBeenCalledWith("blob:arrival");
+  expect(revokeObjectURL).toHaveBeenCalledWith("blob:connector");
+});
+
+it("falls back to the direct clip URL when cached blob loading fails", async () => {
+  vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("offline"));
+  const createObjectURL = vi.spyOn(URL, "createObjectURL");
+  const root = document.createElement("main");
+  const stage = document.createElement("div");
+  Object.defineProperty(root, "scrollHeight", { value: 6000 });
+  vi.spyOn(root, "getBoundingClientRect").mockReturnValue({ top: 0 } as DOMRect);
+  Object.defineProperty(navigator, "connection", {
+    configurable: true,
+    value: { saveData: false },
+  });
+  document.body.append(root, stage);
+
+  const cleanup = mountScrollWorld(stage, {
+    config,
+    root,
+    reducedMotion: false,
+    mobile: false,
+  });
+  const video = stage.querySelector("video");
+
+  await vi.waitFor(() => expect(video).toHaveAttribute("src", "/arrival.mp4"));
+  expect(createObjectURL).not.toHaveBeenCalled();
+
+  cleanup();
+});
+
+it("does not apply a completed blob request after the scroll world unmounts", async () => {
+  let resolveFetch: (response: Response) => void;
+  const pendingResponse = new Promise<Response>((resolve) => {
+    resolveFetch = resolve;
+  });
+  const fetchSpy = vi.spyOn(globalThis, "fetch").mockReturnValue(pendingResponse);
+  const createObjectURL = vi.spyOn(URL, "createObjectURL");
+  const root = document.createElement("main");
+  const stage = document.createElement("div");
+  Object.defineProperty(root, "scrollHeight", { value: 6000 });
+  vi.spyOn(root, "getBoundingClientRect").mockReturnValue({ top: 0 } as DOMRect);
+  Object.defineProperty(navigator, "connection", {
+    configurable: true,
+    value: { saveData: false },
+  });
+  document.body.append(root, stage);
+
+  const cleanup = mountScrollWorld(stage, {
+    config,
+    root,
+    reducedMotion: false,
+    mobile: false,
+  });
+  const [, firstRequest] = fetchSpy.mock.calls[0];
+
+  cleanup();
+  expect(firstRequest?.signal?.aborted).toBe(true);
+  resolveFetch!({
+    ok: true,
+    blob: async () => new Blob(["video"], { type: "video/mp4" }),
+  } as Response);
+  await new Promise((resolve) => window.setTimeout(resolve, 0));
+
+  expect(createObjectURL).not.toHaveBeenCalled();
+  expect(stage.childElementCount).toBe(0);
 });
 
 it("uses scroll position for seam opacity and restores the correct connector poster in reverse", async () => {
