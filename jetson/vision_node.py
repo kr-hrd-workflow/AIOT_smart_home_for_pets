@@ -8,6 +8,7 @@ import json
 import math
 import os
 import re
+import select
 import signal
 import socket
 import ssl
@@ -411,9 +412,11 @@ class VisionNode(object):
             self._live_admission = True
             return self._latest_live_sequence, self._latest_live_observed_at
 
-    def next_live(self, sequence, server_stopped):
+    def next_live(self, sequence, server_stopped, client_disconnected):
         with self._condition:
             while not self._stop.is_set() and not server_stopped.is_set():
+                if client_disconnected():
+                    return None
                 if not self._camera_online:
                     return None
                 if self._latest_live_sequence > sequence:
@@ -882,7 +885,7 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_header("X-PetCare-Jetson-Observed-At", observed_at)
             self.end_headers()
             while True:
-                frame = self.server.node.next_live(sequence, self.server._stopped)
+                frame = self.server.node.next_live(sequence, self.server._stopped, self._client_disconnected)
                 if frame is None:
                     return
                 sequence, jpeg, observed_at = frame
@@ -905,6 +908,12 @@ class _Handler(BaseHTTPRequestHandler):
             return
         finally:
             self.server.node.close_live()
+
+    def _client_disconnected(self):
+        try:
+            return bool(select.select((self.connection,), (), (), 0)[0])
+        except (OSError, TypeError, ValueError):
+            return True
 
     def _send_json(self, status, value):
         content = _json_bytes(value)

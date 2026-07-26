@@ -337,6 +337,40 @@ class VisionNodeHttpsTests(unittest.TestCase):
         finally:
             stream_connection.close()
 
+    def test_live_mjpeg_releases_admission_after_idle_client_disconnect(self):
+        with self.node._condition:
+            self.node._latest_live_sequence = 7
+            self.node._latest_live_jpeg = JPEG
+            self.node._latest_live_observed_at = "2026-07-20T04:00:00.700000Z"
+            self.node._camera_online = True
+
+        first = http.client.HTTPSConnection(
+            "127.0.0.1", self.server.server_address[1],
+            context=ssl.create_default_context(cafile=self.cert), timeout=2,
+        )
+        try:
+            first.request("GET", "/v1/live.mjpeg", headers=self.signed_headers("GET", "/v1/live.mjpeg"))
+            self.assertEqual(first.getresponse().status, 200)
+        finally:
+            first.close()
+
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            second = http.client.HTTPSConnection(
+                "127.0.0.1", self.server.server_address[1],
+                context=ssl.create_default_context(cafile=self.cert), timeout=2,
+            )
+            try:
+                second.request("GET", "/v1/live.mjpeg", headers=self.signed_headers("GET", "/v1/live.mjpeg"))
+                response = second.getresponse()
+                if response.status == 200:
+                    return
+                response.read()
+            finally:
+                second.close()
+            time.sleep(0.05)
+        self.fail("idle disconnect retained live admission")
+
     def test_first_put_requires_fresh_status_and_replay_bypasses_degraded_gate(self):
         body = b'{"committed_at":"2026-07-20T04:00:00.000000Z","event_id":41,"event_type":"eating","occurred_at":"2026-07-20T03:59:30.000000Z"}'
         target = "/v1/clips/" + COMMAND_ID
