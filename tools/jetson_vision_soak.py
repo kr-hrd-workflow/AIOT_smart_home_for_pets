@@ -32,13 +32,13 @@ FORBIDDEN_EVIDENCE_NAMES = (
 )
 SOAK_CHECKS = (
     "candidate_sha", "duration", "capture_coverage", "authenticated_collection",
-    "inference_fps", "observation_gap", "home_age", "healthy_gap", "clock_calibration",
+    "inference_fps", "live_fps", "observation_gap", "home_age", "healthy_gap", "clock_calibration",
     "wall_monotonic_guard", "preview", "clips", "event_scenarios", "resources",
     "temperature", "boot_id", "kernel", "locked_clocks", "sensor_independence",
     "temporary_files", "webcam_recovery",
 )
 SOAK_METRICS = (
-    "duration_seconds", "inference_fps_min", "observation_gap_p99_seconds",
+    "duration_seconds", "inference_fps_min", "live_fps_min", "observation_gap_p99_seconds",
     "home_age_p99_seconds", "temperature_max_c",
 )
 BRINGUP_CHECKS = (
@@ -507,6 +507,19 @@ def evaluate_soak(
             raise ValueError("invalid observation connection state")
 
     connected_times = [_number(item["monotonic"], "connected monotonic") for item in connected]
+    live_samples = _items(payload.get("live_samples"), "live samples")
+    expected_live_keys = {"monotonic", "duration_seconds", "total_frames", "unique_frames"}
+    if any(set(item) != expected_live_keys for item in live_samples):
+        raise ValueError("invalid live sample")
+    live_times = _ordered_times(live_samples, "monotonic", "live sample monotonic")
+    live_fps = []
+    for item in live_samples:
+        live_duration = _number(item["duration_seconds"], "live duration")
+        total_frames = _integer(item["total_frames"], "live total frames")
+        unique_frames = _integer(item["unique_frames"], "live unique frames")
+        if not 0 < live_duration <= 1.1 or not 0 <= unique_frames <= total_frames:
+            raise ValueError("invalid live sample")
+        live_fps.append(unique_frames / live_duration)
     healthy_gaps = [
         current - previous
         for previous, current in zip(connected_times, connected_times[1:])
@@ -628,6 +641,7 @@ def evaluate_soak(
         "capture_coverage": _full_coverage(observation_times, start, finish, 1.0),
         "authenticated_collection": authenticated,
         "inference_fps": bool(inference) and min(inference) >= 3.0,
+        "live_fps": live_times == connected_times and all(fps >= 30.0 for fps in live_fps),
         "observation_gap": bool(healthy_gaps) and _p99(healthy_gaps) <= 1.0,
         "home_age": bool(home_ages) and min(home_ages) >= 0 and _p99(home_ages) <= 1.5 and max(home_ages) <= 3.0,
         "healthy_gap": (
@@ -657,6 +671,7 @@ def evaluate_soak(
     metrics = {
         "duration_seconds": duration,
         "inference_fps_min": min(inference),
+        "live_fps_min": min(live_fps),
         "observation_gap_p99_seconds": _p99(healthy_gaps),
         "home_age_p99_seconds": _p99(home_ages),
         "temperature_max_c": max(temperatures),

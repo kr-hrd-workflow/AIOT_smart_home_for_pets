@@ -139,6 +139,7 @@ def passing_samples() -> dict[str, object]:
         ("webcam_reconnect", 200.0, 202.0),
     )
     observations = []
+    live_samples = []
     sensors = []
     previews = []
     resources = []
@@ -160,6 +161,12 @@ def passing_samples() -> dict[str, object]:
         })
         if not disconnected:
             previews.append({"monotonic": float(second), "width": 640, "height": 480, "format": "jpeg"})
+            live_samples.append({
+                "monotonic": float(second),
+                "duration_seconds": 1.0,
+                "total_frames": 30,
+                "unique_frames": 30,
+            })
         resources.append({
             "monotonic": float(second),
             "ring_frames": 100,
@@ -175,6 +182,7 @@ def passing_samples() -> dict[str, object]:
         "collector_started_monotonic": 0.0,
         "collector_finished_monotonic": 3600.0,
         "observations": observations,
+        "live_samples": live_samples,
         "calibrations": calibrations,
         "wall_monotonic_guard": {
             "duration_seconds": 3600.0,
@@ -229,6 +237,7 @@ def test_exact_thresholds_pass_and_expected_disconnect_is_excluded_from_healthy_
     assert evidence["metrics"] == {
         "duration_seconds": 3600.0,
         "inference_fps_min": 3.0,
+        "live_fps_min": 30.0,
         "observation_gap_p99_seconds": 1.0,
         "home_age_p99_seconds": 1.5,
         "temperature_max_c": 79.9,
@@ -239,6 +248,51 @@ def test_exact_thresholds_pass_and_expected_disconnect_is_excluded_from_healthy_
     stored = json.loads(output.read_text(encoding="utf-8"))
     validate_soak_evidence(stored, expected_candidate_sha=CANDIDATE, require_pass=True)
     assert not list(tmp_path.glob("*.tmp"))
+
+
+@pytest.mark.parametrize(
+    ("duration_seconds", "total_frames", "unique_frames"),
+    [(1.0, 30, 29), (1.0003334445, 30, 30)],
+)
+def test_live_fps_below_threshold_fails(
+    duration_seconds: float, total_frames: int, unique_frames: int,
+) -> None:
+    payload = passing_samples()
+    payload["live_samples"][0].update({  # type: ignore[index]
+        "duration_seconds": duration_seconds,
+        "total_frames": total_frames,
+        "unique_frames": unique_frames,
+    })
+
+    evidence = evaluate_soak(payload, expected_candidate_sha=CANDIDATE)
+
+    assert evidence["status"] == "FAIL"
+    assert evidence["checks"]["live_fps"] is False  # type: ignore[index]
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [("total_frames", 30.0), ("unique_frames", 30.0), ("unique_frames", 31)],
+)
+def test_live_fps_rejects_invalid_counts(key: str, value: object) -> None:
+    payload = passing_samples()
+    payload["live_samples"][0][key] = value  # type: ignore[index]
+
+    with pytest.raises(ValueError):
+        evaluate_soak(payload, expected_candidate_sha=CANDIDATE)
+
+
+@pytest.mark.parametrize("key", ["total_frames", "extra"])
+def test_live_fps_rejects_invalid_schema(key: str) -> None:
+    payload = passing_samples()
+    sample = payload["live_samples"][0]  # type: ignore[index]
+    if key == "total_frames":
+        del sample[key]
+    else:
+        sample[key] = 1
+
+    with pytest.raises(ValueError):
+        evaluate_soak(payload, expected_candidate_sha=CANDIDATE)
 
 
 def test_claimed_duration_cannot_replace_collector_elapsed_time() -> None:
