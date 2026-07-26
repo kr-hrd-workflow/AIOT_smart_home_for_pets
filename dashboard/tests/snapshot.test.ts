@@ -56,6 +56,18 @@ beforeEach(async () => {
 afterEach(() => fake.dispose());
 
 describe("latest dashboard snapshots", () => {
+  it("recognizes an outbound enrollment before its first snapshot", async () => {
+    await expect(repository.getHomeConnection("home-a")).resolves.toMatchObject({
+      state: "ready",
+      revoked: false,
+      route: {
+        agentId: "agent-a",
+        cameraId: "camera-a",
+        connectionMode: "outbound",
+      },
+    });
+  });
+
   it("replaces only the uploading agent's single owner-scoped snapshot", async () => {
     const putAgentSnapshot = (repository as unknown as {
       putAgentSnapshot: (agentId: string, body: string, generatedAt: string, receivedAt: string) => Promise<void>;

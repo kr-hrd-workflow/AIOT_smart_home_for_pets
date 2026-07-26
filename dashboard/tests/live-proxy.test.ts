@@ -1,6 +1,8 @@
 // @vitest-environment node
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 vi.mock("../db", () => ({ getDb: vi.fn(() => ({ db: "test" })) }));
 vi.mock("cloudflare:workers", () => ({ env: {} }));
@@ -30,6 +32,7 @@ const route: ActiveRoute = {
   tunnelOrigin: "https://home-a.agents.example.com",
   publicKey: "public-key",
   lastSeenAt: "2026-07-20T00:59:00.000Z",
+  connectionMode: "tunnel",
 };
 const now = new Date("2026-07-20T01:00:00.000Z");
 const env = {
@@ -180,6 +183,25 @@ describe("tenant-scoped live proxy", () => {
       camera: { id: "camera-a", state: "online", last_seen_at: "2026-07-20T00:59:58.000Z" },
       dashboard: summary,
     });
+  });
+
+  it("reports an enrolled outbound home without a snapshot as offline without legacy access", async () => {
+    const outboundRoute = { ...route, tunnelOrigin: "", connectionMode: "outbound" as const };
+    vi.mocked(PetCareRepository.prototype.getHomeConnection).mockResolvedValue(ready(outboundRoute));
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await proxyStatus(user, { DB: {} as never, CLIPS: {} as never } as never, now);
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      code: "agent_offline",
+      agent_id: "agent-a",
+      camera_id: "camera-a",
+      last_seen_at: route.lastSeenAt,
+    });
+    expect(PetCareRepository.prototype.requireActivationRoute).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("passes through minute-precision activity timestamps", async () => {
@@ -672,6 +694,7 @@ describe("tenant-scoped live proxy", () => {
     vi.mocked(PetCareRepository.prototype.markAgentSeen).mockRestore();
     const fake = new FakeD1();
     const db = fake as unknown as PetCareEnv["DB"];
+    await db.exec(readFileSync(resolve(import.meta.dirname, "../drizzle/0003_petcare_outbound.sql"), "utf8").replaceAll("--> statement-breakpoint", ""));
     const run = (sql: string, ...values: unknown[]) =>
       db.prepare(sql).bind(...values).run();
     try {
@@ -682,7 +705,7 @@ describe("tenant-scoped live proxy", () => {
         now.toISOString(),
       );
       await run(
-        "INSERT INTO agents (id, home_id, public_key, tunnel_origin) VALUES (?, ?, ?, ?)",
+        "INSERT INTO agents (id, home_id, public_key, tunnel_origin, connection_mode) VALUES (?, ?, ?, ?, 'tunnel')",
         route.agentId,
         home.id,
         route.publicKey,
@@ -728,6 +751,7 @@ describe("tenant-scoped live proxy", () => {
     vi.mocked(PetCareRepository.prototype.markAgentSeen).mockRestore();
     const fake = new FakeD1();
     const db = fake as unknown as PetCareEnv["DB"];
+    await db.exec(readFileSync(resolve(import.meta.dirname, "../drizzle/0003_petcare_outbound.sql"), "utf8").replaceAll("--> statement-breakpoint", ""));
     const run = (sql: string, ...values: unknown[]) =>
       db.prepare(sql).bind(...values).run();
     const fetchMock = vi.fn();
@@ -739,7 +763,7 @@ describe("tenant-scoped live proxy", () => {
         now.toISOString(),
       );
       await run(
-        "INSERT INTO agents (id, home_id, public_key, tunnel_origin) VALUES (?, ?, ?, ?)",
+        "INSERT INTO agents (id, home_id, public_key, tunnel_origin, connection_mode) VALUES (?, ?, ?, ?, 'tunnel')",
         route.agentId,
         home.id,
         route.publicKey,

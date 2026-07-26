@@ -340,6 +340,7 @@ export async function proxyStatus(
 
   const knownRoute = resolved.state.route;
   if (resolved.state.revoked) return offline(knownRoute);
+  if (knownRoute.connectionMode === "outbound") return offline(knownRoute);
   try {
     const route = await resolved.petcare.requireActivationRoute(
       resolved.home.id,

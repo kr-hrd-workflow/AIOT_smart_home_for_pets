@@ -7,6 +7,7 @@ export type ActiveRoute = {
   tunnelOrigin: string;
   publicKey: string;
   lastSeenAt: string | null;
+  connectionMode: "outbound" | "tunnel";
 };
 
 export type ClipEvent = {
@@ -124,9 +125,10 @@ type RouteRow = {
   home_id: string;
   agent_id: string;
   camera_id: string;
-  tunnel_origin: string;
+  tunnel_origin: string | null;
   public_key: string;
   last_seen_at: string | null;
+  connection_mode: "outbound" | "tunnel";
 };
 
 type TunnelRow = {
@@ -161,7 +163,7 @@ type ClipRow = {
 };
 
 const activeRouteSql = `
-  SELECT tr.home_id, tr.agent_id, tr.tunnel_origin, a.public_key,
+  SELECT tr.home_id, tr.agent_id, tr.tunnel_origin, a.public_key, a.connection_mode,
          a.last_seen_at, c.id AS camera_id
   FROM tunnel_routes tr
   JOIN homes h ON h.id = tr.home_id AND h.deleted_at IS NULL
@@ -186,9 +188,10 @@ function route(row: RouteRow): ActiveRoute {
     homeId: row.home_id,
     agentId: row.agent_id,
     cameraId: row.camera_id,
-    tunnelOrigin: row.tunnel_origin,
+    tunnelOrigin: row.tunnel_origin ?? "",
     publicKey: row.public_key,
     lastSeenAt: row.last_seen_at,
+    connectionMode: row.connection_mode,
   };
 }
 
@@ -290,25 +293,25 @@ export class PetCareRepository {
   > {
     const row = await this.db
       .prepare(`
-        SELECT tr.home_id, tr.agent_id, tr.tunnel_origin, tr.status,
-               CASE WHEN tr.status = 'active' OR (
+        SELECT a.home_id, a.id AS agent_id, tr.tunnel_origin, tr.status,
+               CASE WHEN a.connection_mode = 'outbound' OR tr.status = 'active' OR (
                  tr.status = 'activation_pending' AND
                  tr.activation_expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                ) THEN 1 ELSE 0 END AS route_eligible,
-               a.public_key, a.last_seen_at, a.revoked_at,
+               a.public_key, a.last_seen_at, a.connection_mode, a.revoked_at,
                c.id AS camera_id, c.disabled_at,
                h.deleted_at, tc.home_id AS cleanup_home_id
-        FROM tunnel_routes tr
-        JOIN homes h ON h.id = tr.home_id
-        JOIN agents a ON a.id = tr.agent_id AND a.home_id = tr.home_id
-        JOIN cameras c ON c.agent_id = a.id AND c.home_id = tr.home_id
-        LEFT JOIN tenant_cleanup tc ON tc.home_id = tr.home_id
-        WHERE tr.home_id = ?
+        FROM agents a
+        JOIN homes h ON h.id = a.home_id
+        JOIN cameras c ON c.agent_id = a.id AND c.home_id = a.home_id
+        LEFT JOIN tunnel_routes tr ON tr.agent_id = a.id AND tr.home_id = a.home_id
+        LEFT JOIN tenant_cleanup tc ON tc.home_id = a.home_id
+        WHERE a.home_id = ?
         LIMIT 1
       `)
       .bind(homeId)
       .first<RouteRow & {
-        status: TunnelStatus;
+        status: TunnelStatus | null;
         route_eligible: number;
         revoked_at: string | null;
         disabled_at: string | null;
@@ -350,7 +353,7 @@ export class PetCareRepository {
   async requireActiveAgent(agentId: string, cameraId: string): Promise<ActiveRoute> {
     const row = await this.db
       .prepare(`
-        SELECT tr.home_id, tr.agent_id, tr.tunnel_origin, a.public_key,
+        SELECT tr.home_id, tr.agent_id, tr.tunnel_origin, a.public_key, a.connection_mode,
                a.last_seen_at, c.id AS camera_id
         FROM tunnel_routes tr
         JOIN homes h ON h.id = tr.home_id AND h.deleted_at IS NULL
