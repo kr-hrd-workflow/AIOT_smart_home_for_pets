@@ -39,6 +39,7 @@ else:
 
 STATUS_PATH = "/v1/status"
 PREVIEW_PATH = "/v1/preview.jpg"
+LIVE_PATH = "/v1/live.mjpeg"
 CLIP_PATH = re.compile(r"^/v1/clips/([0-9a-f]{32})$")
 OBSERVATION_PATH = re.compile(r"^/v1/observations\?after=(0|[1-9][0-9]*)&wait_ms=(0|[1-9][0-9]*)$")
 CANONICAL_UTC = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$")
@@ -257,6 +258,8 @@ class VisionNode(object):
         self._latest_jpeg = None
         self._latest_live_sequence = 0
         self._latest_live_jpeg = None
+        self._latest_live_observed_at = None
+        self._live_admission = False
         self._latest_raw_sequence = 0
         self._latest_raw_frame = None
         self._latest_raw_observed_at = None
@@ -400,6 +403,29 @@ class VisionNode(object):
             self._last_preview = now
             return OrderedDict(self._latest_observation), self._latest_jpeg
 
+    def open_live(self):
+        with self._condition:
+            if (self._live_admission or self._stop.is_set() or not self._camera_online
+                    or self._latest_live_jpeg is None or self._latest_live_observed_at is None):
+                raise ServiceError("camera_unavailable")
+            self._live_admission = True
+            return self._latest_live_sequence, self._latest_live_observed_at
+
+    def next_live(self, sequence, server_stopped):
+        with self._condition:
+            while not self._stop.is_set() and not server_stopped.is_set():
+                if not self._camera_online:
+                    return None
+                if self._latest_live_sequence > sequence:
+                    return self._latest_live_sequence, self._latest_live_jpeg, self._latest_live_observed_at
+                self._condition.wait(0.1)
+        return None
+
+    def close_live(self):
+        with self._condition:
+            self._live_admission = False
+            self._condition.notify_all()
+
     def put(self, command_id, digest, value, received_wall, received_monotonic, received_monotonic_ns):
         with self._admission_lock:
             self.clock_guard.sample(received_wall, received_monotonic)
@@ -446,6 +472,7 @@ class VisionNode(object):
                 with self._condition:
                     self._latest_live_sequence = sequence
                     self._latest_live_jpeg = jpeg
+                    self._latest_live_observed_at = observed_at
                     self._latest_raw_sequence = sequence
                     self._latest_raw_frame = frame
                     self._latest_raw_observed_at = observed_at
@@ -581,6 +608,7 @@ class _ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     def __init__(self, *args, **kwargs):
         self._requests_condition = threading.Condition()
         self._requests = {}
+        self._stopped = threading.Event()
         super(_ThreadedHTTPServer, self).__init__(*args, **kwargs)
 
     def get_request(self):
@@ -613,7 +641,12 @@ class _ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
         with self._requests_condition:
             return len(self._requests)
 
+    def shutdown(self):
+        self._stopped.set()
+        return super(_ThreadedHTTPServer, self).shutdown()
+
     def server_close(self):
+        self._stopped.set()
         with self._requests_condition:
             requests = tuple(self._requests.values())
         for request in requests:
@@ -726,6 +759,8 @@ class _Handler(BaseHTTPRequestHandler):
                     ("X-PetCare-Jetson-Content-SHA256", hashlib.sha256(jpeg).hexdigest()),
                 )
                 self._send(200, headers, jpeg)
+            elif operation == "live":
+                self._send_live()
             elif operation == "put":
                 command_id = CLIP_PATH.match(self.path).group(1)
                 value = json.loads(body.decode("utf-8"), object_pairs_hook=OrderedDict)
@@ -761,6 +796,8 @@ class _Handler(BaseHTTPRequestHandler):
             allowed = {"GET": "status"}
         elif self.path == PREVIEW_PATH:
             allowed = {"GET": "preview"}
+        elif self.path == LIVE_PATH:
+            allowed = {"GET": "live"}
         elif OBSERVATION_PATH.match(self.path):
             allowed = {"GET": "observations"}
         elif CLIP_PATH.match(self.path):
@@ -831,6 +868,43 @@ class _Handler(BaseHTTPRequestHandler):
                     raise RuntimeError("invalid_media")
                 self.wfile.write(block)
                 remaining -= len(block)
+
+    def _send_live(self):
+        sequence, observed_at = self.server.node.open_live()
+        try:
+            self.send_response_only(200)
+            self.send_header("Date", email.utils.formatdate(usegmt=True))
+            self.send_header("Connection", "close")
+            self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+            self.send_header("Cache-Control", "private, no-store, no-transform")
+            self.send_header("X-PetCare-Jetson-Boot-Id", self.server.node.boot_id)
+            self.send_header("X-PetCare-Jetson-Sequence", str(sequence))
+            self.send_header("X-PetCare-Jetson-Observed-At", observed_at)
+            self.end_headers()
+            while True:
+                frame = self.server.node.next_live(sequence, self.server._stopped)
+                if frame is None:
+                    return
+                sequence, jpeg, observed_at = frame
+                headers = (
+                    ("Content-Type", "image/jpeg"),
+                    ("Content-Length", str(len(jpeg))),
+                    ("Cache-Control", "private, no-store, no-transform"),
+                    ("X-PetCare-Jetson-Boot-Id", self.server.node.boot_id),
+                    ("X-PetCare-Jetson-Sequence", str(sequence)),
+                    ("X-PetCare-Jetson-Observed-At", observed_at),
+                    ("X-PetCare-Jetson-Content-SHA256", hashlib.sha256(jpeg).hexdigest()),
+                )
+                self.wfile.write(b"--frame\r\n")
+                for name, value in headers:
+                    self.wfile.write(("{}: {}\r\n".format(name, value)).encode("ascii"))
+                self.wfile.write(b"\r\n")
+                self.wfile.write(jpeg)
+                self.wfile.write(b"\r\n")
+        except OSError:
+            return
+        finally:
+            self.server.node.close_live()
 
     def _send_json(self, status, value):
         content = _json_bytes(value)

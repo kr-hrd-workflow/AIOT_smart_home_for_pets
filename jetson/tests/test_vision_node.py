@@ -293,6 +293,50 @@ class VisionNodeHttpsTests(unittest.TestCase):
         response, unused = self.request("GET", "/v1/preview.jpg")
         self.assertEqual(response.status, 200)
 
+    def test_live_mjpeg_authenticates_new_frames_and_admits_one_stream(self):
+        with self.node._condition:
+            self.node._latest_live_sequence = 7
+            self.node._latest_live_jpeg = JPEG
+            self.node._latest_live_observed_at = "2026-07-20T04:00:00.700000Z"
+            self.node._camera_online = True
+
+        stream_connection = http.client.HTTPSConnection(
+            "127.0.0.1", self.server.server_address[1],
+            context=ssl.create_default_context(cafile=self.cert), timeout=2,
+        )
+        try:
+            stream_connection.request("GET", "/v1/live.mjpeg", headers=self.signed_headers("GET", "/v1/live.mjpeg"))
+            stream = stream_connection.getresponse()
+            self.assertEqual(stream.status, 200)
+            self.assertEqual(stream.getheader("Content-Type"), "multipart/x-mixed-replace; boundary=frame")
+            self.assertEqual(stream.getheader("Cache-Control"), "private, no-store, no-transform")
+            self.assertIsNone(stream.getheader("Content-Length"))
+
+            response, content = self.request("GET", "/v1/live.mjpeg")
+            self.assertEqual((response.status, json.loads(content)["code"]), (503, "camera_unavailable"))
+
+            with self.node._condition:
+                self.node._latest_live_sequence = 8
+                self.node._latest_live_jpeg = JPEG
+                self.node._latest_live_observed_at = "2026-07-20T04:00:00.800000Z"
+                self.node._condition.notify_all()
+            self.assertEqual(stream.fp.readline(), b"--frame\r\n")
+            headers = {}
+            while True:
+                line = stream.fp.readline()
+                if line == b"\r\n":
+                    break
+                name, value = line.decode("ascii").rstrip("\r\n").split(": ", 1)
+                headers[name] = value
+            self.assertEqual(headers["Content-Type"], "image/jpeg")
+            self.assertEqual(headers["Content-Length"], str(len(JPEG)))
+            self.assertEqual(headers["Cache-Control"], "private, no-store, no-transform")
+            self.assertEqual(headers["X-PetCare-Jetson-Sequence"], "8")
+            self.assertEqual(headers["X-PetCare-Jetson-Observed-At"], "2026-07-20T04:00:00.800000Z")
+            self.assertEqual(stream.fp.read(len(JPEG) + 2), JPEG + b"\r\n")
+        finally:
+            stream_connection.close()
+
     def test_first_put_requires_fresh_status_and_replay_bypasses_degraded_gate(self):
         body = b'{"committed_at":"2026-07-20T04:00:00.000000Z","event_id":41,"event_type":"eating","occurred_at":"2026-07-20T03:59:30.000000Z"}'
         target = "/v1/clips/" + COMMAND_ID

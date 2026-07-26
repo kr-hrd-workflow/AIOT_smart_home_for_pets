@@ -58,6 +58,13 @@ class ProtocolTest(unittest.TestCase):
         verify_request("GET", query["target"], list(headers.items()), b"", self.secret, self.request["boot_id"],
                        int(self.request["timestamp"]), ReplayGuard())
 
+    def test_live_target_requires_its_own_hmac(self):
+        live = self.signed_headers("GET", "/v1/live.mjpeg")
+        verify_request("GET", "/v1/live.mjpeg", list(live.items()), b"", self.secret,
+                       self.request["boot_id"], 1000, ReplayGuard())
+        self.assert_code("unauthorized", "GET", "/v1/live.mjpeg",
+                         self.signed_headers("GET", "/v1/preview.jpg"))
+
     def test_missing_duplicate_and_malformed_auth_headers_are_unauthorized(self):
         headers = self.signed_headers("GET", "/v1/preview.jpg")
         with self.assertRaisesRegex(ProtocolError, "^unauthorized$"):
