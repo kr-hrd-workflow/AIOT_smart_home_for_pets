@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from math import hypot, isfinite
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
@@ -14,6 +13,9 @@ from .models import ActivityObservation, AnomalyEvent
 REPETITIVE_MOTION_MESSAGE = "짧은 시간에 반복 이동이 관측됐습니다. 건강 판단이 아닌 카메라 관측 알림입니다."
 
 
+KOREA = timezone(timedelta(hours=9))
+
+
 def _utc(observed_at: datetime) -> datetime:
     if observed_at.tzinfo is None or observed_at.utcoffset() is None:
         return observed_at.replace(tzinfo=UTC)
@@ -22,8 +24,7 @@ def _utc(observed_at: datetime) -> datetime:
 
 def activity_statuses(session: Session, now: datetime) -> list[ActivityStatus]:
     now = _utc(now)
-    seoul = ZoneInfo("Asia/Seoul")
-    day_start = datetime.combine(now.astimezone(seoul).date(), datetime.min.time(), seoul).astimezone(UTC)
+    day_start = datetime.combine(now.astimezone(KOREA).date(), datetime.min.time(), KOREA).astimezone(UTC)
     subjects = ("dog_001", "cat_001")
     with session.no_autoflush:
         totals = {
@@ -47,7 +48,6 @@ def activity_statuses(session: Session, now: datetime) -> list[ActivityStatus]:
                 select(ActivityObservation.observed_at, ActivityObservation.moving)
                 .where(
                     ActivityObservation.subject_id == subject_id,
-                    ActivityObservation.observed_at >= day_start,
                     ActivityObservation.observed_at <= now,
                 )
                 .order_by(ActivityObservation.observed_at.desc(), ActivityObservation.id.desc())

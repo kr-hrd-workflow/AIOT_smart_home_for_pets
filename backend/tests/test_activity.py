@@ -154,6 +154,23 @@ def test_activity_statuses_keep_stale_timestamp_and_report_empty_as_unknown(sess
     ]
 
 
+def test_activity_statuses_keep_previous_day_timestamp_without_daily_counts(session: Session) -> None:
+    now = datetime(2026, 7, 26, tzinfo=UTC)
+    observed_at = datetime(2026, 7, 25, 14, 59, 59, tzinfo=UTC)
+    session.add(observation("dog_001", observed_at, moving=True))
+    session.commit()
+
+    statuses = activity_statuses(session, now)
+
+    assert statuses[0].model_dump() == {
+        "subject_id": "dog_001",
+        "today_active_seconds": 0,
+        "today_observed_seconds": 0,
+        "current_state": "unknown",
+        "last_observed_at": observed_at,
+    }
+
+
 def test_activity_statuses_do_not_flush_or_include_pending_observations(session: Session) -> None:
     now = datetime(2026, 7, 26, tzinfo=UTC)
     pending = observation("dog_001", now, moving=True)
