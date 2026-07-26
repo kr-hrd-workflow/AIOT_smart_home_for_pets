@@ -1035,7 +1035,37 @@ export class PetCareRepository {
     now: string,
   ): Promise<{ homeId: string; status: "cleanup_pending" } | { status: "absent" }> {
     const existing = await this.getTenantCleanup(ownerSub);
-    if (existing) return existing;
+    if (existing) {
+      const commandId = `clc_${crypto.randomUUID().replaceAll("-", "")}`;
+      await this.db.batch([
+        this.db
+          .prepare(`
+            INSERT INTO activity_cleanup_commands (
+              id, home_id, agent_id, type, status, created_at
+            )
+            SELECT ?, tc.home_id, a.id, 'delete_activity_observations', 'pending', ?
+            FROM tenant_cleanup tc
+            JOIN agents a ON a.home_id = tc.home_id AND a.revoked_at IS NOT NULL
+            WHERE tc.owner_sub = ? AND tc.home_id = ?
+              AND NOT EXISTS (
+                SELECT 1 FROM activity_cleanup_commands ac WHERE ac.home_id = tc.home_id
+              )
+            ORDER BY a.revoked_at DESC, a.id
+            LIMIT 1
+            ON CONFLICT(home_id) DO NOTHING
+          `)
+          .bind(commandId, now, ownerSub, existing.homeId),
+        this.db
+          .prepare(`
+            INSERT INTO tenant_cleanup (owner_sub, home_id, status, started_at, updated_at)
+            SELECT NULL, NULL, NULL, NULL, NULL
+            WHERE EXISTS (SELECT 1 FROM agents WHERE home_id = ?)
+              AND (SELECT COUNT(*) FROM activity_cleanup_commands WHERE home_id = ?) <> 1
+          `)
+          .bind(existing.homeId, existing.homeId),
+      ]);
+      return existing;
+    }
     const home = await this.db
       .prepare("SELECT id FROM homes WHERE owner_sub = ? LIMIT 1")
       .bind(ownerSub)
@@ -1140,12 +1170,13 @@ export class PetCareRepository {
           .prepare(`
             INSERT INTO tenant_cleanup (owner_sub, home_id, status, started_at, updated_at)
             SELECT NULL, NULL, NULL, NULL, NULL
-            WHERE (
+            WHERE EXISTS (SELECT 1 FROM agents WHERE home_id = ?)
+              AND (
               SELECT COUNT(*) FROM activity_cleanup_commands ac
               WHERE ac.home_id = ? AND ac.id = ? AND ac.status = 'pending'
-            ) <> 1
+              ) <> 1
           `)
-          .bind(home.id, commandId),
+          .bind(home.id, home.id, commandId),
       ]);
       return { homeId: home.id, status: "cleanup_pending" };
     } catch (error) {
@@ -1238,14 +1269,18 @@ export class PetCareRepository {
   async isActivityCleanupAcknowledged(homeId: string): Promise<boolean> {
     const row = await this.db
       .prepare(`
-        SELECT ac.status FROM activity_cleanup_commands ac
-        JOIN tenant_cleanup tc ON tc.home_id = ac.home_id
-        WHERE ac.home_id = ?
-        LIMIT 1
+        SELECT (
+          NOT EXISTS (SELECT 1 FROM agents a WHERE a.home_id = tc.home_id)
+          OR EXISTS (
+            SELECT 1 FROM activity_cleanup_commands ac
+            WHERE ac.home_id = tc.home_id AND ac.status = 'acknowledged'
+          )
+        ) AS acknowledged
+        FROM tenant_cleanup tc WHERE tc.home_id = ?
       `)
       .bind(homeId)
-      .first<{ status: "pending" | "acknowledged" }>();
-    return row?.status === "acknowledged";
+      .first<{ acknowledged: number }>();
+    return row?.acknowledged === 1;
   }
 
   async completeTenantCleanup(ownerSub: string, homeId: string, now: string): Promise<void> {
@@ -1282,9 +1317,12 @@ export class PetCareRepository {
               WHERE h.id = ? AND h.owner_sub = ? AND tc.owner_sub = ?
                 AND NOT EXISTS (SELECT 1 FROM clips WHERE home_id = h.id)
                 AND NOT EXISTS (SELECT 1 FROM object_deletion_jobs WHERE home_id = h.id)
-                AND EXISTS (
-                  SELECT 1 FROM activity_cleanup_commands ac
-                  WHERE ac.home_id = h.id AND ac.status = 'acknowledged'
+                AND (
+                  NOT EXISTS (SELECT 1 FROM agents a WHERE a.home_id = h.id)
+                  OR EXISTS (
+                    SELECT 1 FROM activity_cleanup_commands ac
+                    WHERE ac.home_id = h.id AND ac.status = 'acknowledged'
+                  )
                 )
                 AND NOT EXISTS (
                   SELECT 1 FROM tunnel_routes tr WHERE tr.home_id = h.id AND (

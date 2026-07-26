@@ -905,6 +905,20 @@ describe("reconcilePetCare", () => {
     expect(await count("homes")).toBe(1);
   });
 
+  it("completes a cleanup without an acknowledgement when no Home agent exists", async () => {
+    const home = await seedHomeOnly("no-agent");
+
+    await expect(
+      new PetCareRepository(db).beginTenantCleanup(home.ownerSub, NOW_ISO),
+    ).resolves.toEqual({ homeId: home.homeId, status: "cleanup_pending" });
+
+    const result = await reconcilePetCare(env(), NOW);
+    expect(result.cleanedTenants).toBe(1);
+    expect(await count("activity_cleanup_commands")).toBe(0);
+    expect(await count("tenant_cleanup")).toBe(0);
+    expect(await count("homes")).toBe(0);
+  });
+
   it("completes tenant cleanup when a revoked route lease has expired", async () => {
     const home = await seedHome("expired-cleanup-lease", { deleted: true });
     await db.batch([
