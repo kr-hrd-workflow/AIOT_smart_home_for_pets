@@ -116,7 +116,9 @@ it("maps native scroll directly while reduced motion stays static and focus-safe
   expect(director).not.toContain("video.play(");
   expect(director).not.toContain('window.addEventListener("wheel"');
   expect(director).toContain("video.pause()");
-  expect(director).toContain("video.currentTime = targetTime(runtime)");
+  expect(director).toContain("const SCRUB_DURATION_MS = 420");
+  expect(director).toContain("window.requestAnimationFrame(scrub)");
+  expect(director).not.toContain("video.currentTime = targetTime(runtime)");
   expect(director).toContain("const staticMode = saveData || reducedMotion");
   expect(director).not.toContain("pointermove");
   expect(styles).toMatch(

@@ -42,6 +42,8 @@ type SegmentRuntime = ScrollWorldSegment & {
 const DESKTOP_FALLBACK = "/landing-apartment-photoreal-v3.webp";
 const MOBILE_FALLBACK = "/landing-apartment-photoreal-mobile-v2.webp";
 const SEAM_OVERLAP = 0.12;
+const SCRUB_DURATION_MS = 420;
+const SCRUB_FRAME_EPSILON = 0.001;
 const clamp = (value: number) => Math.min(1, Math.max(0, value));
 
 export const LANDING_COPY_SCENES = [
@@ -296,13 +298,49 @@ export function mountScrollWorld(
     const video = runtime.video;
     if (!runtime.ready || !video) return;
     video.pause();
-    if (isAtTarget(runtime)) {
+    const duration = Number.isFinite(video.duration) ? video.duration : 0;
+    const target = Math.min(duration, Math.max(0, targetTime(runtime)));
+    if (Math.abs(video.currentTime - target) < SCRUB_FRAME_EPSILON) {
       cancelPlaybackFrame(runtime);
+      if (video.currentTime !== target) video.currentTime = target;
       revealPaintedFrame(runtime);
       return;
     }
     cancelPlaybackFrame(runtime);
-    if (!video.seeking) video.currentTime = targetTime(runtime);
+    const start = Math.min(duration, Math.max(0, video.currentTime));
+    let startedAt: number | undefined;
+    const scrub = (timestamp: number) => {
+      if (closed || !runtime.ready || runtime.video !== video) {
+        runtime.playbackFrame = undefined;
+        return;
+      }
+      video.pause();
+      if (startedAt === undefined) startedAt = timestamp;
+      const progress = Math.min(
+        1,
+        Math.max(0, (timestamp - startedAt) / SCRUB_DURATION_MS),
+      );
+      const easedProgress = 1 - (1 - progress) ** 3;
+      const current = Math.min(
+        duration,
+        Math.max(0, start + (target - start) * easedProgress),
+      );
+
+      if (progress === 1) {
+        video.currentTime = target;
+        runtime.playbackFrame = undefined;
+        revealPaintedFrame(runtime);
+        return;
+      }
+      if (
+        !video.seeking &&
+        Math.abs(video.currentTime - current) >= SCRUB_FRAME_EPSILON
+      ) {
+        video.currentTime = current;
+      }
+      runtime.playbackFrame = window.requestAnimationFrame(scrub);
+    };
+    runtime.playbackFrame = window.requestAnimationFrame(scrub);
   };
 
   const loadClip = (runtime: SegmentRuntime) => {
