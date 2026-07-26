@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Thread
 from time import monotonic, sleep
+from contextlib import nullcontext
 
 import numpy as np
 import pytest
@@ -16,7 +17,7 @@ from app.camera_service import CameraService
 from app.config import AppConfig
 from app.contracts import CameraStatus
 from app.events import CameraFrameCommitted, DeviceStatusCommitted
-from app.models import Camera, CameraEvent
+from app.models import ActivityObservation, AnomalyEvent, Camera, CameraEvent, ClipTriggerOutbox
 from app.rule_ingress import IngressTicket, RuleEnvelope, RuleIngress
 from app.vision import CameraUnavailable, VisionPipeline
 
@@ -65,6 +66,11 @@ class FakeSession:
         self.fail_commit = fail_commit
         self.camera: Camera | None = None
         self.events: list[CameraEvent] = []
+        self.new: list[object] = []
+
+    @property
+    def no_autoflush(self) -> object:
+        return nullcontext()
 
     def get(self, model: object, _key: str) -> object | None:
         assert model is Camera
@@ -75,7 +81,22 @@ class FakeSession:
             self.camera = row
         elif isinstance(row, CameraEvent):
             self.events.append(row)
+        if isinstance(row, (ActivityObservation, AnomalyEvent)):
+            self.new.append(row)
         self.calls.append(f"add:{type(row).__name__}")
+
+    def execute(self, _statement: object) -> object:
+        class Result:
+            def scalar_one_or_none(self) -> None:
+                return None
+
+            def scalars(self) -> tuple[object, ...]:
+                return ()
+
+            def first(self) -> None:
+                return None
+
+        return Result()
 
     def flush(self) -> None:
         for index, row in enumerate(self.events, 101):
@@ -291,6 +312,64 @@ def test_missing_source_inference_and_database_failures_resolve_tombstones() -> 
         assert not service.available_for(NOW, NOW + timedelta(seconds=1))
         with pytest.raises(CameraUnavailable, match="camera_unavailable"):
             service.mjpeg_chunk()
+
+
+def test_persist_frame_rolls_back_camera_event_activity_and_anomaly_together() -> None:
+    from sqlalchemy import create_engine, event, func, select
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    database = create_engine("sqlite+pysqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    with database.begin() as connection:
+        connection.exec_driver_sql(
+            "CREATE TABLE cameras (camera_id TEXT PRIMARY KEY, status TEXT NOT NULL, last_frame_at DATETIME, "
+            "created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL)"
+        )
+        connection.exec_driver_sql(
+            "CREATE TABLE camera_events (id INTEGER PRIMARY KEY, camera_id TEXT NOT NULL, subject_id TEXT, "
+            "detected_type TEXT NOT NULL, confidence FLOAT NOT NULL, bbox_x INTEGER NOT NULL, bbox_y INTEGER NOT NULL, "
+            "bbox_width INTEGER NOT NULL, bbox_height INTEGER NOT NULL, center_x INTEGER NOT NULL, center_y INTEGER NOT NULL, "
+            "zone_name TEXT, observed_at DATETIME NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL)"
+        )
+        connection.exec_driver_sql(
+            "CREATE TABLE activity_observations (id INTEGER PRIMARY KEY, camera_id TEXT NOT NULL, subject_id TEXT NOT NULL, "
+            "observed_at DATETIME NOT NULL, center_x INTEGER NOT NULL, center_y INTEGER NOT NULL, moving BOOLEAN NOT NULL, "
+            "distance FLOAT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL)"
+        )
+        connection.exec_driver_sql(
+            "CREATE TABLE anomaly_events (id INTEGER PRIMARY KEY, subject_id TEXT, anomaly_type TEXT NOT NULL, severity TEXT NOT NULL, "
+            "mismatch_kind TEXT, source_behavior_event_id INTEGER, source_key TEXT NOT NULL, message TEXT NOT NULL, "
+            "occurred_at DATETIME NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL)"
+        )
+        connection.exec_driver_sql(
+            "CREATE TABLE clip_trigger_outbox (id INTEGER PRIMARY KEY, event_type TEXT NOT NULL, event_id INTEGER NOT NULL, "
+            "occurred_at DATETIME NOT NULL, created_at DATETIME NOT NULL, deadline_at DATETIME NOT NULL, "
+            "next_attempt_at DATETIME NOT NULL, attempts INTEGER NOT NULL)"
+        )
+    sessions = sessionmaker(bind=database, expire_on_commit=False)
+    session = sessions()
+
+    def fail_activity_flush(current: object, *_args: object) -> None:
+        if any(isinstance(row, ActivityObservation) for row in current.new):  # type: ignore[attr-defined]
+            assert not any(isinstance(row, ClipTriggerOutbox) for row in current.new)  # type: ignore[attr-defined]
+            raise RuntimeError("activity flush failed")
+
+    event.listen(session, "before_flush", fail_activity_flush)
+    persisted = CameraService(None, None, lambda: session)
+    processed = camera_module.ProcessedFrame(
+        jpeg=b"", detections=(camera_module.CameraDetectionIn(
+            camera_id="pc-webcam-01", subject_id="dog_001", detected_type="dog", confidence=0.9,
+            bbox_x=0, bbox_y=0, bbox_width=640, bbox_height=480, center_x=200, center_y=200,
+            zone_name=None, observed_at=NOW,
+        ),), fps=1.0, inference_ms=1.0, observed_at=NOW, bed_subject_ids=(), selected_bed_subject_id=None,
+    )
+
+    with pytest.raises(RuntimeError, match="activity flush failed"):
+        persisted._persist_frame(processed)
+
+    with sessions() as check:
+        assert [check.scalar(select(func.count()).select_from(model)) for model in (CameraEvent, ActivityObservation, AnomalyEvent, ClipTriggerOutbox)] == [0, 0, 0, 0]
+    database.dispose()
 
 
 def test_missing_source_and_session_factory_failure_still_resolve_tickets() -> None:

@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .config import AppConfig
+from .activity import record_activity
 from .contracts import CameraDetectionIn, CameraStatus
 from .events import CameraFrameCommitted
 from .jetson_client import JetsonVisionClient
@@ -218,6 +219,8 @@ class CameraService:
             for row in rows:
                 session.add(row)
             session.flush()
+            for detection in processed.detections:
+                record_activity(session, detection)
             event = CameraFrameCommitted(
                 camera_id=CAMERA_ID,
                 observed_at=processed.observed_at,

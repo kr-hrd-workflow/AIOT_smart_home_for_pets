@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from math import hypot
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -11,7 +12,10 @@ from sqlalchemy.pool import StaticPool
 
 from app.activity import record_activity
 from app.contracts import CameraDetectionIn
-from app.models import ActivityObservation
+from app.models import ActivityObservation, AnomalyEvent
+
+
+REPETITIVE_MOTION_MESSAGE = "짧은 시간에 반복 이동이 관측됐습니다. 건강 판단이 아닌 카메라 관측 알림입니다."
 
 
 @pytest.fixture()
@@ -27,6 +31,13 @@ def session() -> Iterator[Session]:
             "id INTEGER PRIMARY KEY, camera_id TEXT NOT NULL, subject_id TEXT NOT NULL, "
             "observed_at DATETIME NOT NULL, center_x INTEGER NOT NULL, center_y INTEGER NOT NULL, "
             "moving BOOLEAN NOT NULL, distance FLOAT NOT NULL, "
+            "created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL)"
+        )
+        connection.exec_driver_sql(
+            "CREATE TABLE anomaly_events ("
+            "id INTEGER PRIMARY KEY, subject_id TEXT, anomaly_type TEXT NOT NULL, severity TEXT NOT NULL, "
+            "mismatch_kind TEXT, source_behavior_event_id INTEGER, source_key TEXT NOT NULL, "
+            "message TEXT NOT NULL, occurred_at DATETIME NOT NULL, "
             "created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL)"
         )
     current = sessionmaker(bind=engine, expire_on_commit=False)()
@@ -65,6 +76,83 @@ def rows(session: Session) -> list[ActivityObservation]:
     return session.execute(
         select(ActivityObservation).order_by(ActivityObservation.subject_id, ActivityObservation.observed_at)
     ).scalars().all()
+
+
+def anomalies(session: Session) -> list[AnomalyEvent]:
+    return session.execute(select(AnomalyEvent).order_by(AnomalyEvent.id)).scalars().all()
+
+
+def qualifying_history(
+    at: datetime,
+    *,
+    subject_id: str = "dog_001",
+) -> tuple[list[ActivityObservation], CameraDetectionIn]:
+    center_x, center_y = 200, 200
+    history = [
+        ActivityObservation(
+            camera_id="pc-webcam-01",
+            subject_id=subject_id,
+            observed_at=at + timedelta(seconds=offset),
+            center_x=center_x,
+            center_y=center_y,
+            moving=False,
+            distance=0,
+        )
+        for offset in range(-29, -12)
+    ]
+    for offset, step in zip(range(-12, -5), (54, -54, 54, -54, 54, -54, 54), strict=True):
+        center_x += step
+        history.append(
+            ActivityObservation(
+                camera_id="pc-webcam-01",
+                subject_id=subject_id,
+                observed_at=at + timedelta(seconds=offset),
+                center_x=center_x,
+                center_y=center_y,
+                moving=True,
+                distance=54,
+            )
+        )
+    history.append(
+        ActivityObservation(
+            camera_id="pc-webcam-01",
+            subject_id=subject_id,
+            observed_at=at + timedelta(seconds=-5),
+            center_x=center_x,
+            center_y=center_y,
+            moving=False,
+            distance=0,
+        )
+    )
+    for offset, step in zip(range(-4, 0), (54, 52, 52, 52), strict=True):
+        center_x += step
+        history.append(
+            ActivityObservation(
+                camera_id="pc-webcam-01",
+                subject_id=subject_id,
+                observed_at=at + timedelta(seconds=offset),
+                center_x=center_x,
+                center_y=center_y,
+                moving=True,
+                distance=step,
+            )
+        )
+    return history, detection(at, subject_id=subject_id, center_x=center_x + 52, center_y=center_y)
+
+
+def dot_history(at: datetime, second_x: int) -> tuple[list[ActivityObservation], CameraDetectionIn]:
+    history, _current = qualifying_history(at)
+    center_x, center_y = 200, 200
+    vectors = ((30, 0), (second_x, 120), (-second_x, -120), (second_x, 120), (-second_x, -120), (second_x, 120), (-second_x, -120))
+    for row, (dx, dy) in zip(history[17:24], vectors, strict=True):
+        center_x += dx
+        center_y += dy
+        row.center_x, row.center_y, row.distance = center_x, center_y, hypot(dx, dy)
+    history[24].center_x, history[24].center_y = center_x, center_y
+    for row, step in zip(history[25:], (54, 52, 52, 52), strict=True):
+        center_x += step
+        row.center_x, row.center_y, row.distance = center_x, center_y, step
+    return history, detection(at, center_x=center_x + 52, center_y=center_y)
 
 
 def test_person_detection_is_ignored(session: Session) -> None:
@@ -163,3 +251,176 @@ def test_uses_latest_of_multiple_same_subject_preceding_buckets(session: Session
     row = record_activity(session, detection(at + timedelta(seconds=3), center_x=218))
     assert row is not None
     assert (row.distance, row.moving) == (18, False)
+
+
+def test_repeated_motion_emits_at_exact_observation_movement_travel_and_reversal_boundaries(session: Session) -> None:
+    at = datetime(2026, 7, 26, 1, 0, tzinfo=UTC)
+    history, current = qualifying_history(at)
+    session.add_all(history)
+    session.flush()
+
+    row = record_activity(session, current)
+
+    assert row is not None and row.moving is True
+    [anomaly] = anomalies(session)
+    assert (
+        anomaly.subject_id,
+        anomaly.anomaly_type,
+        anomaly.severity,
+        anomaly.mismatch_kind,
+        anomaly.source_behavior_event_id,
+        anomaly.message,
+        anomaly.occurred_at,
+    ) == (
+        "dog_001",
+        "repetitive_motion",
+        "warning",
+        None,
+        None,
+        REPETITIVE_MOTION_MESSAGE,
+        at.replace(tzinfo=None),
+    )
+    assert anomaly.source_key == "repetitive_motion:dog_001:2026-07-26T01:00:00+00:00"
+
+
+@pytest.mark.parametrize("threshold", ("observations", "moving", "travel", "reversals"))
+def test_repeated_motion_requires_each_threshold_independently(session: Session, threshold: str) -> None:
+    at = datetime(2026, 7, 26, 1, 0, tzinfo=UTC)
+    history, current = qualifying_history(at)
+    if threshold == "observations":
+        history.pop(0)
+    elif threshold == "moving":
+        next(row for row in history if row.moving).moving = False
+    elif threshold == "travel":
+        next(row for row in history if row.distance == 52).distance = 51
+    else:
+        history[23].center_x = 146
+        history[24].center_x = 146
+    session.add_all(history)
+    session.flush()
+
+    record_activity(session, current)
+
+    assert anomalies(session) == []
+
+
+@pytest.mark.parametrize(("second_x", "emits"), ((-90, True), (-88, False)))
+def test_repeated_motion_uses_dot_product_boundary(session: Session, second_x: int, emits: bool) -> None:
+    at = datetime(2026, 7, 26, 1, 0, tzinfo=UTC)
+    history, current = dot_history(at, second_x)
+    session.add_all(history)
+    session.flush()
+
+    record_activity(session, current)
+
+    assert bool(anomalies(session)) is emits
+
+
+@pytest.mark.parametrize(
+    ("subject_id", "outside_at"),
+    (("dog_001", timedelta(seconds=-120)), ("dog_001", timedelta(seconds=1)), ("cat_001", timedelta(seconds=-29))),
+)
+def test_repeated_motion_excludes_window_boundaries_future_and_other_subjects(
+    session: Session,
+    subject_id: str,
+    outside_at: timedelta,
+) -> None:
+    at = datetime(2026, 7, 26, 1, 0, tzinfo=UTC)
+    history, current = qualifying_history(at)
+    session.add_all(
+        [
+            *history[1:],
+            ActivityObservation(
+                camera_id="pc-webcam-01",
+                subject_id=subject_id,
+                observed_at=at + outside_at,
+                center_x=200,
+                center_y=200,
+                moving=False,
+                distance=0,
+            ),
+        ]
+    )
+    session.flush()
+
+    record_activity(session, current)
+
+    assert anomalies(session) == []
+
+
+@pytest.mark.parametrize(
+    ("age", "expected"),
+    ((timedelta(minutes=15) - timedelta(microseconds=1), 1), (timedelta(minutes=15), 2)),
+)
+def test_repeated_motion_dedupes_strictly_inside_fifteen_minutes(
+    session: Session,
+    age: timedelta,
+    expected: int,
+) -> None:
+    at = datetime(2026, 7, 26, 1, 0, tzinfo=UTC)
+    history, current = qualifying_history(at)
+    session.add_all(history)
+    session.add(
+        AnomalyEvent(
+            subject_id="dog_001",
+            anomaly_type="repetitive_motion",
+            severity="warning",
+            source_key=f"existing:{age}",
+            message="existing",
+            occurred_at=at - age,
+        )
+    )
+    session.flush()
+
+    record_activity(session, current)
+
+    assert len(anomalies(session)) == expected
+
+
+def test_repeated_motion_includes_pending_buckets_without_flushing(session: Session) -> None:
+    flushes: list[None] = []
+    event.listen(session, "before_flush", lambda *_: flushes.append(None))
+    at = datetime(2026, 7, 26, 1, 0, tzinfo=UTC)
+    history, current = qualifying_history(at)
+    session.add_all(history)
+
+    record_activity(session, current)
+
+    assert flushes == []
+    assert [row for row in session.new if isinstance(row, AnomalyEvent)]
+
+
+def test_repeated_motion_does_not_reevaluate_later_moving_same_second_updates(session: Session) -> None:
+    at = datetime(2026, 7, 26, 1, 0, tzinfo=UTC)
+    history, current = qualifying_history(at)
+    session.add_all(history)
+    session.flush()
+    first = detection(at, center_x=history[-1].center_x, center_y=history[-1].center_y)
+
+    record_activity(session, first)
+    assert anomalies(session) == []
+    record_activity(session, current.model_copy(update={"center_x": history[-1].center_x + 24}))
+    record_activity(session, current.model_copy(update={"center_x": history[-1].center_x + 76}))
+
+    assert anomalies(session) == []
+
+
+def test_repeated_motion_deduplication_is_per_subject(session: Session) -> None:
+    at = datetime(2026, 7, 26, 1, 0, tzinfo=UTC)
+    history, current = qualifying_history(at)
+    session.add_all(history)
+    session.add(
+        AnomalyEvent(
+            subject_id="cat_001",
+            anomaly_type="repetitive_motion",
+            severity="warning",
+            source_key="cat-existing",
+            message="existing",
+            occurred_at=at,
+        )
+    )
+    session.flush()
+
+    record_activity(session, current)
+
+    assert {row.subject_id for row in anomalies(session)} == {"dog_001", "cat_001"}

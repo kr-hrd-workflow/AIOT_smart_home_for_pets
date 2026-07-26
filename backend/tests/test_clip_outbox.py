@@ -45,7 +45,7 @@ def test_enqueue_clip_trigger_maps_only_eligible_events_with_explicit_commit_tim
     assert (row.attempts, row.processed_at, row.terminal_reason) == (0, None, None)
 
 
-def test_enqueue_clip_trigger_rejects_no_meal_and_non_utc_commit_time() -> None:
+def test_enqueue_clip_trigger_rejects_no_meal_repetitive_motion_and_non_utc_commit_time() -> None:
     class Session:
         def add(self, _row: object) -> None:
             raise AssertionError("ineligible row must not be added")
@@ -53,6 +53,12 @@ def test_enqueue_clip_trigger_rejects_no_meal_and_non_utc_commit_time() -> None:
     no_meal = AnomalyEvent(id=9, anomaly_type="no_meal_12h", occurred_at=NOW)
     with pytest.raises(ValueError, match="eligible"):
         enqueue_clip_trigger(Session(), no_meal, created_at=NOW)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="eligible"):
+        enqueue_clip_trigger(
+            Session(),
+            AnomalyEvent(id=10, anomaly_type="repetitive_motion", occurred_at=NOW),
+            created_at=NOW,
+        )  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="UTC"):
         enqueue_clip_trigger(
             Session(),
