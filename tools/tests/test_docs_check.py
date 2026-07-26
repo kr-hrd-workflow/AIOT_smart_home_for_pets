@@ -25,9 +25,12 @@ def test_live30_activity_docs_are_observation_only_and_hardware_honest() -> None
 
     assert "Jetson 단기 실기기 라이브 게이트" in readme
     assert "60분 soak는 `NOT RUN`" in readme
-    assert "Sites v5" in readme
-    assert "source commit `33ffa873`" in readme
+    assert "Sites v7" in readme
+    assert "source commit `0f7330e`" in readme
     assert "한 번의 큰 스크롤에 영상이 약 1~2초 전진" in readme
+    assert "`503 enrollment_unavailable`" in readme
+    assert "/auth/callback?next=/reset-password" in runbook
+    assert "7일 lifecycle" in runbook
     assert "카메라 관측 공백은 활동 0초로 계산하지 않습니다." in runbook
     assert "`repetitive_motion`" in runbook
     assert "`repetitive_motion`" in privacy

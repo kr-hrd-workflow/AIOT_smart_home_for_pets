@@ -2,7 +2,7 @@
 
 PetCare는 두 대의 Raspberry Pi Pico 2 W, Windows Home Agent, Jetson 카메라, 공개 Sites 웹을 연결해 반려동물의 식사·휴식·카메라 관측 활동을 보여주는 제품입니다. 공개 랜딩과 fixture 전용 체험 화면은 누구나 볼 수 있고, 실제 가정 데이터와 기기 등록은 Supabase 로그인과 tenant 범위로 보호됩니다.
 
-공개 Sites 주소는 [kr-hrd-petcare-aiot.parkccccc3.chatgpt.site](https://kr-hrd-petcare-aiot.parkccccc3.chatgpt.site)입니다. 현재 공개 배포는 Sites v5이며, 검증된 `dashboard` subtree의 source commit `33ffa873`을 사용합니다.
+공개 Sites 주소는 [kr-hrd-petcare-aiot.parkccccc3.chatgpt.site](https://kr-hrd-petcare-aiot.parkccccc3.chatgpt.site)입니다. 현재 공개 배포는 Sites v7이며, 검증된 `dashboard` subtree의 source commit `0f7330e`를 사용합니다.
 
 랜딩 영상은 휠 틱마다 장면을 점프하거나 재생을 다시 시작하지 않습니다. native scroll 목표를 1초 동안 연속 보간해 한 번의 큰 스크롤에 영상이 약 1~2초 전진하고, 입력이 멈추면 영상도 정지합니다.
 
@@ -13,10 +13,11 @@ PetCare는 두 대의 Raspberry Pi Pico 2 W, Windows Home Agent, Jetson 카메�
 | Pico 2 W C++ 펌웨어와 MQTT 계약 | `entrance`·`petzone` 두 프로필 빌드 PASS |
 | FastAPI, PostgreSQL, MQTT, 행동 규칙 | 구현·로컬 통합 테스트됨 |
 | 공개 랜딩, `/demo`, 로그인 후 대시보드 | 연속 스크롤 scrub·인증 장애 fallback까지 구현·테스트됨 |
-| Supabase 고객 가입·로그인과 tenant 분리 | 구현·운영 콜백 설정됨; 일반 고객 메일용 Custom SMTP는 미구성 |
+| Supabase 고객 가입·로그인과 tenant 분리 | 구현·production Site URL·두 콜백 설정됨; 일반 고객 메일용 Custom SMTP는 미구성 |
 | Sites↔Home Agent 원격 연결 | 코드·UI 구현됨; 연결된 Cloudflare 계정에 Zone·Access가 없어 운영 등록은 `BLOCKED` |
-| Windows Home Agent 설치 파일 | 로그인 후 제공하는 코드서명 전 설치 파일 |
-| Sites 공개 배포 | v5 공개 배포 PASS (source `33ffa873`) |
+| Windows Home Agent 설치 파일 | 고정 크기·SHA-256 검증 후 Sites R2 업로드 PASS; 로그인 후 제공 |
+| Sites scheduled 정리·R2 7일 lifecycle | 코드 구현됨; provider 운영 trigger/lifecycle 연결 증거는 `NOT VERIFIED` |
+| Sites 공개 배포 | v7 공개 배포 PASS (source `0f7330e`) |
 | 실제 Jetson 비전 서비스·USB 카메라·서명 프리뷰 | 실기기 통과 (JetPack 4.6.6, L4T 32.7.6, TensorRT 8.2.1) |
 | Jetson 고유 프레임 30 FPS 라이브·활동·반복 이동 관측 | 60 Hz 보정 후 단기 실기기 게이트 PASS |
 | Jetson 60분 지속 실행 | `NOT RUN` |
@@ -78,6 +79,8 @@ Pico는 FSR의 `0..4095` ADC 원값만 발행합니다. 침대 baseline, polarit
 | `/api/petcare/**`와 실데이터 경로 | 로그인·tenant 검증 필요 | 등록, 상태, 카메라, 클립, 계정 작업 |
 
 루트가 랜딩보다 먼저 설정 코드 화면으로 바뀌지 않습니다. 10분 코드는 로그인한 대시보드에서 고객이 명시적으로 만들 때만 표시됩니다.
+
+운영 Supabase Auth의 Site URL은 공개 Sites 주소로 고정했고, Redirect URL allowlist는 `/auth/callback`과 `/auth/callback?next=/reset-password`의 production URL 두 개만 사용합니다. 이메일 확인은 유지하므로 일반 고객 가입·복구 메일을 실제 운영하려면 별도 Custom SMTP가 필요합니다. Cloudflare `CF_*` 8개 값이 완전하지 않으면 10분 코드는 D1에 저장되지 않고 `503 enrollment_unavailable`로 조기 실패하며 화면은 “원격 연결 준비 중”이라고 안내합니다.
 
 ## 활동과 반복 이동 관측
 
