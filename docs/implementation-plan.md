@@ -15,7 +15,7 @@ PetCare는 센서 노드와 Home 런타임을 분리합니다. 두 Pico 2 W는 C
 | Dashboard/demo/responsive QA | 구현·테스트됨 | Vitest, Playwright, build |
 | Jetson live 30 FPS·활동·반복 이동 | 소프트웨어 구현·단기 실기기 gate PASS; 60분 soak `NOT RUN` | 10개 1초 창 모두 30/30 고유 프레임, 합산 30.064 FPS |
 | CI | workflow implemented; final candidate push 후 exact-SHA rerun 대기 | 6-job workflow |
-| Sites | v7 공개 배포 PASS; 원격 등록 외부 gate `BLOCKED` | source `0f7330e`, public landing/demo, Supabase-authenticated live data |
+| Sites | v8 공개 배포 PASS; 원격 등록 외부 gate `BLOCKED` | source `634fe4e`, public landing/demo, Supabase-authenticated live data |
 | 실제 Pico/센서/웹캠 설치 | NOT RUN | 물리 증거 없음 |
 
 Sites production `/demo`는 fixture UI만 제공하고 Home API·WebSocket을 생성하지 않습니다. Sites 랜딩과 데모는 공개하며, 실제 카메라·센서·활동·등록·클립 route는 Supabase 인증과 tenant scope로 보호합니다. 라이브 카메라는 Jetson 주소를 공개하지 않고 인증된 Home Agent BFF 경로로만 중계합니다.
