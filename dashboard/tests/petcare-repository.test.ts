@@ -162,6 +162,9 @@ describe("PetCareRepository", () => {
   it("binds local cleanup polling and idempotent acknowledgement to the revoked agent", async () => {
     await seedHome("a");
     await seedHome("b");
+    await expect(repo.findActiveActivityCleanupAgent("agent-a")).resolves.toEqual({
+      publicKey: "public-a",
+    });
     await repo.beginTenantCleanup("owner-a", now);
     const command = await db
       .prepare("SELECT id FROM activity_cleanup_commands WHERE home_id = ?")
@@ -179,6 +182,10 @@ describe("PetCareRepository", () => {
     await expect(
       repo.requireActivityCleanupAgent("agent-b", undefined, false),
     ).resolves.toBeNull();
+    await expect(repo.findActiveActivityCleanupAgent("agent-a")).resolves.toBeNull();
+    await expect(repo.findActiveActivityCleanupAgent("agent-b")).resolves.toEqual({
+      publicKey: "public-b",
+    });
     await expect(
       repo.acknowledgeActivityCleanup("agent-a", "clc_ffffffffffffffffffffffffffffffff", now),
     ).rejects.toMatchObject({ status: 401, code: "invalid_agent_signature" });

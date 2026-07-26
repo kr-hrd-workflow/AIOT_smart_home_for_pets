@@ -11,6 +11,7 @@ const BASE64URL = /^[A-Za-z0-9_-]+$/;
 const COMMAND_ID = /^clc_[0-9a-f]{32}$/;
 const PRIVATE_HEADERS = { "Cache-Control": "private, no-store" };
 const CLEANUP_SIGNATURE_WINDOW_SECONDS = 300;
+const MAX_CLEANUP_BODY_BYTES = 128;
 
 type CleanupAction =
   | { action: "poll" }
@@ -49,6 +50,61 @@ function action(body: string): CleanupAction {
   return { action: "ack", commandId: match[1] };
 }
 
+async function cancelBody(body: ReadableStream<Uint8Array> | null): Promise<void> {
+  if (!body) return;
+  try {
+    await body.cancel();
+  } catch {
+    // The request is rejected either way; cancellation is only best-effort.
+  }
+}
+
+async function readBoundedBody(request: Request): Promise<Uint8Array> {
+  const contentLength = request.headers.get("Content-Length");
+  if (contentLength !== null) {
+    if (!/^(?:0|[1-9]\d*)$/.test(contentLength)) fail();
+    const declaredLength = Number(contentLength);
+    if (!Number.isSafeInteger(declaredLength)) fail();
+    if (declaredLength > MAX_CLEANUP_BODY_BYTES) {
+      await cancelBody(request.body);
+      fail();
+    }
+  }
+  if (!request.body) return new Uint8Array();
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      length += value.byteLength;
+      if (length > MAX_CLEANUP_BODY_BYTES) {
+        await reader.cancel();
+        fail();
+      }
+      chunks.push(value);
+    }
+  } catch (error) {
+    if (error instanceof PetCareError) throw error;
+    try {
+      await reader.cancel();
+    } catch {
+      // Preserve the canonical request error below.
+    }
+    fail();
+  }
+
+  const bytes = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
 export async function parseSignedCleanupRequest(request: Request): Promise<SignedCleanupRequest> {
   const url = new URL(request.url);
   if (request.method !== "POST" || url.pathname !== "/api/petcare/agent/cleanup" || url.search) fail();
@@ -68,8 +124,7 @@ export async function parseSignedCleanupRequest(request: Request): Promise<Signe
   decoded(digest, 32);
   const signature = decoded(signatureText, 64);
 
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (bytes.byteLength > 128) fail();
+  const bytes = await readBoundedBody(request);
   let body: string;
   try {
     body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -111,13 +166,19 @@ export async function handleAgentActivityCleanup(
     commandId,
     headers.action === "ack",
   );
-  if (!binding || binding.type !== "delete_activity_observations") {
+  const activeAgent = !binding && headers.action === "poll"
+    ? await repository.findActiveActivityCleanupAgent(headers.agentId)
+    : null;
+  const publicKey = binding?.type === "delete_activity_observations"
+    ? binding.publicKey
+    : activeAgent?.publicKey;
+  if (!publicKey) {
     throw new PetCareError(401, "invalid_agent_signature");
   }
   await verifyEd25519Signature(
     headers.signature,
     canonicalCleanupRequest(headers),
-    binding.publicKey,
+    publicKey,
   );
   if (Math.abs(headers.timestamp - Math.floor(now.getTime() / 1000)) > CLEANUP_SIGNATURE_WINDOW_SECONDS) {
     throw new PetCareError(401, "invalid_agent_signature");
@@ -127,6 +188,9 @@ export async function handleAgentActivityCleanup(
   await repository.consumeNonce(headers.agentId, headers.nonce, nowIso);
 
   if (headers.action === "poll") {
+    if (!binding) {
+      return new Response(null, { status: 204, headers: PRIVATE_HEADERS });
+    }
     return Response.json({ commandId: binding.commandId, type: binding.type }, {
       status: 200,
       headers: PRIVATE_HEADERS,

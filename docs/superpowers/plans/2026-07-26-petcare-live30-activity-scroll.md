@@ -5,7 +5,7 @@
 > Apply TDD, Karpathy Guidelines, and Ponytail full.
 
 **Goal:** Ship a unique-frame 30 FPS Jetson live stream, camera-observed
-activity and repeated-movement warning, and an interruptible 420 ms landing
+activity and repeated-movement warning, and an interruptible 1,000 ms landing
 video scrub, then validate, push, and publicly deploy the exact Sites
 candidate.
 
@@ -22,7 +22,8 @@ Cloudflare Vinext, OpenAI Sites.
 
 ## Global Constraints
 
-- Landing scrub duration is exactly 420 ms.
+- Landing scrub duration is exactly 1,000 ms, reflecting the later
+  production-review approval for a smoother 1–2 second wheel gesture.
 - Landing media is paused while interpolating and while idle.
 - Native scroll is not intercepted. Do not add `wheel`, `preventDefault`,
   `scrollTo`, autoplay, chapter snap, idle drift, or a motion dependency.
@@ -65,7 +66,7 @@ Add fake-time and fake-requestAnimationFrame tests that fail against the direct
 seek implementation:
 
 - after one scroll update, current time advances through intermediate values
-  before 420 ms;
+  before 1,000 ms;
 - an input received during interpolation retargets from the visible current
   time without jumping backward or restarting at the old origin;
 - reverse scroll interpolates backward;
@@ -87,7 +88,7 @@ Replace direct `currentTime = targetTime(runtime)` behavior in
 `driveToTarget()` with a single interruptible RAF loop:
 
 - capture actual `video.currentTime` and the latest target at each retarget;
-- use monotonic RAF timestamps and a 420 ms ease-out interpolation;
+- use monotonic RAF timestamps and a 1,000 ms ease-out interpolation;
 - clamp every candidate to `[0, duration]`;
 - pause before and throughout the loop;
 - skip sub-frame redundant assignments;

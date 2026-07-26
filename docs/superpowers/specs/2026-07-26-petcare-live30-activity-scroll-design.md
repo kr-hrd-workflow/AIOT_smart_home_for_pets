@@ -1,6 +1,6 @@
 # PetCare Live 30 FPS, Activity, and Smooth Scroll Design
 
-**Status:** Approved implementation direction
+**Status:** Approved implementation direction; scrub timing revised to 1,000 ms after production review
 **Extends:**
 
 - `2026-07-20-petcare-jetson-vision-node-design.md`
@@ -17,7 +17,7 @@ Deliver four connected improvements without replacing the released architecture:
 3. show camera-observed activity time next to the existing fused rest time and
    raise one conservative, non-medical repeated-movement warning;
 4. make the accepted Higgsfield landing video advance smoothly for about
-   420 milliseconds after each native scroll update, then remain paused.
+   1,000 milliseconds after each native scroll update, then remain paused.
 
 ## Design Read
 
@@ -200,7 +200,7 @@ On every native scroll update:
 1. calculate the exact video time from current document progress;
 2. retarget from the video's actual current time, not from the previous target;
 3. use the existing `playbackFrame` requestAnimationFrame slot to interpolate
-   toward the target for 420 ms with an interruptible ease-out curve;
+   toward the target for 1,000 ms with an interruptible ease-out curve;
 4. if more scroll arrives, keep the current visual position and retarget;
 5. on completion, assign the exact target time once and cancel the frame;
 6. keep the media paused throughout and while idle.
@@ -276,4 +276,3 @@ Reverse scroll uses the same interpolation and reaches earlier video time.
 - No WebRTC, H.264 live transport, pose model, cloud video analysis, face
   recognition, pet re-identification, medical diagnosis, continuous recording,
   extra generated landing media, or new production dependency.
-

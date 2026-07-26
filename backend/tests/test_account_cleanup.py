@@ -195,6 +195,23 @@ def test_signed_client_uses_exact_cleanup_domain_bodies_and_idempotent_ack() -> 
     ]
 
 
+def test_signed_client_accepts_private_no_store_empty_poll() -> None:
+    client = SignedActivityCleanupClient(
+        origin="https://petcare.example",
+        agent_id="agent_01",
+        private_key=Ed25519PrivateKey.generate(),
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(204, headers={"Cache-Control": "private, no-store"})
+        ),
+        now=lambda: NOW,
+        nonce=lambda: "AAAAAAAAAAAAAAAAAAAAAA",
+    )
+    try:
+        assert client.poll() is None
+    finally:
+        client.close()
+
+
 @pytest.mark.parametrize(
     ("status", "body"),
     [
@@ -225,7 +242,7 @@ def test_signed_client_rejects_noncanonical_poll_responses_without_echoing_body(
         client.close()
 
 
-def test_signed_client_treats_generic_unauthorized_poll_as_no_command() -> None:
+def test_signed_client_rejects_generic_unauthorized_poll() -> None:
     client = SignedActivityCleanupClient(
         origin="https://petcare.example",
         agent_id="agent_01",
@@ -240,7 +257,8 @@ def test_signed_client_treats_generic_unauthorized_poll_as_no_command() -> None:
         nonce=lambda: "AAAAAAAAAAAAAAAAAAAAAA",
     )
     try:
-        assert client.poll() is None
+        with pytest.raises(ActivityCleanupError):
+            client.poll()
     finally:
         client.close()
 

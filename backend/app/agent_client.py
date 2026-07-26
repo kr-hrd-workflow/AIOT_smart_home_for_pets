@@ -296,7 +296,11 @@ class SignedActivityCleanupClient:
 
     def poll(self) -> ActivityCleanupCommand | None:
         response = self._post(b'{"action":"poll"}')
-        if response.status_code == 401:
+        if (
+            response.status_code == 204
+            and not response.content
+            and self._private_no_store(response)
+        ):
             return None
         if (
             response.status_code != 200
