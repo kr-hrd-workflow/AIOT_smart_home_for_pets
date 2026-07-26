@@ -54,6 +54,7 @@ try {
   & (Join-Path $PSScriptRoot 'tests/test_bootstrap_toolchain.ps1')
   & (Join-Path $PSScriptRoot 'tests/test_bootstrap_agent_runtime.ps1')
   & (Join-Path $PSScriptRoot 'tests/test_pico_drive_probe.ps1') -RuntimePath $RuntimePath
+  & (Join-Path $PSScriptRoot 'tests/test_pico_worktree_identity.ps1') -RuntimePath $RuntimePath
   & (Join-Path $PSScriptRoot 'tests/test_pico_ascii_sdk_path.ps1') -RuntimePath $RuntimePath
   & (Join-Path $PSScriptRoot 'build_pico_host.ps1') -RuntimePath $RuntimePath -BuildDir (Join-Path $Root '.runtime/tests/check-all-host') -DryRun
 

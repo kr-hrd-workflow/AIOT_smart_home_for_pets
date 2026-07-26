@@ -40,10 +40,36 @@ foreach ($Key in $RequiredKeys) {
   }
 }
 
+$GitPath = $Runtime.paths.git_path
+function Get-AbsoluteGitDirectory([string]$Path) {
+  $PreviousErrorActionPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    $Output = @(& $GitPath -C $Path rev-parse --absolute-git-dir 2>$null)
+    $ExitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $PreviousErrorActionPreference
+  }
+  if ($ExitCode -or $Output.Count -ne 1) {
+    return $null
+  }
+  $GitDirectory = ([string]$Output[0]).Trim()
+  if (-not $GitDirectory -or -not [IO.Path]::IsPathRooted($GitDirectory)) { return $null }
+  [IO.Path]::GetFullPath($GitDirectory.Replace('/', '\')).TrimEnd('\')
+}
+
+$RootGitDirectory = Get-AbsoluteGitDirectory $Root
+if (-not $RootGitDirectory) { throw 'current workspace Git identity is invalid' }
+
 $AsciiRoot = $null
 foreach ($Letter in 'P','Q','R','S','T','U','V','W','X','Y','Z') {
   if (-not (Get-PSDrive -Name $Letter -PSProvider FileSystem -ErrorAction SilentlyContinue)) { continue }
   $Candidate = "${Letter}:\"
+  $CandidateGitDirectory = Get-AbsoluteGitDirectory $Candidate
+  if (-not $CandidateGitDirectory -or
+      -not [string]::Equals($CandidateGitDirectory, $RootGitDirectory, [StringComparison]::OrdinalIgnoreCase)) {
+    continue
+  }
   $CandidateAuthority = Join-Path $Candidate 'tools/platform-manifest.json'
   $CandidateRuntime = Join-Path $Candidate '.runtime/toolchain.json'
   if ((Test-Path -LiteralPath $CandidateAuthority) -and (Test-Path -LiteralPath $CandidateRuntime) -and
@@ -67,7 +93,6 @@ function Get-EffectivePath([string]$Path) {
 $EffectivePaths = @{}
 foreach ($Key in $RequiredKeys) { $EffectivePaths[$Key] = Get-EffectivePath $Runtime.paths.$Key }
 
-$GitPath = $Runtime.paths.git_path
 function Assert-PicoSdkIdentity([string]$Path) {
   $SdkPath = [IO.Path]::GetFullPath($Path)
   $Origin = (& $GitPath -C $SdkPath remote get-url origin).Trim()
@@ -120,6 +145,7 @@ if ((& $Runtime.paths.ninja_path --version) -ne '1.13.2') { throw 'Ninja identit
 
 if ($DryRun) {
   Write-Output "Pico dry-run PASS: SDK $Tag@$Commit, board=$($Pin.board), platform=$($Pin.platform)"
+  Write-Output "effective_workspace=$AsciiRoot"
   Write-Output "effective_pico_sdk=$EffectiveSdkPath"
   foreach ($Key in $RequiredKeys) { Write-Output "$Key=$($Runtime.paths.$Key)" }
   exit 0
