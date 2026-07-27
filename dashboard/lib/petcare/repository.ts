@@ -342,6 +342,7 @@ export class PetCareRepository {
         LEFT JOIN tunnel_routes tr ON tr.agent_id = a.id AND tr.home_id = a.home_id
         LEFT JOIN tenant_cleanup tc ON tc.home_id = a.home_id
         WHERE a.home_id = ?
+        ORDER BY a.revoked_at IS NULL DESC, c.disabled_at IS NULL DESC
         LIMIT 1
       `)
       .bind(homeId)
