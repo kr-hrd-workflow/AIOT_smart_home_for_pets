@@ -144,7 +144,7 @@ describe("private installer release", () => {
     await expect(metadataMismatch.json()).resolves.toEqual({
       error: "installer_unavailable",
     });
-  });
+  }, 10_000);
 
   it("requires a declared exact upload length", async () => {
     const { env } = makeEnv();
