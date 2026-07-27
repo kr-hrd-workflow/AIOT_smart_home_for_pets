@@ -130,7 +130,7 @@ def test_consumer_installer_fixture_is_non_mutating_and_jetson_optional(tmp_path
             "profile": "Private",
             "remote_address": "LocalSubnet",
         },
-        "site_origin": "https://kr-hrd-petcare-aiot.parkccccc3.chatgpt.site",
+        "site_origin": "https://kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site",
         "jetson_optional": True,
         "supabase_customer_configuration": False,
     }

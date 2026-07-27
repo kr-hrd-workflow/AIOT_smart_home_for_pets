@@ -2,7 +2,7 @@
 
 PetCare는 두 대의 Raspberry Pi Pico 2 W, Windows Home Agent, Jetson 카메라, 공개 Sites 웹을 연결해 반려동물의 식사·휴식·카메라 관측 활동을 보여주는 제품입니다. 공개 랜딩과 fixture 전용 체험 화면은 누구나 볼 수 있고, 실제 가정 데이터와 기기 등록은 Supabase 로그인과 tenant 범위로 보호됩니다.
 
-공개 Sites 주소는 [kr-hrd-petcare-aiot.parkccccc3.chatgpt.site](https://kr-hrd-petcare-aiot.parkccccc3.chatgpt.site)입니다. 현재 공개 배포는 Sites v9이며, 검증된 `dashboard` subtree의 source commit `21aeb50`을 사용합니다.
+공개 Sites 주소는 [kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site](https://kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site)입니다. 배포 시 검증된 `dashboard` subtree와 공개 URL의 source commit을 함께 확인합니다.
 
 랜딩 영상은 휠 틱마다 장면을 점프하거나 재생을 다시 시작하지 않습니다. native scroll 목표를 1초 동안 연속 보간해 한 번의 큰 스크롤에 영상이 약 1~2초 전진하고, 입력이 멈추면 영상도 정지합니다.
 

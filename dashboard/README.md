@@ -2,7 +2,7 @@
 
 PetCare 웹은 React 19와 [vinext](https://github.com/cloudflare/vinext)로 동작합니다. 공개 Sites 랜딩과 fixture 전용 데모, Supabase 고객 인증, tenant별 원격 대시보드, Windows Home Agent 등록·다운로드 화면을 한 앱에서 제공합니다. D1은 tenant·기기·클립 메타데이터를, R2는 승인된 이벤트 클립과 버전 고정 설치 파일을 저장합니다.
 
-공개 URL은 [kr-hrd-petcare-aiot.parkccccc3.chatgpt.site](https://kr-hrd-petcare-aiot.parkccccc3.chatgpt.site)입니다. 배포 시 검증된 `dashboard` subtree와 공개 URL의 커밋 SHA를 함께 확인합니다.
+공개 URL은 [kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site](https://kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site)입니다. 배포 시 검증된 `dashboard` subtree와 공개 URL의 커밋 SHA를 함께 확인합니다.
 
 ## 제품 경계
 
@@ -27,7 +27,7 @@ PetCare 웹은 React 19와 [vinext](https://github.com/cloudflare/vinext)로 동
 
 고객은 Supabase나 Cloudflare 프로젝트, URL, 키 또는 JWKS를 설정하지 않습니다. PetCare 운영자가 Sites runtime의 `SUPABASE_URL`과 `SUPABASE_PUBLISHABLE_KEY`를 구성합니다. Home Agent 등록과 원격 상태·영상 연결을 운영할 때는 `.env.example`의 `CF_*` 8개 서버 값도 운영자가 구성합니다.
 
-운영 Supabase Auth의 Site URL은 `https://kr-hrd-petcare-aiot.parkccccc3.chatgpt.site`로 고정합니다. Redirect URL allowlist에는 `https://kr-hrd-petcare-aiot.parkccccc3.chatgpt.site/auth/callback`과 비밀번호 복구용 `https://kr-hrd-petcare-aiot.parkccccc3.chatgpt.site/auth/callback?next=/reset-password`만 등록합니다. 이메일 확인은 유지하며, 일반 고객 가입·복구 메일을 보내려면 운영자가 별도 Custom SMTP를 구성해야 합니다.
+운영 Supabase Auth의 Site URL은 `https://kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site`로 고정합니다. Redirect URL allowlist에는 `https://kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site/auth/callback`과 비밀번호 복구용 `https://kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site/auth/callback?next=/reset-password`만 등록합니다. 이메일 확인은 유지하며, 일반 고객 가입·복구 메일을 보내려면 운영자가 별도 Custom SMTP를 구성해야 합니다.
 
 `CF_*` 값이 하나라도 없으면 로그인 사용자의 10분 코드를 저장하지 않고 API가 `503 enrollment_unavailable`로 조기 실패합니다. 화면은 이를 “원격 연결 준비 중”으로 안내하므로, 설치 후 마지막 단계에서야 실패하는 가짜 등록 흐름을 만들지 않습니다.
 

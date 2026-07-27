@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$SiteOrigin = 'https://kr-hrd-petcare-aiot.parkccccc3.chatgpt.site',
+    [string]$SiteOrigin = 'https://kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site',
     [string]$OutputDirectory = ''
 )
 
@@ -109,6 +109,7 @@ internal static class Program
 {
     private const string BundleBase64 = "__BUNDLE_BASE64__";
     private const string BundleSha256 = "__BUNDLE_SHA256__";
+    private const string SiteOrigin = "__SITE_ORIGIN__";
 
     private static bool IsAdministrator()
     {
@@ -172,7 +173,8 @@ internal static class Program
             Process process = Process.Start(new ProcessStartInfo
             {
                 FileName = "powershell.exe",
-                Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + installer + "\" -Action Install",
+                Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + installer +
+                    "\" -Action Install -SiteOrigin \"" + SiteOrigin + "\"",
                 UseShellExecute = false,
                 WorkingDirectory = temporary
             });
@@ -193,7 +195,8 @@ internal static class Program
 '@
 $source = $source.
     Replace('__BUNDLE_BASE64__', $BundleBase64).
-    Replace('__BUNDLE_SHA256__', $BundleHash)
+    Replace('__BUNDLE_SHA256__', $BundleHash).
+    Replace('__SITE_ORIGIN__', $SiteOrigin)
 $sourcePath = Join-Path $BuildRoot 'PetCareHomeAgentSetup.cs'
 [IO.File]::WriteAllText($sourcePath, $source, [Text.UTF8Encoding]::new($false))
 
