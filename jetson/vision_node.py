@@ -1031,7 +1031,7 @@ def _configuration(path):
     if type(value) is not OrderedDict or not required <= set(value) <= required | {"context_objects"}:
         raise ValueError("invalid_configuration")
     if "context_objects" not in value:
-        value["context_objects"] = False
+        value["context_objects"] = True
     elif type(value["context_objects"]) is not bool:
         raise ValueError("invalid_configuration")
     try:

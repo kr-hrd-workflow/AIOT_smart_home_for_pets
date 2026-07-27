@@ -197,6 +197,15 @@ describe("signed rolling live upload", () => {
     );
   });
 
+  it("accepts an identical retry after the success response is lost", async () => {
+    const env = { DB: db, CLIPS: r2 } as unknown as Parameters<typeof handleLiveUpload>[1];
+    await handleLiveUpload(await signed("init", 0, new Uint8Array([1]), 1), env, now);
+    await handleLiveUpload(await signed("segment", 1, new Uint8Array([2]), 2), env, now);
+    await expect(
+      handleLiveUpload(await signed("segment", 1, new Uint8Array([2]), 3), env, now),
+    ).resolves.toMatchObject({ status: 204 });
+  });
+
   it("rolls back the private object when D1 publication fails", async () => {
     const env = { DB: db, CLIPS: r2 } as unknown as Parameters<typeof handleLiveUpload>[1];
     await handleLiveUpload(await signed("init", 0, new Uint8Array([1]), 1), env, now);

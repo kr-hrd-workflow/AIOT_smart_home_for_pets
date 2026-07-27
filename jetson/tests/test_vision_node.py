@@ -956,7 +956,7 @@ class ConfigurationTests(unittest.TestCase):
                 json.dump(value, handle)
             os.chmod(path, 0o600)
             self.assertEqual(_configuration(path)["bind_ip"], "100.64.0.10")
-            self.assertFalse(_configuration(path)["context_objects"])
+            self.assertTrue(_configuration(path)["context_objects"])
 
     def test_runtime_configuration_rejects_non_rfc1918_bind(self):
         value = {

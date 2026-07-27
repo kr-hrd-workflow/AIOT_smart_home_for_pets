@@ -122,7 +122,24 @@ export async function handleLiveUpload(
   } catch {
     throw new PetCareError(503, "upload_retryable");
   }
-  if (!stored) throw new PetCareError(409, "live_conflict");
+  if (!stored) {
+    if (await repository.hasPublishedLiveUpload({
+      homeId: verified.agent.homeId,
+      agentId: verified.agent.agentId,
+      cameraId: verified.agent.cameraId,
+      bootId: live.bootId,
+      kind: live.kind,
+      sequence: live.sequence,
+      objectKey: key,
+      sha256: verified.headers.digest,
+      sizeBytes: verified.bytes.byteLength,
+      startedAt: live.startedAt,
+      durationMs: live.durationMs,
+      createdAt,
+      expiresAt: new Date(now.getTime() + 60_000).toISOString(),
+    })) return new Response(null, { status: 204, headers: { "Cache-Control": "private, no-store" } });
+    throw new PetCareError(409, "live_conflict");
+  }
   if (stored.size !== verified.bytes.byteLength) {
     await deleteOrQueue(env, repository, verified.agent.homeId, key, createdAt);
     fail("invalid_content_length");

@@ -1,8 +1,6 @@
 // @vitest-environment node
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 
 vi.mock("../db", () => ({ getDb: vi.fn(() => ({ db: "test" })) }));
 vi.mock("cloudflare:workers", () => ({ env: {} }));
@@ -694,7 +692,6 @@ describe("tenant-scoped live proxy", () => {
     vi.mocked(PetCareRepository.prototype.markAgentSeen).mockRestore();
     const fake = new FakeD1();
     const db = fake as unknown as PetCareEnv["DB"];
-    await db.exec(readFileSync(resolve(import.meta.dirname, "../drizzle/0003_petcare_outbound.sql"), "utf8").replaceAll("--> statement-breakpoint", ""));
     const run = (sql: string, ...values: unknown[]) =>
       db.prepare(sql).bind(...values).run();
     try {
@@ -751,7 +748,6 @@ describe("tenant-scoped live proxy", () => {
     vi.mocked(PetCareRepository.prototype.markAgentSeen).mockRestore();
     const fake = new FakeD1();
     const db = fake as unknown as PetCareEnv["DB"];
-    await db.exec(readFileSync(resolve(import.meta.dirname, "../drizzle/0003_petcare_outbound.sql"), "utf8").replaceAll("--> statement-breakpoint", ""));
     const run = (sql: string, ...values: unknown[]) =>
       db.prepare(sql).bind(...values).run();
     const fetchMock = vi.fn();

@@ -126,7 +126,7 @@ export function LiveMediaPlayer({
     const queueBufferOperation = (
       operation: (buffer: SourceBuffer) => void,
     ): Promise<void> => {
-      bufferQueue = bufferQueue.then(
+      bufferQueue = bufferQueue.catch(() => undefined).then(
         () =>
           new Promise<void>((resolve, reject) => {
             const buffer = sourceBuffer;

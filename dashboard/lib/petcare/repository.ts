@@ -1552,6 +1552,32 @@ export class PetCareRepository {
     }
   }
 
+  async hasPublishedLiveUpload(input: PublishLiveUploadInput): Promise<boolean> {
+    const row = input.kind === "init"
+      ? await this.db.prepare(`
+          SELECT 1 AS found FROM live_streams
+          WHERE home_id = ? AND agent_id = ? AND camera_id = ?
+            AND boot_id = ? AND init_object_key = ?
+          LIMIT 1
+        `).bind(
+          input.homeId, input.agentId, input.cameraId, input.bootId, input.objectKey,
+        ).first<{ found: number }>()
+      : await this.db.prepare(`
+          SELECT 1 AS found FROM live_parts lp
+          JOIN live_streams ls ON ls.home_id = lp.home_id AND ls.boot_id = lp.boot_id
+          WHERE lp.home_id = ? AND ls.agent_id = ? AND ls.camera_id = ?
+            AND lp.boot_id = ? AND lp.sequence = ? AND lp.object_key = ?
+            AND lp.sha256 = ? AND lp.size_bytes = ?
+            AND lp.started_at = ? AND lp.duration_ms = ?
+          LIMIT 1
+        `).bind(
+          input.homeId, input.agentId, input.cameraId, input.bootId,
+          input.sequence, input.objectKey, input.sha256, input.sizeBytes,
+          input.startedAt, input.durationMs,
+        ).first<{ found: number }>();
+    return row?.found === 1;
+  }
+
   async getOwnedLiveStream(
     ownerSub: string,
     cameraId: string,

@@ -10,6 +10,7 @@ import type {
 } from "../lib/petcare-remote";
 
 class FakeSourceBuffer extends EventTarget {
+  static failNextAppend = false;
   readonly appended: number[] = [];
   readonly removed: Array<[number, number]> = [];
   updating = false;
@@ -29,6 +30,14 @@ class FakeSourceBuffer extends EventTarget {
       ? new Uint8Array(bytes)
       : new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     this.updating = true;
+    if (FakeSourceBuffer.failNextAppend) {
+      FakeSourceBuffer.failNextAppend = false;
+      queueMicrotask(() => {
+        this.updating = false;
+        this.dispatchEvent(new Event("error"));
+      });
+      return;
+    }
     this.appended.push(view[0] ?? -1);
     queueMicrotask(() => {
       this.updating = false;
@@ -114,6 +123,7 @@ function client(
 }
 
 beforeEach(() => {
+  FakeSourceBuffer.failNextAppend = false;
   FakeMediaSource.instances.length = 0;
   vi.stubGlobal("MediaSource", FakeMediaSource);
   vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:petcare-live");
@@ -222,6 +232,22 @@ describe("LiveMediaPlayer", () => {
     video.currentTime = 2.5;
     await waitFor(() => expect(liveManifest.mock.calls.length).toBeGreaterThan(1));
     expect(video.currentTime).toBe(2.5);
+  });
+
+  it("recovers the append queue after a SourceBuffer error", async () => {
+    FakeSourceBuffer.failNextAppend = true;
+    render(
+      <LiveMediaPlayer
+        cameraId="camera-1"
+        client={client()}
+        alt="실시간 반려동물 카메라"
+        pollIntervalMs={10}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(FakeMediaSource.instances[0]?.sourceBuffer.appended).toEqual([0, 1, 2, 3]),
+    );
   });
 
   it("aborts an in-flight manifest request on unmount", async () => {
