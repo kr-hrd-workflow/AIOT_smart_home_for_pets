@@ -16,6 +16,7 @@ import { deleteClip, listClips, readClip } from "./clips";
 import type { PetCareEnv } from "./env";
 import { errorResponse, PetCareError } from "./errors";
 import { downloadInstaller, uploadInstaller } from "./installer";
+import { getLiveManifest, getLivePart } from "./live-manifest";
 import { proxyMjpeg, proxyStatus } from "./live-proxy";
 
 export type PetCareExecutionContext = {
@@ -24,6 +25,12 @@ export type PetCareExecutionContext = {
 
 const CAMERA =
   /^\/api\/petcare\/cameras\/([A-Za-z0-9_-]{1,64})\/stream\.mjpeg$/;
+const LIVE_MANIFEST =
+  /^\/api\/petcare\/cameras\/([A-Za-z0-9_-]{1,64})\/live$/;
+const LIVE_INIT =
+  /^\/api\/petcare\/cameras\/([A-Za-z0-9_-]{1,64})\/live\/([A-Za-z0-9_-]{1,64})\/init\.mp4$/;
+const LIVE_PART =
+  /^\/api\/petcare\/cameras\/([A-Za-z0-9_-]{1,64})\/live\/([A-Za-z0-9_-]{1,64})\/([0-9]{1,10})\.m4s$/;
 const CLIP_MEDIA =
   /^\/api\/petcare\/clips\/([A-Za-z0-9_-]{1,64})\.mp4$/;
 const CLIP_DELETE = /^\/api\/petcare\/clips\/([A-Za-z0-9_-]{1,64})$/;
@@ -132,12 +139,29 @@ export async function routePetCare(
       invoke = () => downloadInstaller(env);
     } else {
       const camera = CAMERA.exec(url.pathname);
+      const liveManifest = LIVE_MANIFEST.exec(url.pathname);
+      const liveInit = LIVE_INIT.exec(url.pathname);
+      const livePart = LIVE_PART.exec(url.pathname);
       const clipMedia = CLIP_MEDIA.exec(url.pathname);
       const clipDelete = CLIP_DELETE.exec(url.pathname);
       if (camera) {
         routeName = "camera_stream";
         if (request.method !== "GET") return methodNotAllowed("GET");
         invoke = (_next, user) => proxyMjpeg(user, env, camera[1]);
+      } else if (liveManifest) {
+        routeName = "live_manifest";
+        if (request.method !== "GET") return methodNotAllowed("GET");
+        invoke = (_next, user) => getLiveManifest(user, env, liveManifest[1]);
+      } else if (liveInit) {
+        routeName = "live_init";
+        if (request.method !== "GET") return methodNotAllowed("GET");
+        invoke = (_next, user) =>
+          getLivePart(user, env, liveInit[1], liveInit[2], 0, "init");
+      } else if (livePart) {
+        routeName = "live_part";
+        if (request.method !== "GET") return methodNotAllowed("GET");
+        invoke = (_next, user) =>
+          getLivePart(user, env, livePart[1], livePart[2], Number(livePart[3]), "segment");
       } else if (clipMedia) {
         routeName = "clip_read";
         if (request.method !== "GET") return methodNotAllowed("GET");

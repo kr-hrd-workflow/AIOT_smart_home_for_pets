@@ -45,6 +45,7 @@ async function applyMigrations() {
     "0000_petcare_tenancy.sql",
     "0001_petcare_tunnels_clips.sql",
     "0002_activity_cleanup_commands.sql",
+    "0003_petcare_outbound.sql",
   ]) {
     const sql = readFileSync(
       resolve(import.meta.dirname, `../drizzle/${migration}`),
@@ -80,7 +81,7 @@ async function seedHome(
       ),
     db
       .prepare(
-        "INSERT INTO agents (id, home_id, public_key, tunnel_origin, revoked_at) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO agents (id, home_id, public_key, tunnel_origin, connection_mode, revoked_at) VALUES (?, ?, ?, ?, 'tunnel', ?)",
       )
       .bind(
         agentId,
@@ -206,6 +207,53 @@ afterEach(async () => {
 });
 
 describe("reconcilePetCare", () => {
+  it("deletes live objects abandoned for over one minute without Cloudflare config", async () => {
+    const home = await seedHome("live");
+    const initKey = "live/home-live/camera-live/boot-old/init.mp4";
+    const partKey = "live/home-live/camera-live/boot-old/0.m4s";
+    await db.batch([
+      db
+        .prepare(
+          `INSERT INTO live_streams
+           (home_id, agent_id, camera_id, boot_id, init_object_key, newest_sequence, updated_at, expires_at)
+           VALUES (?, ?, ?, 'boot-old', ?, 0, ?, ?)`,
+        )
+        .bind(
+          home.homeId,
+          home.agentId,
+          home.cameraId,
+          initKey,
+          "2026-07-26T23:58:59.999Z",
+          "2026-07-26T23:59:02.000Z",
+        ),
+      db
+        .prepare(
+          `INSERT INTO live_parts
+           (home_id, boot_id, sequence, object_key, sha256, size_bytes, started_at, duration_ms, created_at, expires_at)
+           VALUES (?, 'boot-old', 0, ?, 'digest', 3, ?, 1000, ?, ?)`,
+        )
+        .bind(
+          home.homeId,
+          partKey,
+          "2026-07-26T23:58:59.999Z",
+          "2026-07-26T23:58:59.999Z",
+          "2026-07-26T23:59:02.000Z",
+        ),
+    ]);
+    await Promise.all([clips.put(initKey, "init"), clips.put(partKey, "part")]);
+
+    const result = await reconcilePetCare(
+      { DB: db, CLIPS: clips } as PetCareEnv,
+      NOW,
+    );
+
+    expect(result.expiredLiveObjects).toBe(2);
+    expect(await count("live_streams")).toBe(0);
+    expect(await count("live_parts")).toBe(0);
+    await expect(clips.get(initKey)).resolves.toBeNull();
+    await expect(clips.get(partKey)).resolves.toBeNull();
+  });
+
   it("denies exactly at seven days before physical deletion and repairs stale state", async () => {
     const home = await seedHome("retention");
     const expiredKey = await seedClip({
@@ -267,6 +315,7 @@ describe("reconcilePetCare", () => {
     const result = await reconcilePetCare(env(), NOW);
 
     expect(result).toEqual({
+      expiredLiveObjects: 0,
       expiredClips: 1,
       orphanObjects: 0,
       staleMetadata: 1,

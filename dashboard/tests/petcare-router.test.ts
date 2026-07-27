@@ -11,6 +11,8 @@ const calls = vi.hoisted(() => ({
   deleteClip: vi.fn(),
   downloadInstaller: vi.fn(),
   listClips: vi.fn(),
+  liveManifest: vi.fn(),
+  livePart: vi.fn(),
   mjpeg: vi.fn(),
   readClip: vi.fn(),
   session: vi.fn(),
@@ -42,6 +44,10 @@ vi.mock("../lib/petcare/clips", () => ({
 vi.mock("../lib/petcare/live-proxy", () => ({
   proxyMjpeg: calls.mjpeg,
   proxyStatus: calls.status,
+}));
+vi.mock("../lib/petcare/live-manifest", () => ({
+  getLiveManifest: calls.liveManifest,
+  getLivePart: calls.livePart,
 }));
 vi.mock("../lib/petcare/installer", () => ({
   downloadInstaller: calls.downloadInstaller,
@@ -84,6 +90,8 @@ beforeEach(() => {
     calls.deleteClip,
     calls.downloadInstaller,
     calls.listClips,
+    calls.liveManifest,
+    calls.livePart,
     calls.mjpeg,
     calls.readClip,
     calls.status,
@@ -153,6 +161,9 @@ describe("routePetCare", () => {
 
   it.each([
     ["/api/petcare/cameras/camera-a/stream.mjpeg", calls.mjpeg],
+    ["/api/petcare/cameras/camera-a/live", calls.liveManifest],
+    ["/api/petcare/cameras/camera-a/live/boot-a/init.mp4", calls.livePart],
+    ["/api/petcare/cameras/camera-a/live/boot-a/7.m4s", calls.livePart],
     ["/api/petcare/clips", calls.listClips],
     ["/api/petcare/clips/clip-a.mp4", calls.readClip],
     ["/api/petcare/clips/clip-a", calls.deleteClip, "DELETE"],
@@ -231,6 +242,7 @@ describe("routePetCare", () => {
 
   it.each([
     ["/api/petcare/status", "POST", "GET"],
+    ["/api/petcare/cameras/camera-a/live", "POST", "GET"],
     ["/api/petcare/clips", "POST", "GET"],
     ["/api/petcare/account", "GET", "DELETE"],
     ["/api/petcare/agent/enroll", "GET", "POST"],

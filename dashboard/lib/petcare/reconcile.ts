@@ -11,6 +11,7 @@ const R2_CURSOR = "r2_clips_orphan_scan";
 const D1_CLIP_CURSOR = "d1_clips_stale_scan";
 
 export type ReconcileResult = {
+  expiredLiveObjects: number;
   expiredClips: number;
   orphanObjects: number;
   staleMetadata: number;
@@ -23,6 +24,7 @@ export type ReconcileResult = {
 
 function emptyResult(): ReconcileResult {
   return {
+    expiredLiveObjects: 0,
     expiredClips: 0,
     orphanObjects: 0,
     staleMetadata: 0,
@@ -32,6 +34,25 @@ function emptyResult(): ReconcileResult {
     cleanedTenants: 0,
     retryableFailures: 0,
   };
+}
+
+async function removeAbandonedLiveObjects(
+  env: PetCareEnv,
+  repository: PetCareRepository,
+  now: Date,
+  result: ReconcileResult,
+) {
+  const cutoff = new Date(now.getTime() - 60_000).toISOString();
+  for (const object of await repository.listAbandonedLiveObjects(cutoff, 100)) {
+    try {
+      await env.CLIPS.delete(object.objectKey);
+      if (await repository.deleteAbandonedLiveMetadata(object.objectKey, object.kind)) {
+        result.expiredLiveObjects += 1;
+      }
+    } catch {
+      result.retryableFailures += 1;
+    }
+  }
 }
 
 async function runStep(
@@ -216,10 +237,13 @@ async function cleanRemoteResources(
     leaseExpiresAt,
     25,
   );
-  const cloudflare = new CloudflareClient(readPetCareConfig(env));
+  const cloudflare = routes.length
+    ? new CloudflareClient(readPetCareConfig(env))
+    : null;
   const blockedTenantHomes = new Set<string>();
 
   for (const route of routes) {
+    if (!cloudflare) throw new Error("missing_cloudflare_client");
     const operationNow = now;
     const renewedLeaseExpiresAt = new Date(
       new Date(operationNow).getTime() + 120_000,
@@ -375,6 +399,9 @@ export async function reconcilePetCare(
   const result = emptyResult();
   const nowIso = now.toISOString();
   const repository = new PetCareRepository(env.DB);
+  await runStep(result, () =>
+    removeAbandonedLiveObjects(env, repository, now, result),
+  );
   await runStep(result, () =>
     retryQueuedObjects(env, repository, nowIso, result),
   );

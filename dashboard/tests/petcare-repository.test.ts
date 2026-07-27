@@ -29,7 +29,7 @@ async function seedHome(suffix: "a" | "b", status = "active") {
     now,
   );
   await run(
-    "INSERT INTO agents (id, home_id, public_key, tunnel_origin) VALUES (?, ?, ?, ?)",
+    "INSERT INTO agents (id, home_id, public_key, tunnel_origin, connection_mode) VALUES (?, ?, ?, ?, 'tunnel')",
     agentId,
     homeId,
     `public-${suffix}`,
@@ -213,6 +213,63 @@ describe("PetCareRepository", () => {
       status: 503,
       code: "agent_offline",
     });
+  });
+
+  it("returns only eight fresh live parts for the requested owner and camera", async () => {
+    await seedHome("a");
+    await seedHome("b");
+    await run("UPDATE agents SET connection_mode = 'outbound' WHERE id = ?", "agent-a");
+    await db.batch([
+      db
+        .prepare(
+          `INSERT INTO live_streams
+           (home_id, agent_id, camera_id, boot_id, init_object_key, newest_sequence, updated_at, expires_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          "home-a",
+          "agent-a",
+          "camera-a",
+          "boot-a",
+          "live/home-a/camera-a/boot-a/init.mp4",
+          9,
+          now,
+          "2026-07-20T00:00:03.000Z",
+        ),
+      ...Array.from({ length: 10 }, (_, sequence) =>
+        db
+          .prepare(
+            `INSERT INTO live_parts
+             (home_id, boot_id, sequence, object_key, sha256, size_bytes, started_at, duration_ms, created_at, expires_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 1000, ?, ?)`,
+          )
+          .bind(
+            "home-a",
+            "boot-a",
+            sequence,
+            `live/home-a/camera-a/boot-a/${sequence}.m4s`,
+            `digest-${sequence}`,
+            3,
+            now,
+            now,
+            "2026-07-20T00:00:03.000Z",
+          ),
+      ),
+    ]);
+
+    await expect(repo.getOwnedLiveStream("owner-a", "camera-a", now)).resolves.toEqual({
+      homeId: "home-a",
+      cameraId: "camera-a",
+      bootId: "boot-a",
+      initObjectKey: "live/home-a/camera-a/boot-a/init.mp4",
+      newestSequence: 9,
+      parts: Array.from({ length: 8 }, (_, index) => ({
+        sequence: index + 2,
+        objectKey: `live/home-a/camera-a/boot-a/${index + 2}.m4s`,
+      })),
+    });
+    await expect(repo.getOwnedLiveStream("owner-b", "camera-a", now)).resolves.toBeNull();
+    await expect(repo.getOwnedLiveStream("owner-a", "camera-a", "2026-07-20T00:00:03.000Z")).resolves.toBeNull();
   });
 
   it("rejects a malformed or non-HTTPS active tunnel origin", async () => {
