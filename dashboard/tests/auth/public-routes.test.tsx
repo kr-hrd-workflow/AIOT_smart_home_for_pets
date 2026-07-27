@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { NextRequest } from "next/server";
 import { beforeEach, expect, it, vi } from "vitest";
 
@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   signInWithPassword: vi.fn(),
   signUp: vi.fn(),
   resetPasswordForEmail: vi.fn(),
+  setSession: vi.fn(),
   updateUser: vi.fn(),
   requireAuth: vi.fn(),
   ensureHome: vi.fn(),
@@ -117,6 +118,7 @@ beforeEach(() => {
         signInWithPassword: mocks.signInWithPassword,
         signUp: mocks.signUp,
         resetPasswordForEmail: mocks.resetPasswordForEmail,
+        setSession: mocks.setSession,
         updateUser: mocks.updateUser,
       },
     },
@@ -128,6 +130,7 @@ beforeEach(() => {
   mocks.signInWithPassword.mockResolvedValue({ data: {}, error: null });
   mocks.signUp.mockResolvedValue({ data: {}, error: null });
   mocks.resetPasswordForEmail.mockResolvedValue({ data: {}, error: null });
+  mocks.setSession.mockResolvedValue({ data: {}, error: null });
   mocks.updateUser.mockResolvedValue({ data: {}, error: null });
   mocks.requireAuth.mockResolvedValue({ sub: "user-a", email: "owner@example.com" });
   mocks.ensureHome.mockResolvedValue({ id: "home-a" });
@@ -212,7 +215,7 @@ it("calls only the assigned Supabase password method and redirects on success", 
   );
   expect(mocks.resetPasswordForEmail).toHaveBeenCalledWith(
     "owner@example.com",
-    { redirectTo: "https://app.test/auth/callback?next=/reset-password" },
+    { redirectTo: "https://app.test/reset-password" },
   );
   expect(forgotResponse.headers.get("location")).toBe(
     "https://app.test/forgot-password?sent=1",
@@ -228,6 +231,67 @@ it("calls only the assigned Supabase password method and redirects on success", 
     "https://app.test/login?reset=1",
   );
   expect(mocks.createSupabaseSession).toHaveBeenCalledTimes(4);
+});
+
+it("bridges the provider recovery fragment into the same-origin reset form", async () => {
+  window.history.replaceState(
+    null,
+    "",
+    "/reset-password#access_token=access-a&refresh_token=refresh-a&type=recovery",
+  );
+
+  render(await ResetPasswordPage({ searchParams: Promise.resolve({}) }));
+
+  await waitFor(() => {
+    expect(document.querySelector('input[name="access_token"]')).toHaveValue(
+      "access-a",
+    );
+    expect(document.querySelector('input[name="refresh_token"]')).toHaveValue(
+      "refresh-a",
+    );
+  });
+  expect(window.location.hash).toBe("");
+});
+
+it("forwards and removes an incomplete recovery fragment for server rejection", async () => {
+  window.history.replaceState(
+    null,
+    "",
+    "/reset-password#access_token=access-a&type=recovery",
+  );
+
+  render(await ResetPasswordPage({ searchParams: Promise.resolve({}) }));
+
+  await waitFor(() => {
+    expect(document.querySelector('input[name="access_token"]')).toHaveValue(
+      "access-a",
+    );
+    expect(document.querySelector('input[name="refresh_token"]')).toHaveValue(
+      "",
+    );
+  });
+  expect(window.location.hash).toBe("");
+});
+
+it("establishes the recovery session before changing the password", async () => {
+  const response = await resetPassword(
+    request("/auth/reset-password", {
+      password: "new correct horse battery staple",
+      access_token: "access-a",
+      refresh_token: "refresh-a",
+    }),
+  );
+
+  expect(mocks.setSession).toHaveBeenCalledWith({
+    access_token: "access-a",
+    refresh_token: "refresh-a",
+  });
+  expect(mocks.updateUser).toHaveBeenCalledWith({
+    password: "new correct horse battery staple",
+  });
+  expect(response.headers.get("location")).toBe(
+    "https://app.test/login?reset=1",
+  );
 });
 
 it("explains confirmation, repeat signup, and password recovery states", async () => {

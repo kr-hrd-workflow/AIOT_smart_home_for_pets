@@ -1,4 +1,5 @@
 import { AuthCard } from "../../components/auth-card";
+import { RecoveryTokenFields } from "../../components/recovery-token-fields";
 
 export default async function ResetPasswordPage({
   searchParams,
@@ -10,6 +11,7 @@ export default async function ResetPasswordPage({
     <AuthCard title="새 비밀번호 설정" description="새 비밀번호를 입력하세요.">
       {query.error && <p role="alert">재설정 링크를 다시 요청하세요.</p>}
       <form className="auth-form" action="/auth/reset-password" method="post">
+        <RecoveryTokenFields />
         <label>
           새 비밀번호
           <input

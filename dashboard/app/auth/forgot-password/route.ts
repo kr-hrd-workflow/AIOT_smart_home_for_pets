@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
       email.trim(),
       {
         redirectTo: new URL(
-          "/auth/callback?next=/reset-password",
+          "/reset-password",
           request.url,
         ).toString(),
       },
