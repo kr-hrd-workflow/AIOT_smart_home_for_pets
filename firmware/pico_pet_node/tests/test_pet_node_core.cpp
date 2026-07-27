@@ -52,6 +52,15 @@ int main() {
     reconnect.reset();
     assert(reconnect.next_delay_seconds() == 1U);
 
+    using petcare::WifiLinkStatus;
+    assert(!petcare::wifi_link_associated(WifiLinkStatus::bad_auth));
+    assert(!petcare::wifi_link_associated(WifiLinkStatus::no_network));
+    assert(!petcare::wifi_link_associated(WifiLinkStatus::failed));
+    assert(!petcare::wifi_link_associated(WifiLinkStatus::down));
+    assert(petcare::wifi_link_associated(WifiLinkStatus::joined));
+    assert(petcare::wifi_link_associated(WifiLinkStatus::no_ip));
+    assert(petcare::wifi_link_associated(WifiLinkStatus::up));
+
     static_assert(petcare::MqttContract::qos == 1);
     static_assert(!petcare::MqttContract::sensor_retain);
     static_assert(petcare::MqttContract::status_retain);

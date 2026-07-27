@@ -10,6 +10,21 @@ namespace petcare {
 enum class DeviceProfile { entrance_01, petzone_01 };
 enum class ValueKind { number, boolean, integer };
 enum class DeviceState { online, offline };
+enum class WifiLinkStatus : std::int8_t {
+    bad_auth = -3,
+    no_network = -2,
+    failed = -1,
+    down = 0,
+    joined = 1,
+    no_ip = 2,
+    up = 3,
+};
+
+constexpr bool wifi_link_associated(WifiLinkStatus status) {
+    return status == WifiLinkStatus::joined ||
+           status == WifiLinkStatus::no_ip ||
+           status == WifiLinkStatus::up;
+}
 
 struct SensorValue {
     ValueKind kind;
