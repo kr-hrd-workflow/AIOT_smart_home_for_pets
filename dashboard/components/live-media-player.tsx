@@ -44,17 +44,23 @@ export function LiveMediaPlayer({
       video.canPlayType(HLS_MIME) || video.canPlayType("application/x-mpegURL"),
     );
     if (supportsNativeHls) {
-      const handlePlaying = () => setState("live");
+      const handleReady = () => setState("live");
       const handleError = () => setState("offline");
-      video.addEventListener("playing", handlePlaying);
+      video.controls = true;
+      video.addEventListener("loadeddata", handleReady);
+      video.addEventListener("canplay", handleReady);
+      video.addEventListener("playing", handleReady);
       video.addEventListener("error", handleError);
       video.src = `/api/petcare/cameras/${encodeURIComponent(cameraId)}/live/index.m3u8`;
       setState("connecting");
       void video.play().catch(() => undefined);
 
       return () => {
-        video.removeEventListener("playing", handlePlaying);
+        video.removeEventListener("loadeddata", handleReady);
+        video.removeEventListener("canplay", handleReady);
+        video.removeEventListener("playing", handleReady);
         video.removeEventListener("error", handleError);
+        video.controls = false;
         video.removeAttribute("src");
       };
     }
@@ -282,6 +288,7 @@ export function LiveMediaPlayer({
         autoPlay
         muted
         playsInline
+        preload="auto"
       />
       {state !== "live" && (
         <p

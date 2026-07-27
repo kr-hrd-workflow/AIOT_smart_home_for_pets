@@ -365,6 +365,7 @@ a:focus-visible {
   color: var(--destructive);
   background: var(--surface);
   font-weight: 700;
+  pointer-events: none;
   transform: translate(-50%, -50%);
 }
 

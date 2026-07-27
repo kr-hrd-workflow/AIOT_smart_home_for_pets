@@ -156,7 +156,8 @@ describe("LiveMediaPlayer", () => {
       "src",
       "/api/petcare/cameras/camera-1/live/index.m3u8",
     );
-    act(() => video.dispatchEvent(new Event("playing")));
+    expect(video).toHaveProperty("controls", true);
+    act(() => video.dispatchEvent(new Event("canplay")));
     expect(video).toHaveAttribute("data-live-state", "live");
     expect(liveClient.liveManifest).not.toHaveBeenCalled();
   });
