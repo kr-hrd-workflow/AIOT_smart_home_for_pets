@@ -55,19 +55,38 @@ function Write-Json([object]$Value, [string]$Path) {
 }
 
 function Set-OwnerSystemAcl([string]$Path, [switch]$Recurse) {
-    $identity = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $identity = $currentIdentity.User.Value
+    $account = $currentIdentity.Name
     $item = Get-Item -LiteralPath $Path
     $suffix = if ($item.PSIsContainer) { '(OI)(CI)F' } else { 'F' }
     $arguments = @(
         $Path,
         '/inheritance:r',
         '/grant:r',
-        "*${identity}:$suffix",
-        "*S-1-5-18:$suffix"
+        "${account}:$suffix",
+        "SYSTEM:$suffix"
     )
     if ($Recurse) { $arguments += @('/T', '/C') }
     & "$env:SystemRoot\System32\icacls.exe" @arguments *> $null
     if ($LASTEXITCODE) { throw "failed to protect runtime ACL: $Path" }
+    $acl = Get-Acl -LiteralPath $Path
+    $allowed = @($identity, 'S-1-5-18') | Sort-Object
+    $actual = @(
+        $acl.Access | ForEach-Object {
+            $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+        } | Sort-Object -Unique
+    )
+    if (
+        -not $acl.AreAccessRulesProtected -or
+        $acl.Access.Count -ne 2 -or
+        @($acl.Access | Where-Object {
+            $_.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or $_.IsInherited
+        }).Count -ne 0 -or
+        (Compare-Object $allowed $actual).Count -ne 0
+    ) {
+        throw "failed to verify runtime ACL: $Path"
+    }
 }
 
 function New-Secret {

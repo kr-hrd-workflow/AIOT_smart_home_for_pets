@@ -153,7 +153,9 @@ function Assert-Output([string]$Label, [string[]]$Arguments, [string]$Pattern) {
 }
 
 function Set-OwnerOnlyAcl([string]$Path) {
-    $identity = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $identity = $currentIdentity.User.Value
+    $account = $currentIdentity.Name
     $allowed = @($identity, 'S-1-5-18')
     $acl = Get-Acl -LiteralPath $Path
     $actual = @(
@@ -173,8 +175,24 @@ function Set-OwnerOnlyAcl([string]$Path) {
     }
     $isDirectory = Test-Path -LiteralPath $Path -PathType Container
     $suffix = if ($isDirectory) { '(OI)(CI)F' } else { 'F' }
-    & "$env:SystemRoot\System32\icacls.exe" $Path '/inheritance:r' '/grant:r' "*${identity}:$suffix" "*S-1-5-18:$suffix" *> $null
+    & "$env:SystemRoot\System32\icacls.exe" $Path '/inheritance:r' '/grant:r' "${account}:$suffix" "SYSTEM:$suffix" *> $null
     if ($LASTEXITCODE) { throw "runtime ACL protection failed: $Path" }
+    $verified = Get-Acl -LiteralPath $Path
+    $actual = @(
+        $verified.Access | ForEach-Object {
+            $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+        } | Sort-Object -Unique
+    )
+    if (
+        -not $verified.AreAccessRulesProtected -or
+        $verified.Access.Count -ne 2 -or
+        @($verified.Access | Where-Object {
+            $_.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or $_.IsInherited
+        }).Count -ne 0 -or
+        (Compare-Object ($allowed | Sort-Object) $actual).Count -ne 0
+    ) {
+        throw "runtime ACL verification failed: $Path"
+    }
 }
 
 function Protect-Chain([string]$Path, [string]$Boundary) {

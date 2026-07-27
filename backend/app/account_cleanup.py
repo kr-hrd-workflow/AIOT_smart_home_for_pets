@@ -80,35 +80,37 @@ class ActivityCleanupRepository:
         agent_id = _agent_id(agent_id)
         if now.tzinfo is None or now.utcoffset() is None:
             raise ActivityCleanupError("cleanup clock must be timezone-aware")
-        with self._session_factory.begin() as session:
-            state = self._locked_state(session)
-            if state.agent_id == agent_id:
-                return
-            state.agent_id = agent_id
-            state.activity_enabled = True
-            state.command_id = None
-            state.applied_at = None
-            state.updated_at = now
+        with self._session_factory() as session:
+            with session.begin():
+                state = self._locked_state(session)
+                if state.agent_id == agent_id:
+                    return
+                state.agent_id = agent_id
+                state.activity_enabled = True
+                state.command_id = None
+                state.applied_at = None
+                state.updated_at = now
 
     def apply(self, agent_id: str, command_id: str, now: datetime) -> bool:
         agent_id = _agent_id(agent_id)
         command_id = _command_id(command_id)
         if now.tzinfo is None or now.utcoffset() is None:
             raise ActivityCleanupError("cleanup clock must be timezone-aware")
-        with self._session_factory.begin() as session:
-            state = self._locked_state(session)
-            if state.agent_id != agent_id:
-                raise ActivityCleanupError("cleanup command does not match active agent")
-            if state.command_id == command_id and not state.activity_enabled:
-                return False
-            if state.command_id is not None or not state.activity_enabled:
-                raise ActivityCleanupError("conflicting cleanup command")
-            session.execute(delete(ActivityObservation))
-            state.activity_enabled = False
-            state.command_id = command_id
-            state.applied_at = now
-            state.updated_at = now
-            return True
+        with self._session_factory() as session:
+            with session.begin():
+                state = self._locked_state(session)
+                if state.agent_id != agent_id:
+                    raise ActivityCleanupError("cleanup command does not match active agent")
+                if state.command_id == command_id and not state.activity_enabled:
+                    return False
+                if state.command_id is not None or not state.activity_enabled:
+                    raise ActivityCleanupError("conflicting cleanup command")
+                session.execute(delete(ActivityObservation))
+                state.activity_enabled = False
+                state.command_id = command_id
+                state.applied_at = now
+                state.updated_at = now
+                return True
 
 
 class ActivityCleanupWorker:
