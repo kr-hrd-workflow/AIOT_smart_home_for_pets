@@ -638,7 +638,9 @@ it("keeps enrollment and destructive controls in keyboard order", async () => {
   await user.tab();
   expect(screen.getByRole("button", { name: "현관 Pico 설정" })).toHaveFocus();
   await user.tab();
-  expect(screen.getByRole("button", { name: "생활공간 Pico 설정" })).toHaveFocus();
+  expect(screen.getByRole("button", { name: "식기 Pico 설정" })).toHaveFocus();
+  await user.tab();
+  expect(screen.getByRole("button", { name: "침대 Pico 설정" })).toHaveFocus();
   await user.tab();
   expect(screen.getByLabelText("현재 비밀번호")).toHaveFocus();
 });

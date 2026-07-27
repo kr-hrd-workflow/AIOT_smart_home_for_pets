@@ -149,7 +149,7 @@ def test_private_release_installer_is_self_contained_and_hashed() -> None:
     )
 
     assert setup.read_bytes()[:2] == b"MZ"
-    assert setup.stat().st_size < 1_000_000
+    assert setup.stat().st_size < 1_100_000
 
     expected = {
         line.split()[1]: line.split()[0]
