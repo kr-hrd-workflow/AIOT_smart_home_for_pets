@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import type { PetCareLiveClient } from "../lib/petcare-remote";
 
 const CODEC = 'video/mp4; codecs="avc1.42E01E"';
+const HLS_MIME = "application/vnd.apple.mpegurl";
 const DEFAULT_POLL_MS = 1_000;
 const DEFAULT_OFFLINE_MS = 3_000;
 const MAX_BUFFER_SECONDS = 18;
@@ -37,13 +38,32 @@ export function LiveMediaPlayer({
 
   useEffect(() => {
     const video = videoRef.current;
-    if (
-      !video ||
-      typeof MediaSource === "undefined" ||
-      !MediaSource.isTypeSupported(CODEC)
-    ) {
-      setState("unsupported");
-      return;
+    if (!video) return;
+
+    const supportsMediaSource =
+      typeof MediaSource !== "undefined" && MediaSource.isTypeSupported(CODEC);
+    if (!supportsMediaSource) {
+      const supportsNativeHls = Boolean(
+        video.canPlayType(HLS_MIME) || video.canPlayType("application/x-mpegURL"),
+      );
+      if (!supportsNativeHls) {
+        setState("unsupported");
+        return;
+      }
+
+      const handlePlaying = () => setState("live");
+      const handleError = () => setState("offline");
+      video.addEventListener("playing", handlePlaying);
+      video.addEventListener("error", handleError);
+      video.src = `/api/petcare/cameras/${encodeURIComponent(cameraId)}/live/index.m3u8`;
+      setState("connecting");
+      void video.play().catch(() => undefined);
+
+      return () => {
+        video.removeEventListener("playing", handlePlaying);
+        video.removeEventListener("error", handleError);
+        video.removeAttribute("src");
+      };
     }
 
     let active = true;

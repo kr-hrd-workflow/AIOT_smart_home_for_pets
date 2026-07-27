@@ -133,6 +133,7 @@ export type PublishLiveUploadInput = {
 export type OwnedLivePart = {
   sequence: number;
   objectKey: string;
+  durationMs: number;
 };
 
 export type OwnedLiveStream = {
@@ -1610,22 +1611,23 @@ export class PetCareRepository {
 
     const parts = await this.db
       .prepare(`
-        SELECT sequence, object_key FROM live_parts
+        SELECT sequence, object_key, duration_ms FROM live_parts
         WHERE home_id = ? AND boot_id = ? AND expires_at > ?
           AND sequence <= ?
         ORDER BY sequence DESC LIMIT 8
       `)
       .bind(stream.home_id, stream.boot_id, now, stream.newest_sequence)
-      .all<{ sequence: number; object_key: string }>();
+      .all<{ sequence: number; object_key: string; duration_ms: number }>();
     return {
       homeId: stream.home_id,
       cameraId: stream.camera_id,
       bootId: stream.boot_id,
       initObjectKey: stream.init_object_key,
       newestSequence: stream.newest_sequence,
-      parts: parts.results.reverse().map((part: { sequence: number; object_key: string }) => ({
+      parts: parts.results.reverse().map((part: { sequence: number; object_key: string; duration_ms: number }) => ({
         sequence: part.sequence,
         objectKey: part.object_key,
+        durationMs: part.duration_ms,
       })),
     };
   }

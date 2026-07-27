@@ -7,7 +7,7 @@ type OwnedLiveStream = {
   bootId: string;
   initObjectKey: string;
   newestSequence: number;
-  parts: { sequence: number; objectKey: string }[];
+  parts: { sequence: number; objectKey: string; durationMs: number }[];
 };
 
 type LiveRepository = {
@@ -51,6 +51,46 @@ export async function getLiveManifest(
     },
     { headers: PRIVATE_HEADERS },
   );
+}
+
+export async function getLivePlaylist(
+  user: AuthUser,
+  env: PetCareEnv,
+  cameraId: string,
+): Promise<Response> {
+  const repository = new PetCareRepository(env.DB) as PetCareRepository & LiveRepository;
+  const stream = await repository.getOwnedLiveStream(
+    user.sub,
+    cameraId,
+    new Date().toISOString(),
+  );
+  if (!stream) throw new PetCareError(404, "not_found");
+
+  const targetDuration = Math.max(
+    1,
+    ...stream.parts.map((part) => Math.ceil(part.durationMs / 1_000)),
+  );
+  const mediaSequence = stream.parts[0]?.sequence ?? stream.newestSequence;
+  const lines = [
+    "#EXTM3U",
+    "#EXT-X-VERSION:7",
+    `#EXT-X-TARGETDURATION:${targetDuration}`,
+    `#EXT-X-MEDIA-SEQUENCE:${mediaSequence}`,
+    "#EXT-X-INDEPENDENT-SEGMENTS",
+    `#EXT-X-MAP:URI="${mediaRoute(cameraId, stream.bootId, "init.mp4")}"`,
+    ...stream.parts.flatMap((part) => [
+      `#EXTINF:${(part.durationMs / 1_000).toFixed(3)},`,
+      mediaRoute(cameraId, stream.bootId, `${part.sequence}.m4s`),
+    ]),
+    "",
+  ];
+
+  return new Response(lines.join("\n"), {
+    headers: {
+      ...PRIVATE_HEADERS,
+      "Content-Type": "application/vnd.apple.mpegurl",
+    },
+  });
 }
 
 export async function getLivePart(
