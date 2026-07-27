@@ -25,11 +25,11 @@ PetCare 웹은 React 19와 [vinext](https://github.com/cloudflare/vinext)로 동
 4. 고객은 Pico 2 W를 Home Agent PC에 USB로 한 번 연결하고 Wi-Fi를 입력합니다. 현관 `entrance-01`과 생활공간 `petzone-01`은 이후 Wi-Fi/MQTT로 동작합니다.
 5. Jetson 카메라는 로컬 `http://127.0.0.1:8000/setup`에서 pairing 파일로 연결합니다. 등록이 끝나면 Home Agent가 자동으로 다시 연결하고 로그인한 Sites 대시보드에 상태와 인증된 라이브 영상을 표시합니다. Jetson 온라인 상태까지 확인되어야 연결 완료로 표시됩니다.
 
-고객은 Supabase나 Cloudflare 프로젝트, URL, 키 또는 JWKS를 설정하지 않습니다. PetCare 운영자가 Sites runtime의 `SUPABASE_URL`과 `SUPABASE_PUBLISHABLE_KEY`를 구성합니다. Home Agent 등록과 원격 상태·영상 연결을 운영할 때는 `.env.example`의 `CF_*` 8개 서버 값도 운영자가 구성합니다.
+고객은 Supabase나 Cloudflare 프로젝트, URL, 키 또는 JWKS를 설정하지 않습니다. PetCare 운영자가 Sites runtime의 `SUPABASE_URL`과 `SUPABASE_PUBLISHABLE_KEY`를 구성합니다. Home Agent는 Cloudflare Tunnel 없이 Sites에 outbound HTTPS로 등록·상태·영상 조각을 전달합니다.
 
 운영 Supabase Auth의 Site URL은 `https://kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site`로 고정합니다. Redirect URL allowlist에는 `https://kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site/auth/callback`과 비밀번호 복구용 `https://kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site/auth/callback?next=/reset-password`만 등록합니다. 이메일 확인은 유지하며, 일반 고객 가입·복구 메일을 보내려면 운영자가 별도 Custom SMTP를 구성해야 합니다.
 
-`CF_*` 값이 하나라도 없으면 로그인 사용자의 10분 코드를 저장하지 않고 API가 `503 enrollment_unavailable`로 조기 실패합니다. 화면은 이를 “원격 연결 준비 중”으로 안내하므로, 설치 후 마지막 단계에서야 실패하는 가짜 등록 흐름을 만들지 않습니다.
+10분 코드는 로그인한 사용자의 home에 tenant 범위로 저장되고, 설치 중 Home Agent가 이를 한 번 사용해 Ed25519 기기 키를 등록합니다. 등록 실패 시 설치 창을 유지하고 오류를 표시합니다.
 
 ## 활동·휴식·반복 이동 표시
 
@@ -103,10 +103,10 @@ Playwright Chromium은 `dashboard/node_modules/playwright/cli.js install chromiu
 
 ## 배포와 검수 상태
 
-Sites는 공개로 배포하고 `.openai/hosting.json`의 기존 opaque project ID와 `DB`/`CLIPS` binding을 재사용합니다. 공개 랜딩·인증에는 `SUPABASE_URL`과 `SUPABASE_PUBLISHABLE_KEY`가 필요합니다. Home Agent 등록과 원격 상태·영상에는 `.env.example`의 `CF_*` 8개 값이 추가로 필요하며 token/client secret은 Sites secret으로 저장합니다.
+Sites는 공개로 배포하고 `.openai/hosting.json`의 기존 opaque project ID와 `DB`/`CLIPS` binding을 재사용합니다. 공개 랜딩·인증에는 `SUPABASE_URL`과 `SUPABASE_PUBLISHABLE_KEY`가 필요합니다. Home Agent 등록·상태·영상은 서명된 outbound 요청을 사용하며 Cloudflare Tunnel 자격 증명은 필요하지 않습니다.
 
 설치 파일 릴리스는 `packaging/windows/release`의 고정 EXE와 SHA-256 sidecar를 사용합니다. 운영 배포 시에만 임시 업로드 토큰을 Sites secret으로 설정해 고정 R2 키에 업로드하고, 업로드 직후 secret을 제거한 같은 버전을 다시 배포합니다. 정상 운영 runtime에는 이 임시 토큰이 남지 않습니다.
 
-Jetson 비전 서비스는 JetPack 4.6.6/L4T 32.7.6/TensorRT 8.2.1 실기기에서 USB 카메라·서명 프리뷰와 단기 고유 프레임 30 FPS 게이트까지 통과했습니다. 60분 soak, 실제 Pico·센서 설치와 깨끗한 Windows PC에서의 Home Agent 전체 설치는 `NOT RUN`입니다. 연결된 Cloudflare 계정에는 Zone과 Access가 없어 Sites에서 신규 Home Agent를 운영 등록하는 외부 게이트는 현재 `BLOCKED`입니다.
+Jetson 비전 서비스는 JetPack 4.6.6/L4T 32.7.6/TensorRT 8.2.1 실기기에서 USB 카메라·서명 프리뷰와 단기 고유 프레임 30 FPS 게이트까지 통과했습니다. 현재 Home Agent outbound 경로에서 3초 fMP4 조각과 6초 재생 버퍼를 사용합니다. 60분 soak, 실제 Pico·센서 설치와 깨끗한 Windows PC에서의 Home Agent 전체 설치는 `NOT RUN`입니다.
 
 `worker/index.ts`에는 D1/R2·터널·계정 정리를 수행하는 scheduled handler가 구현돼 있지만, 현재 Sites 프로젝트에서 시간별 trigger와 R2 lifecycle이 실제로 연결됐다는 운영 증거는 없습니다. 코드 테스트와 별개로 이 두 운영 설정은 `NOT VERIFIED`이며, provider에서 trigger/lifecycle을 구성하고 실제 실행 영수증을 남기기 전에는 7일 물리 삭제를 완료로 간주하지 않습니다.

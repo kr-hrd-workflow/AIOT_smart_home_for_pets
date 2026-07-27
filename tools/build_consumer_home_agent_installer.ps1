@@ -30,13 +30,10 @@ if (
     throw 'SiteOrigin must be an HTTPS origin without a path'
 }
 
-$BuildRoot = [IO.Path]::GetFullPath((Join-Path $Root '.runtime\consumer-installer-build'))
+$BuildRoot = [IO.Path]::GetFullPath((Join-Path $Root ".runtime\consumer-installer-build-$PID"))
 $RuntimeBoundary = [IO.Path]::GetFullPath((Join-Path $Root '.runtime')).TrimEnd('\')
 if (-not $BuildRoot.StartsWith($RuntimeBoundary + '\', [StringComparison]::OrdinalIgnoreCase)) {
     throw 'installer build root escaped .runtime'
-}
-if (Test-Path -LiteralPath $BuildRoot) {
-    Remove-Item -LiteralPath $BuildRoot -Recurse -Force
 }
 $StageRoot = Join-Path $BuildRoot 'bundle'
 New-Item -ItemType Directory -Force -Path $StageRoot, $OutputDirectory | Out-Null
@@ -111,6 +108,14 @@ internal static class Program
     private const string BundleSha256 = "__BUNDLE_SHA256__";
     private const string SiteOrigin = "__SITE_ORIGIN__";
 
+    private static int Fail(int code, string message)
+    {
+        Console.Error.WriteLine(message);
+        Console.Error.WriteLine("Press Enter to close this window.");
+        Console.ReadLine();
+        return code;
+    }
+
     private static bool IsAdministrator()
     {
         using (WindowsIdentity identity = WindowsIdentity.GetCurrent())
@@ -145,8 +150,7 @@ internal static class Program
             }
             catch
             {
-                Console.Error.WriteLine("PetCare Home Agent installation requires administrator approval.");
-                return 1;
+                return Fail(1, "PetCare Home Agent installation requires administrator approval.");
             }
         }
 
@@ -161,8 +165,7 @@ internal static class Program
             File.WriteAllBytes(archive, Convert.FromBase64String(BundleBase64));
             if (!String.Equals(Sha256(archive), BundleSha256, StringComparison.Ordinal))
             {
-                Console.Error.WriteLine("PetCare installer integrity verification failed.");
-                return 2;
+                return Fail(2, "PetCare installer integrity verification failed.");
             }
             ZipFile.ExtractToDirectory(archive, temporary);
             string installer = Path.Combine(
@@ -179,12 +182,13 @@ internal static class Program
                 WorkingDirectory = temporary
             });
             process.WaitForExit();
-            return process.ExitCode;
+            return process.ExitCode == 0
+                ? 0
+                : Fail(process.ExitCode, "PetCare installation failed. Review the error above before closing this window.");
         }
         catch (Exception error)
         {
-            Console.Error.WriteLine("PetCare installation failed: " + error.Message);
-            return 3;
+            return Fail(3, "PetCare installation failed: " + error.Message);
         }
         finally
         {
@@ -225,3 +229,4 @@ $SetupHash = (Get-FileHash -LiteralPath $SetupPath -Algorithm SHA256).Hash
 Write-Output "Consumer Home Agent installer PASS: $SetupPath"
 Write-Output "Embedded bundle SHA-256: $BundleHash"
 Write-Output "Setup SHA-256: $SetupHash"
+Remove-Item -LiteralPath $BuildRoot -Recurse -Force

@@ -14,6 +14,7 @@ RELEASE = ROOT / "packaging" / "windows" / "release"
 
 def test_consumer_installer_keeps_cloud_and_household_secrets_out_of_arguments() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
+    runtime = (ROOT / "backend" / "app" / "agent_runtime.py").read_text(encoding="utf-8")
 
     assert "SUPABASE_" not in source
     assert "--code" not in source
@@ -22,6 +23,7 @@ def test_consumer_installer_keeps_cloud_and_household_secrets_out_of_arguments()
     assert "PETCARE_POSTGRES_PASSWORD" in source
     assert "PETCARE_MQTT_PASSWORD" in source
     assert "app.agent_runtime enroll --origin $SiteOrigin --config $ConfigPath" in source
+    assert "Enter the 10-minute code from the PetCare dashboard: " in runtime
 
 
 def test_consumer_installer_uses_exact_private_network_and_service_surface() -> None:
@@ -156,5 +158,9 @@ def test_private_release_installer_is_self_contained_and_hashed() -> None:
     assert "packaging\\windows\\release" in build_source
     assert "[Convert]::ToBase64String" in build_source
     assert "Convert.FromBase64String(BundleBase64)" in build_source
+    assert 'private const string SiteOrigin = "__SITE_ORIGIN__"' in build_source
+    assert '-SiteOrigin \\"" + SiteOrigin + "\\"' in build_source
+    assert "Press Enter to close this window." in build_source
+    assert "process.ExitCode == 0" in build_source
     assert "WebClient" not in build_source
     assert "BundleUrl" not in build_source

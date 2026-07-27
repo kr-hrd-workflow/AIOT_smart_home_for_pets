@@ -14,10 +14,10 @@ PetCare는 두 대의 Raspberry Pi Pico 2 W, Windows Home Agent, Jetson 카메�
 | FastAPI, PostgreSQL, MQTT, 행동 규칙 | 구현·로컬 통합 테스트됨 |
 | 공개 랜딩, `/demo`, 로그인 후 대시보드 | 연속 스크롤 scrub·인증 장애 fallback까지 구현·테스트됨 |
 | Supabase 고객 가입·로그인과 tenant 분리 | 구현·production Site URL·두 콜백 설정됨; 일반 고객 메일용 Custom SMTP는 미구성 |
-| Sites↔Home Agent 원격 연결 | 코드·UI 구현됨; 연결된 Cloudflare 계정에 Zone·Access가 없어 운영 등록은 `BLOCKED` |
+| Sites↔Home Agent 원격 연결 | Cloudflare Tunnel 없이 Ed25519 서명 outbound 전송으로 운영 연결 PASS |
 | Windows Home Agent 설치 파일 | 고정 크기·SHA-256 검증 후 Sites R2 업로드 PASS; 로그인 후 제공 |
 | Sites scheduled 정리·R2 7일 lifecycle | 코드 구현됨; provider 운영 trigger/lifecycle 연결 증거는 `NOT VERIFIED` |
-| Sites 공개 배포 | v9 공개 배포 PASS (source `21aeb50`) |
+| Sites 공개 배포 | v13 공개 배포 PASS (source `6109a61`) |
 | 실제 Jetson 비전 서비스·USB 카메라·서명 프리뷰 | 실기기 통과 (JetPack 4.6.6, L4T 32.7.6, TensorRT 8.2.1) |
 | Jetson 고유 프레임 30 FPS 라이브·활동·반복 이동 관측 | 60 Hz 보정 후 단기 실기기 게이트 PASS |
 | Jetson 60분 지속 실행 | `NOT RUN` |
@@ -32,7 +32,7 @@ Pico UF2 빌드는 두 프로필 모두 PASS했습니다. `entrance` SHA-256은 
 
 1. 고객은 공개 랜딩을 보고 `/signup`에서 일반 PetCare 계정을 만듭니다. 고객이 Supabase 프로젝트나 키를 따로 설정할 필요는 없습니다.
 2. 로그인한 `/dashboard`에서 Windows Home Agent 설치 파일과 10분 유효 등록 코드를 받습니다.
-3. 설치 프로그램은 관리자 승인을 받아 `%ProgramData%\PetCare\HomeAgent` 아래에 런타임을 설치하고 `PetCarePostgres`, `PetCareMqtt`, `PetCareHomeAgent` 서비스를 등록합니다.
+3. 설치 프로그램은 관리자 승인을 받아 `%ProgramData%\PetCare\HomeAgent` 아래에 런타임을 설치하고 `PetCarePostgres`, `PetCareMqtt`, `PetCareHomeAgent` 서비스를 등록·즉시 실행합니다. 이후 고객이 별도 앱을 실행할 필요 없이 Windows 부팅 때 자동 시작합니다. 설치가 실패하면 창을 유지하고 오류를 표시합니다.
 4. Pico를 Home Agent PC에 USB로 한 번 연결해 집 Wi-Fi를 입력합니다. Home Agent가 MQTT 자격 증명을 기기에 직접 결합하며, 이후 센서 운영 데이터는 USB가 아니라 Wi-Fi/MQTT로 전달됩니다.
 5. Home Agent는 센서·카메라 데이터와 카메라가 실제로 관측한 1초 활동 bucket을 로컬 PostgreSQL에 저장하고 행동 규칙을 처리한 뒤, 등록된 Sites origin을 통해 해당 가정의 로그인 사용자에게만 상태를 제공합니다.
 6. 승인된 Jetson `pairing.json`을 로컬 설정 화면에 전달하면 Home Agent가 자동으로 다시 연결하고, 로그인한 Sites 대시보드에서 상태와 프리뷰를 확인할 수 있습니다. 이 제품의 연결 완료 판정에는 Jetson 카메라 온라인 상태가 포함됩니다.
@@ -80,7 +80,7 @@ Pico는 FSR의 `0..4095` ADC 원값만 발행합니다. 침대 baseline, polarit
 
 루트가 랜딩보다 먼저 설정 코드 화면으로 바뀌지 않습니다. 10분 코드는 로그인한 대시보드에서 고객이 명시적으로 만들 때만 표시됩니다.
 
-운영 Supabase Auth의 Site URL은 공개 Sites 주소로 고정했고, Redirect URL allowlist는 `/auth/callback`과 `/auth/callback?next=/reset-password`의 production URL 두 개만 사용합니다. 이메일 확인은 유지하므로 일반 고객 가입·복구 메일을 실제 운영하려면 별도 Custom SMTP가 필요합니다. Cloudflare `CF_*` 8개 값이 완전하지 않으면 10분 코드는 D1에 저장되지 않고 `503 enrollment_unavailable`로 조기 실패하며 화면은 “원격 연결 준비 중”이라고 안내합니다.
+운영 Supabase Auth의 Site URL은 공개 Sites 주소로 고정했고, Redirect URL allowlist는 `/auth/callback`과 `/auth/callback?next=/reset-password`의 production URL 두 개만 사용합니다. 이메일 확인은 유지하므로 일반 고객 가입·복구 메일을 실제 운영하려면 별도 Custom SMTP가 필요합니다. 10분 코드는 Sites D1에 저장되며 Home Agent가 outbound HTTPS로 등록·상태·센서·라이브 조각을 전달합니다.
 
 ## 활동과 반복 이동 관측
 
@@ -90,8 +90,8 @@ Pico는 FSR의 `0..4095` ADC 원값만 발행합니다. 침대 baseline, polarit
 
 ## 보안과 비밀정보
 
-- PetCare 운영자는 Sites runtime에 공개 가능한 `SUPABASE_URL`·`SUPABASE_PUBLISHABLE_KEY`를 설정합니다. Home Agent 등록과 원격 상태·영상 연결에는 서버 전용 `CF_ACCOUNT_ID`, `CF_ZONE_ID`, `CF_ZONE_NAME`, `CF_ACCESS_TEAM_NAME`, `CF_TUNNEL_API_TOKEN`, `CF_ACCESS_SERVICE_TOKEN_ID`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`도 필요합니다.
-- Cloudflare API token과 Access client secret은 Sites의 secret으로만 저장하며 브라우저·설치 파일·Git·문서·로그에 노출하지 않습니다. 설치 파일을 R2에 올릴 때만 일회성 `PETCARE_INSTALLER_UPLOAD_TOKEN`을 설정하고, 업로드 직후 제거한 상태로 다시 배포합니다.
+- PetCare 운영자는 Sites runtime에 공개 가능한 `SUPABASE_URL`·`SUPABASE_PUBLISHABLE_KEY`를 설정합니다. 고객은 Supabase나 Cloudflare를 별도로 구성하지 않습니다.
+- 설치 파일을 R2에 올릴 때만 일회성 `PETCARE_INSTALLER_UPLOAD_TOKEN`을 설정하고, 업로드 직후 제거한 상태로 다시 배포합니다.
 - Supabase secret/service-role key와 JWKS URL은 Sites runtime, 설치 파일, Git, 문서, 로그에 넣지 않습니다.
 - 고객의 Wi-Fi 비밀번호는 브라우저에서 `127.0.0.1:8000`의 Home Agent로 직접 전달되며 Sites Worker나 Supabase를 통과하지 않습니다.
 - Home Agent의 DB/MQTT/connector 자격 증명은 owner/SYSTEM 전용 runtime 파일에 저장합니다.
