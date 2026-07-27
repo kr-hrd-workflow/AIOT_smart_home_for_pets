@@ -27,9 +27,17 @@ def test_build_composes_concrete_dependencies_without_starting_background_work(
     calls: list[tuple[object, ...]] = []
     config_path = tmp_path / "agent.json"
     tools_path = tmp_path / "agent-tools.json"
+    ffmpeg_path = tmp_path / "ffmpeg.exe"
     ffprobe_path = tmp_path / "ffprobe.exe"
+    ffmpeg_path.touch()
     ffprobe_path.touch()
-    tools_path.write_text(json.dumps({"ffprobe_path": str(ffprobe_path.resolve())}), encoding="utf-8")
+    tools_path.write_text(
+        json.dumps({
+            "ffmpeg_path": str(ffmpeg_path.resolve()),
+            "ffprobe_path": str(ffprobe_path.resolve()),
+        }),
+        encoding="utf-8",
+    )
     private_key = base64.urlsafe_b64encode(bytes(range(32))).decode("ascii").rstrip("=")
     runtime = SimpleNamespace(
         origin="https://petcare.example",
@@ -41,7 +49,6 @@ def test_build_composes_concrete_dependencies_without_starting_background_work(
     app_config = SimpleNamespace(camera_source="jetson", jetson_config=jetson_config)
     session_factory = object()
     upload_client = object()
-    jetson = object()
     repository = object()
     queue = object()
     admission = object()
@@ -51,6 +58,8 @@ def test_build_composes_concrete_dependencies_without_starting_background_work(
     cleanup_worker = SimpleNamespace(last_error=None)
     snapshot_client = object()
     snapshot_worker = SimpleNamespace(last_error=None)
+    live_client = object()
+    live_worker = SimpleNamespace(last_error=None)
     summary_supplier = lambda: b'{"summary":true}'
 
     monkeypatch.setattr(lifecycle, "load_runtime_config", lambda path: calls.append(("config", path)) or runtime)
@@ -89,6 +98,27 @@ def test_build_composes_concrete_dependencies_without_starting_background_work(
         or snapshot_worker,
         raising=False,
     )
+    monkeypatch.setattr(
+        lifecycle,
+        "SignedLiveUploadClient",
+        lambda **kwargs: calls.append(("live-client", kwargs)) or live_client,
+    )
+    monkeypatch.setattr(
+        lifecycle,
+        "LiveDeliveryWorker",
+        lambda client, stream, **kwargs: calls.append(
+            ("live-worker", client, stream, kwargs)
+        )
+        or live_worker,
+    )
+    class Jetson:
+        def live_stream(self) -> object:
+            return iter(())
+
+        def close(self) -> None:
+            pass
+
+    jetson = Jetson()
     monkeypatch.setattr(lifecycle, "JetsonVisionClient", lambda config: calls.append(("jetson", config)) or jetson)
     monkeypatch.setattr(lifecycle, "SqlAlchemyClipOutboxRepository", lambda factory: calls.append(("repository", factory)) or repository)
 
@@ -128,11 +158,16 @@ def test_build_composes_concrete_dependencies_without_starting_background_work(
     assert ("cleanup-repository", session_factory) in calls
     assert lifecycle._state_for(result).cleanup_worker is cleanup_worker
     assert lifecycle._state_for(result).snapshot_worker is snapshot_worker
+    assert lifecycle._state_for(result).live_worker is live_worker
     assert ("snapshot-worker", snapshot_client, summary_supplier) in calls
     assert any(call[:3] == ("queue", config_path.parent / "clip-upload-queue", upload_client) for call in calls)
     delivery_call = next(call for call in calls if call[0] == "delivery")
     assert delivery_call[4]["work_dir"] == config_path.parent / "clip-delivery"
     assert delivery_call[4]["ffprobe_path"] == ffprobe_path.resolve()
+    live_call = next(call for call in calls if call[0] == "live-worker")
+    assert live_call[1] is live_client
+    assert live_call[3]["ffmpeg_path"] == ffmpeg_path.resolve()
+    assert live_call[3]["work_dir"] == config_path.parent / "live-delivery"
     assert not any(call[0] in {"start", "status", "calibrate", "process"} for call in calls)
 
 
@@ -216,8 +251,8 @@ def test_build_without_jetson_keeps_the_upload_queue_and_skips_clip_workers(
     monkeypatch.setattr(lifecycle, "ClipUploadQueue", UploadQueue)
     monkeypatch.setattr(
         lifecycle,
-        "_ffprobe_path",
-        lambda _path: (_ for _ in ()).throw(AssertionError("ffprobe is camera-only")),
+        "_media_tool_paths",
+        lambda _path: (_ for _ in ()).throw(AssertionError("media tools are camera-only")),
     )
     monkeypatch.setattr(
         lifecycle,
@@ -277,6 +312,49 @@ def test_public_shape_and_start_order_contains_jetson_handshake_failure() -> Non
     )
     assert "fastapi" not in inspect.getsource(lifecycle).lower()
     assert not any(name in inspect.getsource(lifecycle) for name in ("FrameRing", "ClipRecorder", "latest_frame_sink"))
+
+
+def test_lifecycle_starts_and_stops_live_worker_with_the_camera_components() -> None:
+    calls: list[str] = []
+
+    class Component:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def start(self) -> None:
+            calls.append(f"{self.name}:start")
+
+        def stop(self, *, timeout_seconds: float) -> None:
+            assert timeout_seconds >= 0
+            calls.append(f"{self.name}:stop")
+
+    class Jetson:
+        def calibrate_clock(self) -> None:
+            calls.append("jetson:calibrate")
+
+        def close(self) -> None:
+            calls.append("jetson:close")
+
+    value = AgentLifecycleComponents(
+        Jetson(), Component("admission"), Component("delivery"), Component("upload"), NOW
+    )
+    lifecycle._state_for(value).live_worker = Component("live")  # type: ignore[assignment]
+
+    start_agent_components(value)
+    stop_agent_components(value)
+
+    assert calls == [
+        "upload:start",
+        "jetson:calibrate",
+        "admission:start",
+        "delivery:start",
+        "live:start",
+        "admission:stop",
+        "delivery:stop",
+        "live:stop",
+        "jetson:close",
+        "upload:stop",
+    ]
 
 
 def test_stop_uses_one_deadline_exact_caps_and_preserves_first_failure(

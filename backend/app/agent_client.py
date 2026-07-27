@@ -8,7 +8,7 @@ import re
 import secrets
 import stat
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, BinaryIO
 
@@ -31,11 +31,16 @@ ENROLL_PATH = "/api/petcare/agent/enroll"
 UPLOAD_PATH = "/api/petcare/agent/clips"
 CLEANUP_PATH = "/api/petcare/agent/cleanup"
 SNAPSHOT_PATH = "/api/petcare/agent/snapshot"
+LIVE_PATH = "/api/petcare/agent/live"
 HTTP_TIMEOUT_SECONDS = 30.0
 CLEANUP_HTTP_TIMEOUT_SECONDS = 5.0
 SNAPSHOT_HTTP_TIMEOUT_SECONDS = 1.5
+LIVE_HTTP_TIMEOUT_SECONDS = 3.0
 SNAPSHOT_MAX_BYTES = 128 * 1024
+LIVE_INIT_MAX_BYTES = 256 * 1024
+LIVE_SEGMENT_MAX_BYTES = 1024 * 1024
 _CLEANUP_COMMAND_ID = re.compile(rb"clc_[0-9a-f]{32}\Z")
+_LIVE_IDENTIFIER = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 
 
 class EnrollmentError(RuntimeError):
@@ -47,6 +52,10 @@ class UploadVerificationError(RuntimeError):
 
 
 class SnapshotUploadError(RuntimeError):
+    pass
+
+
+class LiveUploadError(RuntimeError):
     pass
 
 
@@ -322,6 +331,134 @@ class SignedSnapshotClient:
             or "public" in directives
         ):
             raise SnapshotUploadError("invalid snapshot response")
+
+
+class SignedLiveUploadClient:
+    def __init__(
+        self,
+        *,
+        origin: str,
+        agent_id: str,
+        camera_id: str,
+        private_key: Ed25519PrivateKey,
+        transport: httpx.BaseTransport | None = None,
+        now: Callable[[], datetime] | None = None,
+        nonce: Callable[[], str] | None = None,
+    ) -> None:
+        require_https_origin(origin)
+        if (
+            type(agent_id) is not str
+            or not agent_id
+            or agent_id != agent_id.strip()
+            or len(agent_id) > 128
+            or type(camera_id) is not str
+            or _LIVE_IDENTIFIER.fullmatch(camera_id) is None
+        ):
+            raise ValueError("agent and camera identifiers are required")
+        if not isinstance(private_key, Ed25519PrivateKey):
+            raise TypeError("private_key must be Ed25519PrivateKey")
+        self.agent_id = agent_id
+        self.camera_id = camera_id
+        self.private_key = private_key
+        self._client = httpx.Client(
+            base_url=origin,
+            timeout=httpx.Timeout(LIVE_HTTP_TIMEOUT_SECONDS),
+            transport=transport,
+        )
+        self._now = now or (lambda: datetime.now().astimezone())
+        self._nonce = nonce or (lambda: b64url(secrets.token_bytes(16)))
+
+    def close(self) -> None:
+        self._client.close()
+
+    def upload(
+        self,
+        path: Path,
+        *,
+        boot_id: str,
+        kind: str,
+        sequence: int,
+        started_at: datetime,
+        duration_ms: int,
+    ) -> None:
+        if (
+            _LIVE_IDENTIFIER.fullmatch(boot_id) is None
+            or kind not in {"init", "segment"}
+            or type(sequence) is not int
+            or type(duration_ms) is not int
+            or (kind == "init" and (sequence != 0 or duration_ms != 0))
+            or (kind == "segment" and (sequence < 1 or duration_ms != 1000))
+            or started_at.tzinfo is None
+            or started_at.utcoffset() is None
+        ):
+            raise LiveUploadError("invalid live metadata")
+        try:
+            with _open_regular_file(path) as source:
+                body = source.read(LIVE_SEGMENT_MAX_BYTES + 1)
+        except (OSError, ValueError) as cause:
+            raise LiveUploadError("invalid live upload source") from cause
+        limit = LIVE_INIT_MAX_BYTES if kind == "init" else LIVE_SEGMENT_MAX_BYTES
+        if not body or len(body) > limit:
+            raise LiveUploadError("invalid live upload source")
+
+        now = self._now()
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise LiveUploadError("live clock must be timezone-aware")
+        try:
+            nonce = validate_code(self._nonce())
+        except ValueError as cause:
+            raise LiveUploadError("invalid live nonce") from cause
+        timestamp = str(int(now.timestamp()))
+        started_text = started_at.astimezone(UTC).isoformat(timespec="microseconds")
+        if started_text.endswith("+00:00"):
+            started_text = started_text[:-6] + "Z"
+        digest = b64url(hashlib.sha256(body).digest())
+        canonical = "\n".join((
+            "PETCARE-LIVE-V1",
+            "POST",
+            LIVE_PATH,
+            self.agent_id,
+            self.camera_id,
+            boot_id,
+            kind,
+            str(sequence),
+            started_text,
+            str(duration_ms),
+            str(len(body)),
+            digest,
+            "",
+        )).encode("utf-8")
+        headers = {
+            "Content-Type": "video/mp4",
+            "Content-Length": str(len(body)),
+            "X-PetCare-Agent-Id": self.agent_id,
+            "X-PetCare-Camera-Id": self.camera_id,
+            "X-PetCare-Boot-Id": boot_id,
+            "X-PetCare-Live-Kind": kind,
+            "X-PetCare-Live-Sequence": str(sequence),
+            "X-PetCare-Started-At": started_text,
+            "X-PetCare-Duration-Ms": str(duration_ms),
+            "X-PetCare-Timestamp": timestamp,
+            "X-PetCare-Nonce": nonce,
+            "X-PetCare-Content-SHA256": digest,
+            "X-PetCare-Signature": b64url(self.private_key.sign(canonical)),
+        }
+        try:
+            response = self._client.post(LIVE_PATH, headers=headers, content=body)
+        except httpx.HTTPError as cause:
+            raise LiveUploadError("live request failed") from cause
+        directives = {
+            directive.strip().lower()
+            for directive in response.headers.get("Cache-Control", "").split(",")
+        }
+        if (
+            response.status_code != 204
+            or response.content
+            or "private" not in directives
+            or "no-store" not in directives
+            or "public" in directives
+        ):
+            raise LiveUploadError("invalid live response")
 
 
 class SignedActivityCleanupClient:
