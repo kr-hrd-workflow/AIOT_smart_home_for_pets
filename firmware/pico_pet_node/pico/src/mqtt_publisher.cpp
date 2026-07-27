@@ -4,6 +4,10 @@
 
 #include "lwip/ip_addr.h"
 
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+
 namespace petcare {
 
 MqttPublisher::MqttPublisher() = default;
@@ -77,6 +81,66 @@ bool MqttPublisher::publish_status(const TelemetryMessage& message) {
     return publish(message, MqttContract::status_retain, false);
 }
 
+bool MqttPublisher::request_time(std::string_view device_id) {
+    if (!connected_.load() ||
+        (device_id != "entrance-01" && device_id != "petzone-01")) {
+        return false;
+    }
+    std::array<char, 64> request_topic{};
+    std::array<char, 64> response_topic{};
+    const auto request_size = std::snprintf(
+        request_topic.data(), request_topic.size(),
+        "home/pico/%.*s%s",
+        static_cast<int>(device_id.size()), device_id.data(),
+        MqttContract::time_request_suffix);
+    const auto response_size = std::snprintf(
+        response_topic.data(), response_topic.size(),
+        "home/pico/%.*s%s",
+        static_cast<int>(device_id.size()), device_id.data(),
+        MqttContract::time_response_suffix);
+    if (request_size <= 0 ||
+        static_cast<std::size_t>(request_size) >= request_topic.size() ||
+        response_size <= 0 ||
+        static_cast<std::size_t>(response_size) >=
+            response_topic.size()) {
+        return false;
+    }
+    cyw43_arch_lwip_begin();
+    time_response_topic_ = response_topic;
+    mqtt_set_inpub_callback(client_, time_publish, time_data, this);
+    const auto subscribe_error = mqtt_subscribe(
+        client_, time_response_topic_.data(), MqttContract::qos,
+        time_request_complete, this);
+    const auto publish_error = subscribe_error == ERR_OK
+        ? mqtt_publish(
+              client_, request_topic.data(), "", 0,
+              MqttContract::qos, false, time_request_complete, this)
+        : subscribe_error;
+    cyw43_arch_lwip_end();
+    return subscribe_error == ERR_OK && publish_error == ERR_OK;
+}
+
+bool MqttPublisher::take_time(
+    std::uint64_t monotonic_ms,
+    UtcClock& clock
+) {
+    std::array<std::uint8_t, 13> payload{};
+    std::size_t payload_size = 0;
+    cyw43_arch_lwip_begin();
+    if (time_ready_.exchange(false)) {
+        payload = time_payload_;
+        payload_size = time_payload_size_;
+        std::fill(time_payload_.begin(), time_payload_.end(), 0);
+        time_payload_size_ = 0;
+    }
+    cyw43_arch_lwip_end();
+    if (payload_size == 0) {
+        return false;
+    }
+    return clock.synchronize(
+        payload.data(), payload_size, monotonic_ms);
+}
+
 bool MqttPublisher::graceful_disconnect(const TelemetryMessage& offline_status) {
     return publish(offline_status, MqttContract::status_retain, true);
 }
@@ -119,6 +183,14 @@ void MqttPublisher::abort() {
     publish_failed_.store(false);
     publication_pending_.store(false);
     disconnect_after_publish_.store(false);
+    std::fill(time_payload_.begin(), time_payload_.end(), 0);
+    std::fill(
+        time_response_topic_.begin(),
+        time_response_topic_.end(),
+        '\0');
+    time_payload_size_ = 0;
+    accept_time_payload_ = false;
+    time_ready_.store(false);
 }
 
 void MqttPublisher::connection_changed(
@@ -152,6 +224,55 @@ void MqttPublisher::publication_complete(void* argument, err_t error) {
         self->connected_.store(false);
     }
     self->publication_pending_.store(false);
+}
+
+void MqttPublisher::time_request_complete(void* argument, err_t error) {
+    if (error == ERR_OK) {
+        return;
+    }
+    auto* self = static_cast<MqttPublisher*>(argument);
+    self->publish_failed_.store(true);
+    self->connected_.store(false);
+}
+
+void MqttPublisher::time_publish(
+    void* argument,
+    const char* topic,
+    u32_t size
+) {
+    auto* self = static_cast<MqttPublisher*>(argument);
+    self->time_payload_size_ = 0;
+    self->accept_time_payload_ =
+        topic != nullptr &&
+        std::strcmp(topic, self->time_response_topic_.data()) == 0 &&
+        size == self->time_payload_.size();
+}
+
+void MqttPublisher::time_data(
+    void* argument,
+    const u8_t* data,
+    u16_t size,
+    u8_t flags
+) {
+    auto* self = static_cast<MqttPublisher*>(argument);
+    if (!self->accept_time_payload_ ||
+        (data == nullptr && size != 0) ||
+        size > self->time_payload_.size() - self->time_payload_size_) {
+        self->accept_time_payload_ = false;
+        return;
+    }
+    if (size != 0) {
+        std::copy_n(
+            data, size,
+            self->time_payload_.begin() + self->time_payload_size_);
+    }
+    self->time_payload_size_ += size;
+    if (flags & MQTT_DATA_FLAG_LAST) {
+        if (self->time_payload_size_ == self->time_payload_.size()) {
+            self->time_ready_.store(true);
+        }
+        self->accept_time_payload_ = false;
+    }
 }
 
 }

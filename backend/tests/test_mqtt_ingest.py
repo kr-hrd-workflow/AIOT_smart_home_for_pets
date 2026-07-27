@@ -427,6 +427,9 @@ class FakeClient:
             raise TypeError("Paho requires a list for multiple subscriptions")
         self.calls.append(("subscribe", tuple(topics)))
 
+    def publish(self, topic: str, payload: bytes, qos: int, retain: bool) -> None:
+        self.calls.append(("publish", topic, payload, qos, retain))
+
     def disconnect(self) -> None:
         self.calls.append(("disconnect",))
 
@@ -457,6 +460,64 @@ def test_paho_callback_begins_before_validation_and_lifecycle_is_owned() -> None
     assert ("reconnect", 1, 30) in client.calls
     assert ("subscribe", EXACT_SUBSCRIPTIONS) in client.calls
     assert client.calls[-2:] == [("disconnect",), ("loop_stop",)]
+
+
+def test_time_request_returns_fresh_device_scoped_utc_without_entering_ingress() -> None:
+    ingress = RecordingIngress()
+    session = FakeSession()
+    client = FakeClient()
+    ingestor = MqttIngestor(
+        ingress=ingress,
+        session_factory=lambda: session,
+        endpoint=MqttEndpoint("127.0.0.1", 18883),
+        username="petcare",
+        password="secret",
+        client_factory=lambda: client,
+        utc_now=lambda: NOW,
+    )
+    ingestor.start()
+    message = SimpleNamespace(
+        topic="home/pico/petzone-01/time/request",
+        payload=b"",
+    )
+
+    client.on_message(client, None, message)
+
+    assert ingress.calls == []
+    assert (
+        "publish",
+        "home/pico/petzone-01/time/response",
+        b"1784203200000",
+        1,
+        False,
+    ) in client.calls
+
+
+def test_malformed_time_request_is_ignored_before_normal_ingestion() -> None:
+    ingress = RecordingIngress()
+    client = FakeClient()
+    ingestor = MqttIngestor(
+        ingress=ingress,
+        session_factory=FakeSession,
+        endpoint=MqttEndpoint("127.0.0.1", 18883),
+        username="petcare",
+        password="secret",
+        client_factory=lambda: client,
+        utc_now=lambda: NOW,
+    )
+    ingestor.start()
+
+    client.on_message(
+        client,
+        None,
+        SimpleNamespace(
+            topic="home/pico/petzone-01/time/request",
+            payload=b"not-empty",
+        ),
+    )
+
+    assert ingress.calls == []
+    assert not any(call[0] == "publish" for call in client.calls)
 
 
 def test_disabled_ingestor_has_no_client_or_replay() -> None:

@@ -290,14 +290,35 @@ int main() {
         mqtt_backoff.reset();
 
         if (!clock.valid()) {
+            if (!publisher.request_time(petcare::config::device_id)) {
+                publisher.abort();
+                diagnostics.phase = petcare::RuntimePhase::backoff;
+                diagnostics.error = petcare::RuntimeError::mqtt;
+                wait_with_usb(
+                    runtime,
+                    diagnostics,
+                    mqtt_backoff.next_delay_seconds() * 1'000U);
+                continue;
+            }
             diagnostics.phase = petcare::RuntimePhase::time_syncing;
             diagnostics.error = petcare::RuntimeError::time_sync;
             std::uint64_t next_sync_attempt_ms = 0;
+            auto next_time_request_ms =
+                monotonic_ms() + petcare::UtcClock::retry_ms;
             while (publisher.connected() &&
                    cyw43_tcpip_link_status(
                        &cyw43_state, CYW43_ITF_STA) == CYW43_LINK_UP &&
                    !clock.valid()) {
                 const auto now_ms = monotonic_ms();
+                publisher.take_time(now_ms, clock);
+                if (!clock.valid() && now_ms >= next_time_request_ms) {
+                    if (!publisher.request_time(
+                            petcare::config::device_id)) {
+                        break;
+                    }
+                    next_time_request_ms =
+                        now_ms + petcare::UtcClock::retry_ms;
+                }
                 if (now_ms >= next_sync_attempt_ms) {
                     clock.synchronize(wall_clock_ms(), now_ms);
                     next_sync_attempt_ms =

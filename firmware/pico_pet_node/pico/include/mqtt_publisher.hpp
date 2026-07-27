@@ -19,6 +19,8 @@ struct MqttContract {
     static constexpr bool sensor_retain = false;
     static constexpr bool status_retain = true;
     static constexpr std::uint64_t heartbeat_ms = 10'000;
+    static constexpr char time_request_suffix[] = "/time/request";
+    static constexpr char time_response_suffix[] = "/time/response";
 };
 
 class HeartbeatSchedule {
@@ -45,7 +47,7 @@ public:
     static constexpr std::uint64_t retry_ms = 15'000;
     static constexpr std::uint64_t resync_ms = 21'600'000;
     static constexpr char primary_server[] = "pool.ntp.org";
-    static constexpr char fallback_server[] = "time.cloudflare.com";
+    static constexpr char fallback_server[] = "time.google.com";
 
     bool synchronize(std::uint64_t utc_ms, std::uint64_t monotonic_ms) {
         if (utc_ms < minimum_utc_ms || (has_last_published_ && utc_ms <= last_published_ms_)) {
@@ -55,6 +57,24 @@ public:
         anchor_monotonic_ms_ = monotonic_ms;
         valid_ = true;
         return true;
+    }
+
+    bool synchronize(
+        const std::uint8_t* utc_ms,
+        std::size_t size,
+        std::uint64_t monotonic_ms
+    ) {
+        if (utc_ms == nullptr || size != 13) {
+            return false;
+        }
+        std::uint64_t parsed = 0;
+        for (std::size_t index = 0; index < size; ++index) {
+            if (utc_ms[index] < '0' || utc_ms[index] > '9') {
+                return false;
+            }
+            parsed = parsed * 10 + static_cast<std::uint64_t>(utc_ms[index] - '0');
+        }
+        return synchronize(parsed, monotonic_ms);
     }
 
     bool valid() const { return valid_; }
@@ -146,6 +166,8 @@ public:
     bool publication_pending() const;
     bool publish_sensor(const TelemetryMessage& message);
     bool publish_status(const TelemetryMessage& message);
+    bool request_time(std::string_view device_id);
+    bool take_time(std::uint64_t monotonic_ms, UtcClock& clock);
     bool graceful_disconnect(const TelemetryMessage& offline_status);
     void abort();
 
@@ -153,6 +175,9 @@ private:
     bool publish(const TelemetryMessage& message, bool retain, bool disconnect_after);
     static void connection_changed(mqtt_client_t* client, void* argument, mqtt_connection_status_t status);
     static void publication_complete(void* argument, err_t error);
+    static void time_request_complete(void* argument, err_t error);
+    static void time_publish(void* argument, const char* topic, u32_t size);
+    static void time_data(void* argument, const u8_t* data, u16_t size, u8_t flags);
 
     mqtt_client_t* client_ = nullptr;
     TelemetryMessage offline_lwt_{};
@@ -160,6 +185,11 @@ private:
     std::atomic_bool publish_failed_{false};
     std::atomic_bool publication_pending_{false};
     std::atomic_bool disconnect_after_publish_{false};
+    std::array<std::uint8_t, 13> time_payload_{};
+    std::array<char, 64> time_response_topic_{};
+    std::size_t time_payload_size_ = 0;
+    bool accept_time_payload_ = false;
+    std::atomic_bool time_ready_{false};
 };
 #endif
 

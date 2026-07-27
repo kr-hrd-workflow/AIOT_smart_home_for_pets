@@ -4,7 +4,7 @@ import json
 from collections import deque
 from collections.abc import Callable, Iterator, MutableMapping, MutableSet
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from threading import Event
@@ -38,7 +38,9 @@ SENSOR_TYPES = (
 EXACT_SUBSCRIPTIONS = (
     ("home/pico/+/sensor/+", 1),
     ("home/pico/+/status", 1),
+    ("home/pico/+/time/request", 1),
 )
+PICO_PRODUCTS = frozenset({"entrance-01", "petzone-01"})
 STATUS_IDENTITY_LIMIT = 4096
 
 
@@ -275,6 +277,7 @@ class MqttIngestor:
         username: str | None,
         password: str | None,
         client_factory: Callable[[], Any] | None = None,
+        utc_now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self._ingress = ingress
         self._session_factory = session_factory
@@ -282,6 +285,7 @@ class MqttIngestor:
         self._username = username
         self._password = password
         self._client_factory = client_factory or self._new_client
+        self._utc_now = utc_now
         self._client: Any | None = None
         self._watermarks: dict[tuple[str, str], datetime] = {}
         self._status_seen = _RecentStatusIdentities(STATUS_IDENTITY_LIMIT)
@@ -342,8 +346,19 @@ class MqttIngestor:
     ) -> None:
         self._connected.clear()
 
-    def _on_message(self, _client: Any, _userdata: object, message: object) -> None:
+    def _on_message(self, client: Any, _userdata: object, message: object) -> None:
         assert self._ingress is not None and self._session_factory is not None
+        parts = message.topic.split("/")
+        if len(parts) == 5 and parts[:2] == ["home", "pico"] and parts[3:] == ["time", "request"]:
+            if parts[2] in PICO_PRODUCTS and message.payload == b"":
+                utc_ms = int(self._utc_now().timestamp() * 1_000)
+                client.publish(
+                    f"home/pico/{parts[2]}/time/response",
+                    str(utc_ms).encode("ascii"),
+                    qos=1,
+                    retain=False,
+                )
+            return
         ticket = self._ingress.begin("mqtt")
         try:
             self.last_result = handle_mqtt_message(

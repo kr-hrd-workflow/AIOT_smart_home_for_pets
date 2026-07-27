@@ -60,13 +60,31 @@ int main() {
     static_assert(petcare::UtcClock::retry_ms == 15'000);
     static_assert(petcare::UtcClock::resync_ms == 21'600'000);
     static_assert(std::string_view{petcare::UtcClock::primary_server} == "pool.ntp.org");
-    static_assert(std::string_view{petcare::UtcClock::fallback_server} == "time.cloudflare.com");
+    static_assert(std::string_view{petcare::UtcClock::fallback_server} == "time.google.com");
+    static_assert(std::string_view{petcare::MqttContract::time_request_suffix} == "/time/request");
+    static_assert(std::string_view{petcare::MqttContract::time_response_suffix} == "/time/response");
 
     petcare::UtcClock clock;
     std::array<char, 25> timestamp{};
     std::uint64_t timestamp_ms = 0;
     assert(!clock.valid());
     assert(!clock.timestamp(0, timestamp, timestamp_ms));
+    constexpr std::array<std::uint8_t, 13> local_utc{{
+        '1', '7', '8', '4', '2', '0', '3', '2', '0', '0', '0', '0', '0',
+    }};
+    assert(clock.synchronize(
+        local_utc.data(), local_utc.size(), 50));
+    assert(clock.timestamp(50, timestamp, timestamp_ms));
+    assert(timestamp_ms == 1'784'203'200'000ULL);
+    petcare::UtcClock malformed_clock;
+    constexpr std::array<std::uint8_t, 13> malformed_utc{{
+        '1', '7', '8', '4', '2', '0', '3', '2', '0', '0', '0', 'x', '0',
+    }};
+    assert(!malformed_clock.synchronize(
+        malformed_utc.data(), malformed_utc.size(), 50));
+    assert(!malformed_clock.synchronize(
+        local_utc.data(), local_utc.size() - 1, 50));
+    clock = {};
     assert(!clock.synchronize(petcare::UtcClock::minimum_utc_ms - 1, 100));
     assert(!clock.valid());
     assert(clock.synchronize(petcare::UtcClock::minimum_utc_ms, 100));
