@@ -114,6 +114,22 @@ export type OwnerSnapshot = {
   receivedAt: string;
 };
 
+export type PublishLiveUploadInput = {
+  homeId: string;
+  agentId: string;
+  cameraId: string;
+  bootId: string;
+  kind: "init" | "segment";
+  sequence: number;
+  objectKey: string;
+  sha256: string;
+  sizeBytes: number;
+  startedAt: string;
+  durationMs: number;
+  createdAt: string;
+  expiresAt: string;
+};
+
 export type ActivityCleanupCommand = {
   commandId: string;
   homeId: string;
@@ -1308,6 +1324,212 @@ export class PetCareRepository {
     return row
       ? { agentId: row.agent_id, cameraId: row.camera_id, body: row.body, receivedAt: row.received_at }
       : null;
+  }
+
+  async publishLiveUpload(input: PublishLiveUploadInput): Promise<string[]> {
+    try {
+      if (input.kind === "init") {
+        const stale = await this.db
+          .prepare(`
+            SELECT init_object_key AS object_key
+            FROM live_streams WHERE home_id = ?
+            UNION ALL
+            SELECT object_key FROM live_parts WHERE home_id = ?
+          `)
+          .bind(input.homeId, input.homeId)
+          .all<{ object_key: string }>();
+        await this.db.batch([
+          this.db
+            .prepare(`
+              INSERT INTO live_streams (
+                home_id, agent_id, camera_id, boot_id, init_object_key,
+                newest_sequence, updated_at, expires_at
+              )
+              SELECT h.id, a.id, c.id, ?, ?, 0, ?, ?
+              FROM homes h
+              JOIN agents a ON a.home_id = h.id AND a.id = ?
+                AND a.connection_mode = 'outbound' AND a.revoked_at IS NULL
+              JOIN cameras c ON c.home_id = h.id AND c.agent_id = a.id
+                AND c.id = ? AND c.disabled_at IS NULL
+              LEFT JOIN tenant_cleanup tc ON tc.home_id = h.id
+              WHERE h.id = ? AND h.deleted_at IS NULL AND tc.home_id IS NULL
+              ON CONFLICT(home_id) DO UPDATE SET
+                agent_id = excluded.agent_id,
+                camera_id = excluded.camera_id,
+                boot_id = excluded.boot_id,
+                init_object_key = excluded.init_object_key,
+                newest_sequence = 0,
+                updated_at = excluded.updated_at,
+                expires_at = excluded.expires_at
+              WHERE live_streams.boot_id <> excluded.boot_id
+            `)
+            .bind(
+              input.bootId,
+              input.objectKey,
+              input.createdAt,
+              input.expiresAt,
+              input.agentId,
+              input.cameraId,
+              input.homeId,
+            ),
+          this.db
+            .prepare(`
+              INSERT INTO live_parts (
+                home_id, boot_id, sequence, object_key, sha256, size_bytes,
+                started_at, duration_ms, created_at, expires_at
+              )
+              SELECT NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+              WHERE NOT EXISTS (
+                SELECT 1 FROM live_streams
+                WHERE home_id = ? AND agent_id = ? AND camera_id = ?
+                  AND boot_id = ? AND init_object_key = ?
+                  AND newest_sequence = 0 AND updated_at = ? AND expires_at = ?
+              )
+            `)
+            .bind(
+              input.homeId,
+              input.agentId,
+              input.cameraId,
+              input.bootId,
+              input.objectKey,
+              input.createdAt,
+              input.expiresAt,
+            ),
+          this.db
+            .prepare("DELETE FROM live_parts WHERE home_id = ?")
+            .bind(input.homeId),
+          this.db
+            .prepare(`
+              UPDATE agents SET last_seen_at = ?
+              WHERE id = ? AND home_id = ? AND connection_mode = 'outbound'
+                AND revoked_at IS NULL
+            `)
+            .bind(input.createdAt, input.agentId, input.homeId),
+        ]);
+        return stale.results.map(
+          ({ object_key: objectKey }) => objectKey,
+        );
+      }
+
+      const minimumSequence = Math.max(0, input.sequence - 7);
+      const stale = await this.db
+        .prepare(`
+          SELECT object_key FROM live_parts
+          WHERE home_id = ? AND boot_id = ? AND sequence < ?
+        `)
+        .bind(input.homeId, input.bootId, minimumSequence)
+        .all<{ object_key: string }>();
+      await this.db.batch([
+        this.db
+          .prepare(`
+            INSERT INTO live_parts (
+              home_id, boot_id, sequence, object_key, sha256, size_bytes,
+              started_at, duration_ms, created_at, expires_at
+            )
+            SELECT ls.home_id, ls.boot_id, ?, ?, ?, ?, ?, ?, ?, ?
+            FROM live_streams ls
+            JOIN homes h ON h.id = ls.home_id AND h.deleted_at IS NULL
+            JOIN agents a ON a.id = ls.agent_id AND a.home_id = h.id
+              AND a.connection_mode = 'outbound' AND a.revoked_at IS NULL
+            JOIN cameras c ON c.id = ls.camera_id AND c.home_id = h.id
+              AND c.agent_id = a.id AND c.disabled_at IS NULL
+            LEFT JOIN tenant_cleanup tc ON tc.home_id = h.id
+            WHERE ls.home_id = ? AND ls.agent_id = ? AND ls.camera_id = ?
+              AND ls.boot_id = ? AND ls.newest_sequence < ?
+              AND tc.home_id IS NULL
+          `)
+          .bind(
+            input.sequence,
+            input.objectKey,
+            input.sha256,
+            input.sizeBytes,
+            input.startedAt,
+            input.durationMs,
+            input.createdAt,
+            input.expiresAt,
+            input.homeId,
+            input.agentId,
+            input.cameraId,
+            input.bootId,
+            input.sequence,
+          ),
+        this.db
+          .prepare(`
+            UPDATE live_streams
+            SET newest_sequence = ?, updated_at = ?, expires_at = ?
+            WHERE home_id = ? AND agent_id = ? AND camera_id = ? AND boot_id = ?
+              AND newest_sequence < ?
+              AND EXISTS (
+                SELECT 1 FROM live_parts lp
+                WHERE lp.home_id = live_streams.home_id
+                  AND lp.boot_id = live_streams.boot_id AND lp.sequence = ?
+              )
+          `)
+          .bind(
+            input.sequence,
+            input.createdAt,
+            input.expiresAt,
+            input.homeId,
+            input.agentId,
+            input.cameraId,
+            input.bootId,
+            input.sequence,
+            input.sequence,
+          ),
+        this.db
+          .prepare(`
+            INSERT INTO live_parts (
+              home_id, boot_id, sequence, object_key, sha256, size_bytes,
+              started_at, duration_ms, created_at, expires_at
+            )
+            SELECT NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+            WHERE NOT EXISTS (
+              SELECT 1 FROM live_streams ls
+              JOIN live_parts lp ON lp.home_id = ls.home_id
+                AND lp.boot_id = ls.boot_id AND lp.sequence = ls.newest_sequence
+              WHERE ls.home_id = ? AND ls.agent_id = ? AND ls.camera_id = ?
+                AND ls.boot_id = ? AND ls.newest_sequence = ?
+                AND ls.updated_at = ? AND ls.expires_at = ?
+                AND lp.object_key = ? AND lp.sha256 = ? AND lp.size_bytes = ?
+                AND lp.started_at = ? AND lp.duration_ms = ?
+            )
+          `)
+          .bind(
+            input.homeId,
+            input.agentId,
+            input.cameraId,
+            input.bootId,
+            input.sequence,
+            input.createdAt,
+            input.expiresAt,
+            input.objectKey,
+            input.sha256,
+            input.sizeBytes,
+            input.startedAt,
+            input.durationMs,
+          ),
+        this.db
+          .prepare(`
+            DELETE FROM live_parts
+            WHERE home_id = ? AND boot_id = ? AND sequence < ?
+          `)
+          .bind(input.homeId, input.bootId, minimumSequence),
+        this.db
+          .prepare(`
+            UPDATE agents SET last_seen_at = ?
+            WHERE id = ? AND home_id = ? AND connection_mode = 'outbound'
+              AND revoked_at IS NULL
+          `)
+          .bind(input.createdAt, input.agentId, input.homeId),
+      ]);
+      return stale.results.map(
+        ({ object_key: objectKey }) => objectKey,
+      );
+    } catch (error) {
+      if (error instanceof PetCareError) throw error;
+      if (isConstraint(error)) throw new PetCareError(409, "live_conflict");
+      throw error;
+    }
   }
 
   async requireActivityCleanupAgent(

@@ -23,6 +23,29 @@ export type VerifiedAgentRequest<T> = {
   value: T;
 };
 
+export type AgentSignatureHeaders = {
+  agentId: string;
+  timestampText: string;
+  timestamp: number;
+  nonce: string;
+  digest: string;
+  signature: Uint8Array;
+  contentLength: number;
+};
+
+export type BoundedAgentRequestContract = {
+  path: string;
+  maxBytes: number;
+  contentType: string;
+  canonical(headers: AgentSignatureHeaders): Uint8Array;
+};
+
+export type VerifiedBoundedAgentRequest = {
+  agent: SnapshotAgent;
+  headers: AgentSignatureHeaders;
+  bytes: Uint8Array;
+};
+
 function fail(status = 400, code = "invalid_snapshot_request"): never {
   throw new PetCareError(status, code);
 }
@@ -55,15 +78,15 @@ async function bodyBytes(request: Request, maxBytes: number, contentLength: numb
   return body;
 }
 
-export async function verifySignedAgentRequest<T>(
+export async function verifyBoundedAgentRequest(
   request: Request,
   env: PetCareEnv,
-  contract: AgentRequestContract<T>,
+  contract: BoundedAgentRequestContract,
   now = new Date(),
-): Promise<VerifiedAgentRequest<T>> {
+): Promise<VerifiedBoundedAgentRequest> {
   const url = new URL(request.url);
   if (request.method !== "POST" || url.pathname !== contract.path || url.search) fail();
-  if (singleton(request.headers, "Content-Type") !== "application/json") fail(400, "invalid_content_type");
+  if (singleton(request.headers, "Content-Type") !== contract.contentType) fail(400, "invalid_content_type");
 
   const contentLengthText = singleton(request.headers, "Content-Length");
   if (!/^(?:0|[1-9]\d*)$/.test(contentLengthText)) fail(400, "invalid_content_length");
@@ -90,21 +113,40 @@ export async function verifySignedAgentRequest<T>(
   decodeBase64Url(digest, 32);
   const signatureBytes = decodeBase64Url(signature, 64);
   const bytes = await bodyBytes(request, contract.maxBytes, contentLength);
-  let body: string;
-  try {
-    body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    fail(400, "invalid_snapshot_body");
-  }
   const actualDigest = encodeBase64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)));
   if (actualDigest !== digest) fail(400, "digest_mismatch");
 
   const agent = await new PetCareRepository(env.DB).requireOutboundAgent(agentId);
-  const canonical = new TextEncoder().encode(
-    [contract.version, "POST", contract.path, agentId, timestampText, nonce, digest, ""].join("\n"),
-  );
-  await verifyEd25519Signature(signatureBytes, canonical, agent.publicKey);
+  const headers = { agentId, timestampText, timestamp, nonce, digest, signature: signatureBytes, contentLength };
+  await verifyEd25519Signature(signatureBytes, contract.canonical(headers), agent.publicKey);
+  return { agent, headers, bytes };
+}
+
+export async function verifySignedAgentRequest<T>(
+  request: Request,
+  env: PetCareEnv,
+  contract: AgentRequestContract<T>,
+  now = new Date(),
+): Promise<VerifiedAgentRequest<T>> {
+  const verified = await verifyBoundedAgentRequest(request, env, {
+    path: contract.path,
+    maxBytes: contract.maxBytes,
+    contentType: "application/json",
+    canonical: (headers) => new TextEncoder().encode(
+      [contract.version, "POST", contract.path, headers.agentId, headers.timestampText, headers.nonce, headers.digest, ""].join("\n"),
+    ),
+  }, now);
+  let body: string;
+  try {
+    body = new TextDecoder("utf-8", { fatal: true }).decode(verified.bytes);
+  } catch {
+    fail(400, "invalid_snapshot_body");
+  }
   const value = contract.validateBody(body);
-  await new PetCareRepository(env.DB).consumeNonce(agentId, nonce, now.toISOString());
-  return { agent, body, value };
+  await new PetCareRepository(env.DB).consumeNonce(
+    verified.agent.agentId,
+    verified.headers.nonce,
+    now.toISOString(),
+  );
+  return { agent: verified.agent, body, value };
 }

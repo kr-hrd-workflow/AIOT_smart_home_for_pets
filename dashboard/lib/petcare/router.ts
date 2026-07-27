@@ -11,6 +11,7 @@ import { deletePetCareAccountData } from "./account-delete";
 import { handleAgentActivityCleanup } from "./agent-cleanup";
 import { handleAgentEnroll } from "./agent-enroll";
 import { handleSnapshotUpload } from "./snapshot";
+import { handleLiveUpload } from "./live-upload";
 import { uploadSignedClip } from "./clip-upload";
 import { deleteClip, listClips, readClip } from "./clips";
 import type { PetCareEnv } from "./env";
@@ -100,6 +101,12 @@ export async function routePetCare(
       routeName = "agent_snapshot";
       return request.method === "POST"
         ? await handleSnapshotUpload(request, env, now)
+        : methodNotAllowed("POST");
+    }
+    if (url.pathname === "/api/petcare/agent/live") {
+      routeName = "agent_live";
+      return request.method === "POST"
+        ? await handleLiveUpload(request, env, now)
         : methodNotAllowed("POST");
     }
     if (url.pathname === "/api/petcare/operator/installer") {
