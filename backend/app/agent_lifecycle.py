@@ -17,6 +17,7 @@ from .account_cleanup import ActivityCleanupRepository, ActivityCleanupWorker
 from .agent_client import (
     SignedActivityCleanupClient,
     SignedClipUploadClient,
+    SignedLiveUploadClient,
     SignedSnapshotClient,
 )
 from .agent_config import load_runtime_config
@@ -25,6 +26,7 @@ from .clip_outbox import SqlAlchemyClipOutboxRepository
 from .clip_upload_queue import ClipUploadQueue
 from .config import load_config
 from .jetson_client import JetsonVisionClient
+from .live_delivery import LiveDeliveryWorker
 from .snapshot_delivery import SnapshotDeliveryWorker
 
 
@@ -52,6 +54,7 @@ class _LifecycleState:
     last_error: str | None = None
     cleanup_worker: ActivityCleanupWorker | None = None
     snapshot_worker: SnapshotDeliveryWorker | None = None
+    live_worker: LiveDeliveryWorker | None = None
 
 
 _states: WeakKeyDictionary[AgentLifecycleComponents, _LifecycleState] = WeakKeyDictionary()
@@ -74,19 +77,29 @@ def _component_health_state(components: AgentLifecycleComponents) -> tuple[str, 
         cleanup_error = (
             None if state.cleanup_worker is None else state.cleanup_worker.last_error
         )
-        return name, state.last_error or cleanup_error
+        live_error = None if state.live_worker is None else state.live_worker.last_error
+        return name, state.last_error or cleanup_error or live_error
 
 
-def _ffprobe_path(tools_path: Path) -> Path:
+def _media_tool_paths(tools_path: Path) -> tuple[Path, Path]:
     try:
         payload = json.loads(Path(tools_path).read_text(encoding="utf-8"))
-        value = payload["ffprobe_path"]
-        path = Path(value)
+        ffmpeg_value = payload["ffmpeg_path"]
+        ffprobe_value = payload["ffprobe_path"]
+        ffmpeg_path = Path(ffmpeg_value)
+        ffprobe_path = Path(ffprobe_value)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError) as error:
         raise ValueError("invalid agent tools configuration") from error
-    if type(value) is not str or not path.is_absolute() or not path.is_file():
+    if (
+        type(ffmpeg_value) is not str
+        or type(ffprobe_value) is not str
+        or not ffmpeg_path.is_absolute()
+        or not ffprobe_path.is_absolute()
+        or not ffmpeg_path.is_file()
+        or not ffprobe_path.is_file()
+    ):
         raise ValueError("invalid agent tools configuration")
-    return path
+    return ffmpeg_path, ffprobe_path
 
 
 def _private_key(value: str) -> Ed25519PrivateKey:
@@ -120,10 +133,12 @@ def build_agent_components(
     jetson_client: JetsonVisionClient | None = None
     clip_admission: ClipAdmissionWorker | None = None
     clip_delivery: ClipDeliveryWorker | None = None
+    live_worker: LiveDeliveryWorker | None = None
     if app_config.camera_source == "jetson":
         if app_config.jetson_config is None:
             raise ValueError("Jetson camera source requires runtime configuration")
         jetson_client = JetsonVisionClient(app_config.jetson_config)
+        ffmpeg_path, ffprobe_path = _media_tool_paths(Path(tools_path))
         repository = SqlAlchemyClipOutboxRepository(session_factory)
         clip_admission = ClipAdmissionWorker(repository, jetson_client, now=now)
         clip_delivery = ClipDeliveryWorker(
@@ -131,7 +146,22 @@ def build_agent_components(
             jetson_client,
             upload_queue,
             work_dir=config_path.parent / "clip-delivery",
-            ffprobe_path=_ffprobe_path(Path(tools_path)),
+            ffprobe_path=ffprobe_path,
+            now=now,
+        )
+        live_client = SignedLiveUploadClient(
+            origin=runtime.origin,
+            agent_id=runtime.agent_id,
+            camera_id=runtime.camera_id,
+            private_key=private_key,
+            now=now,
+        )
+        live_worker = LiveDeliveryWorker(
+            live_client,
+            jetson_client.live_stream,
+            close_source=jetson_client.close,
+            ffmpeg_path=ffmpeg_path,
+            work_dir=config_path.parent / "live-delivery",
             now=now,
         )
     components = AgentLifecycleComponents(
@@ -163,6 +193,7 @@ def build_agent_components(
     state = _state_for(components)
     state.cleanup_worker = cleanup_worker
     state.snapshot_worker = snapshot_worker
+    state.live_worker = live_worker
     return components
 
 
@@ -174,6 +205,7 @@ def start_agent_components(components: AgentLifecycleComponents) -> None:
 
     cleanup_started = False
     snapshot_started = False
+    live_started = False
     try:
         if state.cleanup_worker is not None:
             state.cleanup_worker.start()
@@ -191,7 +223,15 @@ def start_agent_components(components: AgentLifecycleComponents) -> None:
                 state.last_error = "jetson_unavailable"
             components.clip_admission.start()
             components.clip_delivery.start()
+            if state.live_worker is not None:
+                live_started = True
+                state.live_worker.start()
     except BaseException:
+        if live_started:
+            try:
+                state.live_worker.stop(timeout_seconds=5.0)
+            except BaseException:
+                pass
         if snapshot_started:
             try:
                 state.snapshot_worker.stop(timeout_seconds=5.0)
@@ -254,8 +294,14 @@ def stop_agent_components(
         operations.extend((
             (5.0, lambda timeout: components.clip_admission.stop(timeout_seconds=timeout)),
             (45.0, lambda timeout: components.clip_delivery.stop(timeout_seconds=timeout)),
-            (2.0, lambda timeout: _bounded_close(components.jetson_client, timeout)),
         ))
+        if state.live_worker is not None:
+            operations.append(
+                (8.0, lambda timeout: state.live_worker.stop(timeout_seconds=timeout))
+            )
+        operations.append(
+            (2.0, lambda timeout: _bounded_close(components.jetson_client, timeout))
+        )
     operations.append(
         (45.0, lambda timeout: components.upload_queue.stop(timeout_seconds=timeout))
     )
