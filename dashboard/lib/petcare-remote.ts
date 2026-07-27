@@ -31,6 +31,7 @@ export type PetCareClip = {
 };
 
 export interface PetCareRemoteClient {
+  detectHomeAgent?(): Promise<boolean>;
   enroll(): Promise<Enrollment>;
   provisionPico(
     product: PicoProduct,
@@ -604,8 +605,25 @@ async function provisionPico(
   return body;
 }
 
+async function detectHomeAgent(): Promise<boolean> {
+  try {
+    await fetch(`${LOCAL_HOME_AGENT}/api/health`, {
+      method: "GET",
+      mode: "no-cors",
+      credentials: "omit",
+      cache: "no-store",
+      referrerPolicy: "no-referrer",
+      signal: AbortSignal.timeout(1_500),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function createPetCareRemoteClient(): PetCareRemoteClient {
   return {
+    detectHomeAgent,
     enroll: () =>
       requestJson("/api/petcare/enrollment", 201, isEnrollment, {
         method: "POST",

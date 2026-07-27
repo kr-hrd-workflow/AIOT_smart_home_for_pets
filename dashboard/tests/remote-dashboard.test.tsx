@@ -233,9 +233,9 @@ it("prevents duplicate enrollment, reports failure, and permits retry", async ()
   expect(installer).toHaveAttribute("download");
   expect(
     screen.getByRole("textbox", { name: "Wi-Fi 이름 (SSID)" }),
-  ).toBeDisabled();
-  expect(screen.getByLabelText("Wi-Fi 비밀번호")).toBeDisabled();
-  expect(screen.getByRole("button", { name: "현관 Pico 설정" })).toBeDisabled();
+  ).toBeEnabled();
+  expect(screen.getByLabelText("Wi-Fi 비밀번호")).toBeEnabled();
+  expect(screen.getByRole("button", { name: "현관 Pico 설정" })).toBeEnabled();
   expect(
     screen.getByText(/Home Agent를 먼저 등록하면 이 PC에 USB로 연결한 Pico/),
   ).toBeInTheDocument();
@@ -282,6 +282,32 @@ it("explains when managed remote enrollment is not configured", async () => {
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "원격 연결 준비 중입니다",
   );
+});
+
+it("detects a running local Home Agent before remote enrollment", async () => {
+  const { client, media, accountClient } = mockRemote({
+    detectHomeAgent: vi.fn().mockResolvedValue(true),
+    getStatus: vi.fn().mockResolvedValue({
+      home: { id: "home-1", state: "needs_enrollment" },
+      agent: null,
+      camera: null,
+      dashboard: null,
+    }),
+  });
+  render(
+    <RemoteDashboardView
+      client={client}
+      media={media}
+      accountClient={accountClient}
+    />,
+  );
+
+  expect(
+    await screen.findByText("이 PC에서 Home Agent 실행 중"),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole("link", { name: "Windows Home Agent 설치" }),
+  ).not.toBeInTheDocument();
 });
 
 it("keeps the setup checklist visible when optional runtime data is absent", async () => {
@@ -602,6 +628,14 @@ it("keeps enrollment and destructive controls in keyboard order", async () => {
   expect(installer).toHaveFocus();
   await user.tab();
   expect(enrollment).toHaveFocus();
+  await user.tab();
+  expect(screen.getByRole("textbox", { name: "Wi-Fi 이름 (SSID)" })).toHaveFocus();
+  await user.tab();
+  expect(screen.getByLabelText("Wi-Fi 비밀번호")).toHaveFocus();
+  await user.tab();
+  expect(screen.getByRole("button", { name: "현관 Pico 설정" })).toHaveFocus();
+  await user.tab();
+  expect(screen.getByRole("button", { name: "생활공간 Pico 설정" })).toHaveFocus();
   await user.tab();
   expect(screen.getByLabelText("현재 비밀번호")).toHaveFocus();
 });

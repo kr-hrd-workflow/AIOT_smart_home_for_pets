@@ -227,6 +227,24 @@ describe("createPetCareRemote", () => {
     );
   });
 
+  it("detects a running Home Agent without reading local response data", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      createPetCareRemoteClient().detectHomeAgent?.(),
+    ).resolves.toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:8000/api/health",
+      expect.objectContaining({
+        method: "GET",
+        mode: "no-cors",
+        credentials: "omit",
+        cache: "no-store",
+      }),
+    );
+  });
+
   it("maps BFF agent_offline to structured error", async () => {
     vi.stubGlobal(
       "fetch",

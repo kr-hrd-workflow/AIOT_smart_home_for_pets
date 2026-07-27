@@ -84,6 +84,9 @@ export function RemoteDashboardView({
   const [statusError, setStatusError] = useState<string | null>(null);
   const [enrolling, setEnrolling] = useState(false);
   const [enrollmentError, setEnrollmentError] = useState<string | null>(null);
+  const [localAgentDetected, setLocalAgentDetected] = useState<boolean | null>(
+    null,
+  );
   const [wifiSsid, setWifiSsid] = useState("");
   const [wifiPassword, setWifiPassword] = useState("");
   const [provisioningProduct, setProvisioningProduct] =
@@ -91,6 +94,16 @@ export function RemoteDashboardView({
   const [picoMessage, setPicoMessage] = useState<string | null>(null);
   const [picoError, setPicoError] = useState<string | null>(null);
   const enrollingRef = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    void client.detectHomeAgent?.().then((detected) => {
+      if (active) setLocalAgentDetected(detected);
+    });
+    return () => {
+      active = false;
+    };
+  }, [client]);
 
   useEffect(() => {
     let active = true;
@@ -280,9 +293,13 @@ export function RemoteDashboardView({
                   입력하세요.
                 </p>
                 <div className="connection-enrollment-actions">
-                  <a href={HOME_AGENT_INSTALLER_URL} download>
-                    Windows Home Agent 설치
-                  </a>
+                  {localAgentDetected ? (
+                    <strong role="status">이 PC에서 Home Agent 실행 중</strong>
+                  ) : (
+                    <a href={HOME_AGENT_INSTALLER_URL} download>
+                      Windows Home Agent 설치
+                    </a>
+                  )}
                   <button
                     type="button"
                     disabled={enrolling}
@@ -366,7 +383,7 @@ export function RemoteDashboardView({
                   minLength={1}
                   maxLength={32}
                   required
-                  disabled={!agentReady || provisioningProduct !== null}
+                  disabled={provisioningProduct !== null}
                   value={wifiSsid}
                   onChange={(event) => setWifiSsid(event.target.value)}
                 />
@@ -379,7 +396,7 @@ export function RemoteDashboardView({
                   minLength={8}
                   maxLength={63}
                   required
-                  disabled={!agentReady || provisioningProduct !== null}
+                  disabled={provisioningProduct !== null}
                   value={wifiPassword}
                   onChange={(event) => setWifiPassword(event.target.value)}
                 />
@@ -388,7 +405,7 @@ export function RemoteDashboardView({
                 <button
                   type="submit"
                   value="entrance-01"
-                  disabled={!agentReady || provisioningProduct !== null}
+                  disabled={provisioningProduct !== null}
                   aria-busy={provisioningProduct === "entrance-01"}
                 >
                   {entranceOnline ? "현관 Pico 다시 설정" : "현관 Pico 설정"}
@@ -396,7 +413,7 @@ export function RemoteDashboardView({
                 <button
                   type="submit"
                   value="petzone-01"
-                  disabled={!agentReady || provisioningProduct !== null}
+                  disabled={provisioningProduct !== null}
                   aria-busy={provisioningProduct === "petzone-01"}
                 >
                   {petzoneOnline
