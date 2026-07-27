@@ -30,8 +30,11 @@ from app.clip_contracts import ClipMetadata, UploadReceipt, utc_text
 ENROLL_PATH = "/api/petcare/agent/enroll"
 UPLOAD_PATH = "/api/petcare/agent/clips"
 CLEANUP_PATH = "/api/petcare/agent/cleanup"
+SNAPSHOT_PATH = "/api/petcare/agent/snapshot"
 HTTP_TIMEOUT_SECONDS = 30.0
 CLEANUP_HTTP_TIMEOUT_SECONDS = 5.0
+SNAPSHOT_HTTP_TIMEOUT_SECONDS = 5.0
+SNAPSHOT_MAX_BYTES = 128 * 1024
 _CLEANUP_COMMAND_ID = re.compile(rb"clc_[0-9a-f]{32}\Z")
 
 
@@ -40,6 +43,10 @@ class EnrollmentError(RuntimeError):
 
 
 class UploadVerificationError(RuntimeError):
+    pass
+
+
+class SnapshotUploadError(RuntimeError):
     pass
 
 
@@ -214,6 +221,107 @@ def enroll(
     )
     write_runtime_config(path, config, windows_identity_sid=windows_identity_sid)
     return config
+
+
+class SignedSnapshotClient:
+    def __init__(
+        self,
+        *,
+        origin: str,
+        agent_id: str,
+        private_key: Ed25519PrivateKey,
+        transport: httpx.BaseTransport | None = None,
+        now: Callable[[], datetime] | None = None,
+        nonce: Callable[[], str] | None = None,
+    ) -> None:
+        require_https_origin(origin)
+        if (
+            type(agent_id) is not str
+            or not agent_id
+            or agent_id != agent_id.strip()
+            or len(agent_id) > 128
+        ):
+            raise ValueError("agent_id is required")
+        if not isinstance(private_key, Ed25519PrivateKey):
+            raise TypeError("private_key must be Ed25519PrivateKey")
+        self.agent_id = agent_id
+        self.private_key = private_key
+        self._client = httpx.Client(
+            base_url=origin,
+            timeout=httpx.Timeout(SNAPSHOT_HTTP_TIMEOUT_SECONDS),
+            transport=transport,
+        )
+        self._now = now or (lambda: datetime.now().astimezone())
+        self._nonce = nonce or (lambda: b64url(secrets.token_bytes(16)))
+
+    def close(self) -> None:
+        self._client.close()
+
+    def upload(self, summary_bytes: bytes) -> None:
+        if type(summary_bytes) is not bytes or not summary_bytes or len(summary_bytes) > SNAPSHOT_MAX_BYTES:
+            raise SnapshotUploadError("invalid snapshot body")
+        try:
+            decoded = summary_bytes.decode("utf-8", errors="strict")
+            value = json.loads(
+                decoded,
+                object_pairs_hook=_unique_object,
+                parse_constant=_reject_constant,
+            )
+            if not isinstance(value, dict):
+                raise ValueError("JSON object required")
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError, TypeError) as cause:
+            raise SnapshotUploadError("invalid snapshot body") from cause
+
+        now = self._now()
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise SnapshotUploadError("snapshot clock must be timezone-aware")
+        try:
+            nonce = validate_code(self._nonce())
+        except ValueError as cause:
+            raise SnapshotUploadError("invalid snapshot nonce") from cause
+        timestamp = str(int(now.timestamp()))
+        digest = b64url(hashlib.sha256(summary_bytes).digest())
+        canonical = "\n".join(
+            (
+                "PETCARE-SNAPSHOT-V1",
+                "POST",
+                SNAPSHOT_PATH,
+                self.agent_id,
+                timestamp,
+                nonce,
+                digest,
+                "",
+            )
+        ).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            "Content-Length": str(len(summary_bytes)),
+            "X-PetCare-Agent-Id": self.agent_id,
+            "X-PetCare-Timestamp": timestamp,
+            "X-PetCare-Nonce": nonce,
+            "X-PetCare-Content-SHA256": digest,
+            "X-PetCare-Signature": b64url(self.private_key.sign(canonical)),
+        }
+        try:
+            response = self._client.post(
+                SNAPSHOT_PATH,
+                headers=headers,
+                content=summary_bytes,
+            )
+        except httpx.HTTPError as cause:
+            raise SnapshotUploadError("snapshot request failed") from cause
+        directives = {
+            directive.strip().lower()
+            for directive in response.headers.get("Cache-Control", "").split(",")
+        }
+        if (
+            response.status_code != 204
+            or response.content
+            or "private" not in directives
+            or "no-store" not in directives
+            or "public" in directives
+        ):
+            raise SnapshotUploadError("invalid snapshot response")
 
 
 class SignedActivityCleanupClient:

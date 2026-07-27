@@ -14,13 +14,18 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from sqlalchemy.orm import Session
 
 from .account_cleanup import ActivityCleanupRepository, ActivityCleanupWorker
-from .agent_client import SignedActivityCleanupClient, SignedClipUploadClient
+from .agent_client import (
+    SignedActivityCleanupClient,
+    SignedClipUploadClient,
+    SignedSnapshotClient,
+)
 from .agent_config import load_runtime_config
 from .clip_delivery import ClipAdmissionWorker, ClipDeliveryWorker, utc_now
 from .clip_outbox import SqlAlchemyClipOutboxRepository
 from .clip_upload_queue import ClipUploadQueue
 from .config import load_config
 from .jetson_client import JetsonVisionClient
+from .snapshot_delivery import SnapshotDeliveryWorker
 
 
 __all__ = (
@@ -46,6 +51,7 @@ class _LifecycleState:
     stopped: bool = False
     last_error: str | None = None
     cleanup_worker: ActivityCleanupWorker | None = None
+    snapshot_worker: SnapshotDeliveryWorker | None = None
 
 
 _states: WeakKeyDictionary[AgentLifecycleComponents, _LifecycleState] = WeakKeyDictionary()
@@ -91,6 +97,7 @@ def build_agent_components(
     config_path: Path,
     tools_path: Path,
     session_factory: Callable[[], Session],
+    summary_supplier: Callable[[], bytes],
     *,
     now: Callable[[], datetime] = utc_now,
 ) -> AgentLifecycleComponents:
@@ -146,7 +153,16 @@ def build_agent_components(
         agent_id=runtime.agent_id,
         now=now,
     )
-    _state_for(components).cleanup_worker = cleanup_worker
+    snapshot_client = SignedSnapshotClient(
+        origin=runtime.origin,
+        agent_id=runtime.agent_id,
+        private_key=private_key,
+        now=now,
+    )
+    snapshot_worker = SnapshotDeliveryWorker(snapshot_client, summary_supplier)
+    state = _state_for(components)
+    state.cleanup_worker = cleanup_worker
+    state.snapshot_worker = snapshot_worker
     return components
 
 
@@ -157,10 +173,14 @@ def start_agent_components(components: AgentLifecycleComponents) -> None:
             return
 
     cleanup_started = False
+    snapshot_started = False
     try:
         if state.cleanup_worker is not None:
             state.cleanup_worker.start()
             cleanup_started = True
+        if state.snapshot_worker is not None:
+            state.snapshot_worker.start()
+            snapshot_started = True
         components.upload_queue.start()
         if components.jetson_client is not None:
             assert components.clip_admission is not None
@@ -172,6 +192,11 @@ def start_agent_components(components: AgentLifecycleComponents) -> None:
             components.clip_admission.start()
             components.clip_delivery.start()
     except BaseException:
+        if snapshot_started:
+            try:
+                state.snapshot_worker.stop(timeout_seconds=5.0)
+            except BaseException:
+                pass
         if cleanup_started:
             try:
                 state.cleanup_worker.stop(timeout_seconds=5.0)
@@ -218,6 +243,10 @@ def stop_agent_components(
     if state.cleanup_worker is not None:
         operations.append(
             (6.0, lambda timeout: state.cleanup_worker.stop(timeout_seconds=timeout))
+        )
+    if state.snapshot_worker is not None:
+        operations.append(
+            (6.0, lambda timeout: state.snapshot_worker.stop(timeout_seconds=timeout))
         )
     if components.jetson_client is not None:
         assert components.clip_admission is not None

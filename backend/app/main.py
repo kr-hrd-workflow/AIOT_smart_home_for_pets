@@ -109,7 +109,14 @@ async def lifespan(application: FastAPI):
             application.state.agent_config_path = config_path
             application.state.jetson_config_path = jetson_config_path
             application.state.sites_origin = load_runtime_config(config_path).origin
-            agent_components = build_agent_components(config_path, tools_path, session_factory)
+            agent_components = build_agent_components(
+                config_path,
+                tools_path,
+                session_factory,
+                lambda: build_dashboard_summary(application)
+                .model_dump_json()
+                .encode("utf-8"),
+            )
             application.state.agent_components = agent_components
 
         worker.start()

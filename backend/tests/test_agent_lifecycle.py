@@ -49,6 +49,9 @@ def test_build_composes_concrete_dependencies_without_starting_background_work(
     cleanup_client = object()
     cleanup_repository = object()
     cleanup_worker = SimpleNamespace(last_error=None)
+    snapshot_client = object()
+    snapshot_worker = SimpleNamespace(last_error=None)
+    summary_supplier = lambda: b'{"summary":true}'
 
     monkeypatch.setattr(lifecycle, "load_runtime_config", lambda path: calls.append(("config", path)) or runtime)
     monkeypatch.setattr(lifecycle, "load_config", lambda: calls.append(("app-config",)) or app_config)
@@ -70,6 +73,21 @@ def test_build_composes_concrete_dependencies_without_starting_background_work(
             ("cleanup-worker", repository, client, kwargs)
         )
         or cleanup_worker,
+    )
+    monkeypatch.setattr(
+        lifecycle,
+        "SignedSnapshotClient",
+        lambda **kwargs: calls.append(("snapshot-client", kwargs)) or snapshot_client,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        lifecycle,
+        "SnapshotDeliveryWorker",
+        lambda client, supplier: calls.append(
+            ("snapshot-worker", client, supplier)
+        )
+        or snapshot_worker,
+        raising=False,
     )
     monkeypatch.setattr(lifecycle, "JetsonVisionClient", lambda config: calls.append(("jetson", config)) or jetson)
     monkeypatch.setattr(lifecycle, "SqlAlchemyClipOutboxRepository", lambda factory: calls.append(("repository", factory)) or repository)
@@ -94,7 +112,13 @@ def test_build_composes_concrete_dependencies_without_starting_background_work(
         ) or delivery,
     )
 
-    result = build_agent_components(config_path, tools_path, session_factory, now=lambda: NOW)
+    result = build_agent_components(
+        config_path,
+        tools_path,
+        session_factory,
+        summary_supplier,
+        now=lambda: NOW,
+    )
 
     assert result == AgentLifecycleComponents(jetson, admission, delivery, queue, NOW)
     assert calls[0] == ("config", config_path)
@@ -103,6 +127,8 @@ def test_build_composes_concrete_dependencies_without_starting_background_work(
     assert ("repository", session_factory) in calls
     assert ("cleanup-repository", session_factory) in calls
     assert lifecycle._state_for(result).cleanup_worker is cleanup_worker
+    assert lifecycle._state_for(result).snapshot_worker is snapshot_worker
+    assert ("snapshot-worker", snapshot_client, summary_supplier) in calls
     assert any(call[:3] == ("queue", config_path.parent / "clip-upload-queue", upload_client) for call in calls)
     delivery_call = next(call for call in calls if call[0] == "delivery")
     assert delivery_call[4]["work_dir"] == config_path.parent / "clip-delivery"
@@ -133,6 +159,7 @@ def test_build_without_jetson_keeps_the_upload_queue_and_skips_clip_workers(
 
     queue = Queue()
     cleanup_calls: list[str] = []
+    snapshot_calls: list[str] = []
 
     class CleanupWorker:
         last_error = None
@@ -143,6 +170,16 @@ def test_build_without_jetson_keeps_the_upload_queue_and_skips_clip_workers(
         def stop(self, *, timeout_seconds: float) -> None:
             assert 0 <= timeout_seconds <= 6.0
             cleanup_calls.append("cleanup:stop")
+
+    class SnapshotWorker:
+        last_error = None
+
+        def start(self) -> None:
+            snapshot_calls.append("snapshot:start")
+
+        def stop(self, *, timeout_seconds: float) -> None:
+            assert 0 <= timeout_seconds <= 6.0
+            snapshot_calls.append("snapshot:stop")
 
     monkeypatch.setattr(lifecycle, "load_runtime_config", lambda _path: runtime)
     monkeypatch.setattr(
@@ -157,6 +194,18 @@ def test_build_without_jetson_keeps_the_upload_queue_and_skips_clip_workers(
         lifecycle,
         "ActivityCleanupWorker",
         lambda *_args, **_kwargs: CleanupWorker(),
+    )
+    monkeypatch.setattr(
+        lifecycle,
+        "SignedSnapshotClient",
+        lambda **_kwargs: object(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        lifecycle,
+        "SnapshotDeliveryWorker",
+        lambda *_args, **_kwargs: SnapshotWorker(),
+        raising=False,
     )
 
     class UploadQueue:
@@ -180,6 +229,7 @@ def test_build_without_jetson_keeps_the_upload_queue_and_skips_clip_workers(
         config_path,
         tmp_path / "agent-tools.json",
         object(),
+        lambda: b'{"summary":true}',
         now=lambda: NOW,
     )
 
@@ -190,6 +240,7 @@ def test_build_without_jetson_keeps_the_upload_queue_and_skips_clip_workers(
     start_agent_components(components)
     stop_agent_components(components)
     assert cleanup_calls == ["cleanup:start", "cleanup:stop"]
+    assert snapshot_calls == ["snapshot:start", "snapshot:stop"]
     assert calls == ["queue:start", "queue:stop:45.0"]
 
 
