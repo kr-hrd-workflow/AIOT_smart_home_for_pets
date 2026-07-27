@@ -49,6 +49,89 @@ describe("createPetCareRemote", () => {
     );
   });
 
+  it("reads strict same-origin live manifests and private media parts", async () => {
+    const live = {
+      boot_id: "boot-a",
+      codec: "avc1.42E01E",
+      newest_sequence: 2,
+      target_latency_seconds: 2,
+      init_url: "/api/petcare/cameras/camera-1/live/boot-a/init.mp4",
+      parts: [
+        {
+          sequence: 1,
+          url: "/api/petcare/cameras/camera-1/live/boot-a/1.m4s",
+        },
+        {
+          sequence: 2,
+          url: "/api/petcare/cameras/camera-1/live/boot-a/2.m4s",
+        },
+      ],
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json(live))
+      .mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3])));
+    vi.stubGlobal("fetch", fetchMock);
+    const media = createPetCareRemoteMedia();
+    const controller = new AbortController();
+
+    await expect(
+      media.liveManifest("camera/one", controller.signal),
+    ).resolves.toEqual(live);
+    await expect(
+      media.livePart(live.parts[0].url, controller.signal),
+    ).resolves.toEqual(new Uint8Array([1, 2, 3]).buffer);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/petcare/cameras/camera%2Fone/live",
+      {
+        credentials: "same-origin",
+        headers: { accept: "application/json" },
+        signal: controller.signal,
+      },
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(2, live.parts[0].url, {
+      credentials: "same-origin",
+      headers: { accept: "video/mp4, video/iso.segment" },
+      signal: controller.signal,
+    });
+  });
+
+  it("rejects cross-origin media URLs before network access", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      createPetCareRemoteMedia().livePart("https://evil.example/live.m4s"),
+    ).rejects.toThrow("petcare_request_400");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a live manifest whose newest part is missing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json({
+          boot_id: "boot-a",
+          codec: "avc1.42E01E",
+          newest_sequence: 2,
+          target_latency_seconds: 2,
+          init_url: "/api/petcare/cameras/camera-1/live/boot-a/init.mp4",
+          parts: [
+            {
+              sequence: 1,
+              url: "/api/petcare/cameras/camera-1/live/boot-a/1.m4s",
+            },
+          ],
+        }),
+      ),
+    );
+
+    await expect(
+      createPetCareRemoteMedia().liveManifest("camera-1"),
+    ).rejects.toThrow("petcare_request_200");
+  });
+
   it("uses exact same-origin mutation routes", async () => {
     const fetchMock = vi
       .fn()

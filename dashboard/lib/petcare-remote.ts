@@ -44,6 +44,28 @@ export interface PetCareRemoteClient {
 export interface PetCareRemoteMedia {
   videoFeedUrl(cameraId: string): string;
   clipUrl(clipId: string): string;
+  liveManifest(
+    cameraId: string,
+    signal?: AbortSignal,
+  ): Promise<PetCareLiveManifest>;
+  livePart(url: string, signal?: AbortSignal): Promise<ArrayBuffer>;
+}
+
+export type PetCareLiveManifest = {
+  boot_id: string;
+  codec: "avc1.42E01E";
+  newest_sequence: number;
+  target_latency_seconds: 2;
+  init_url: string;
+  parts: Array<{ sequence: number; url: string }>;
+};
+
+export interface PetCareLiveClient {
+  liveManifest(
+    cameraId: string,
+    signal?: AbortSignal,
+  ): Promise<PetCareLiveManifest>;
+  livePart(url: string, signal?: AbortSignal): Promise<ArrayBuffer>;
 }
 
 export type AccountDeletionAccepted = {
@@ -424,6 +446,63 @@ function isClipList(value: unknown): value is { clips: PetCareClip[] } {
   );
 }
 
+function isLiveMediaRoute(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^\/api\/petcare\/cameras\/[A-Za-z0-9_-]{1,64}\/live\/[A-Za-z0-9_-]{1,64}\/(?:init\.mp4|[1-9]\d{0,9}\.m4s)$/.test(
+      value,
+    )
+  );
+}
+
+function isLiveManifest(value: unknown): value is PetCareLiveManifest {
+  if (
+    !hasExactKeys(value, [
+      "boot_id",
+      "codec",
+      "newest_sequence",
+      "target_latency_seconds",
+      "init_url",
+      "parts",
+    ]) ||
+    typeof value.boot_id !== "string" ||
+    !/^[A-Za-z0-9_-]{1,64}$/.test(value.boot_id) ||
+    value.codec !== "avc1.42E01E" ||
+    !isNonNegativeInteger(value.newest_sequence) ||
+    value.target_latency_seconds !== 2 ||
+    !isLiveMediaRoute(value.init_url) ||
+    !Array.isArray(value.parts) ||
+    value.parts.length > 8
+  ) {
+    return false;
+  }
+  const mediaBase = value.init_url.slice(0, -"init.mp4".length);
+  if (!mediaBase.endsWith(`/live/${value.boot_id}/`)) return false;
+  const newestSequence = value.newest_sequence;
+  let previous = 0;
+  const validParts = value.parts.every((part) => {
+    if (
+      !hasExactKeys(part, ["sequence", "url"]) ||
+      !isNonNegativeInteger(part.sequence) ||
+      part.sequence < 1 ||
+      part.sequence <= previous ||
+      part.sequence > newestSequence ||
+      !isLiveMediaRoute(part.url) ||
+      part.url !== `${mediaBase}${part.sequence}.m4s`
+    ) {
+      return false;
+    }
+    previous = part.sequence;
+    return true;
+  });
+  return (
+    validParts &&
+    (newestSequence === 0
+      ? value.parts.length === 0
+      : value.parts.at(-1)?.sequence === newestSequence)
+  );
+}
+
 function isAgentOffline(value: unknown): value is AgentOffline {
   return (
     hasExactKeys(value, [
@@ -550,6 +629,25 @@ export function createPetCareRemoteMedia(): PetCareRemoteMedia {
     videoFeedUrl: (id) =>
       `/api/petcare/cameras/${encodeURIComponent(id)}/stream.mjpeg`,
     clipUrl: (id) => `/api/petcare/clips/${encodeURIComponent(id)}.mp4`,
+    liveManifest: (id, signal) =>
+      requestJson(
+        `/api/petcare/cameras/${encodeURIComponent(id)}/live`,
+        200,
+        isLiveManifest,
+        { signal },
+      ),
+    livePart: async (url, signal) => {
+      if (!isLiveMediaRoute(url)) throw new PetCareRemoteError(400);
+      const response = await fetch(url, {
+        credentials: "same-origin",
+        headers: { accept: "video/mp4, video/iso.segment" },
+        signal,
+      });
+      if (response.status !== 200) return rejectResponse(response);
+      const body = await response.arrayBuffer();
+      if (body.byteLength === 0) throw new PetCareRemoteError(response.status);
+      return body;
+    },
   };
 }
 

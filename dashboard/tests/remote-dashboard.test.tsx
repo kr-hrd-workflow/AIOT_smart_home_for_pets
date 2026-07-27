@@ -63,6 +63,8 @@ function mockRemote(overrides: Partial<PetCareRemoteClient> = {}) {
   const media: PetCareRemoteMedia = {
     videoFeedUrl: vi.fn(() => "/api/petcare/cameras/camera-1/stream.mjpeg"),
     clipUrl: vi.fn((id) => `/api/petcare/clips/${id}.mp4`),
+    liveManifest: vi.fn(),
+    livePart: vi.fn(),
   };
   const accountClient: PetCareAccountClient = {
     deleteAccount: vi.fn().mockResolvedValue({ status: "cleanup_pending" }),
@@ -90,7 +92,7 @@ const clip: PetCareClip = {
   expires_at: "2026-07-27T00:00:00Z",
 };
 
-it("polls every two seconds and uses authenticated MJPEG", async () => {
+it("polls every two seconds and mounts the authenticated live player", async () => {
   vi.useFakeTimers();
   const { client, media, accountClient } = mockRemote();
   const { container } = render(
@@ -103,10 +105,11 @@ it("polls every two seconds and uses authenticated MJPEG", async () => {
 
   await act(async () => Promise.resolve());
   expect(client.getStatus).toHaveBeenCalledTimes(1);
-  expect(media.videoFeedUrl).toHaveBeenCalledWith("camera-1");
-  expect(
-    screen.getByRole("img", { name: "실시간 반려동물 카메라" }),
-  ).toHaveAttribute("src", "/api/petcare/cameras/camera-1/stream.mjpeg");
+  expect(media.videoFeedUrl).not.toHaveBeenCalled();
+  expect(screen.getByLabelText("실시간 반려동물 카메라")).toHaveAttribute(
+    "data-live-state",
+    "unsupported",
+  );
 
   const summary = container.querySelector('[data-dashboard-section="summary"]')!;
   expect(within(summary).getByText("오늘 활동 추정")).toBeInTheDocument();

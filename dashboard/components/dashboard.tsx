@@ -4,7 +4,9 @@ import { useSyncExternalStore, type ReactNode } from "react";
 import { AnomalyList } from "./anomaly-list";
 import { BedPanel } from "./bed-panel";
 import { LiveCamera } from "./live-camera";
+import { LiveMediaPlayer } from "./live-media-player";
 import { RoiEditor } from "./roi-editor";
+import type { PetCareLiveClient } from "../lib/petcare-remote";
 import { useDashboard } from "../lib/use-dashboard";
 import type {
   DashboardData,
@@ -96,7 +98,9 @@ function sevenDayCopy(data: DashboardData) {
   return `7일 평균 대비 ${Math.abs(comparison.percent_change ?? 0).toFixed(1)}% ${direction}`;
 }
 
-type DashboardCamera = { src: string; alt: string };
+type DashboardCamera =
+  | { src: string; alt: string }
+  | { cameraId: string; alt: string; client: PetCareLiveClient };
 type ConnectedControls = {
   onCalibrate: () => Promise<void>;
   onUpdateZone: (zoneName: ZoneName, input: ZoneIn) => Promise<void>;
@@ -121,6 +125,7 @@ export function Dashboard({
   busy?: boolean;
 }) {
   const byType = new Map(data.latest_sensors.map((sensor) => [sensor.sensor_type, sensor]));
+  const selectedCamera = camera ?? demoCamera;
   const currentRest = data.behaviors.find(
     (behavior) => behavior.behavior_type === "resting" && behavior.ended_at === null,
   );
@@ -190,7 +195,20 @@ export function Dashboard({
               ) : (
                 <>
                   <div className="camera-frame">
-                    <img src={(camera ?? demoCamera).src} width="640" height="480" alt={(camera ?? demoCamera).alt} />
+                    {"cameraId" in selectedCamera ? (
+                      <LiveMediaPlayer
+                        cameraId={selectedCamera.cameraId}
+                        client={selectedCamera.client}
+                        alt={selectedCamera.alt}
+                      />
+                    ) : (
+                      <img
+                        src={selectedCamera.src}
+                        width="640"
+                        height="480"
+                        alt={selectedCamera.alt}
+                      />
+                    )}
                     {data.zones.map((zone) => (
                       <div
                         className={`zone zone-${zone.zone_name}`}

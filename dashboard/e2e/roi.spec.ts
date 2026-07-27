@@ -1,17 +1,9 @@
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 
 import { demoDashboardData } from "../lib/demo-data";
 import type { DashboardData, DashboardSummary } from "../lib/types";
 
-const dashboardRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const demoCamera = readFileSync(
-  resolve(dashboardRoot, "public/demo-camera.webp"),
-);
 const viewports = [
   { name: "desktop", width: 1440, height: 900 },
   { name: "tablet", width: 768, height: 1024 },
@@ -69,17 +61,6 @@ async function mockRemoteDashboard(page: Page) {
         status: 200,
         contentType: "application/json",
         json: { clips: [] },
-      });
-      return;
-    }
-    if (
-      url.pathname === "/api/petcare/cameras/camera-1/stream.mjpeg" &&
-      request.method() === "GET"
-    ) {
-      await route.fulfill({
-        status: 200,
-        contentType: "image/webp",
-        body: demoCamera,
       });
       return;
     }

@@ -421,7 +421,8 @@ export function RemoteDashboardView({
               camera={
                 status.camera
                   ? {
-                      src: media.videoFeedUrl(status.camera.id),
+                      cameraId: status.camera.id,
+                      client: media,
                       alt: "실시간 반려동물 카메라",
                     }
                   : undefined

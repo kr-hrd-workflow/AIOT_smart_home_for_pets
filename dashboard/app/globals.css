@@ -303,11 +303,21 @@ a:focus-visible {
   background: var(--surface-strong);
 }
 
-.camera-frame img {
+.camera-frame img,
+.camera-frame video,
+.live-media-player {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+.camera-frame img,
+.camera-frame video {
   object-fit: cover;
+}
+
+.live-media-player {
+  position: relative;
 }
 
 .zone {

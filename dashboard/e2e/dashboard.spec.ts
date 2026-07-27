@@ -22,7 +22,6 @@ import type {
 } from "../lib/types";
 
 const dashboardRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const demoCamera = readFileSync(resolve(dashboardRoot, "public/demo-camera.webp"));
 const viewports = [
   { name: "desktop", width: 1440, height: 900 },
   { name: "tablet", width: 768, height: 1024 },
@@ -91,17 +90,6 @@ async function mockConnectedBackend(page: Page, state: ConnectedState) {
         status: 200,
         contentType: "application/json",
         json: { clips: [] },
-      });
-      return;
-    }
-    if (
-      url.pathname === "/api/petcare/cameras/camera-1/stream.mjpeg" &&
-      request.method() === "GET"
-    ) {
-      await route.fulfill({
-        status: 200,
-        contentType: "image/webp",
-        body: demoCamera,
       });
       return;
     }
@@ -535,7 +523,7 @@ test.describe("remote dashboard states", () => {
         page.getByText("dog_001", { exact: true }).first(),
       ).toBeVisible();
       await expect(
-        page.getByRole("img", { name: "실시간 반려동물 카메라" }),
+        page.locator('video[aria-label="실시간 반려동물 카메라"]'),
       ).toBeVisible();
       await expect(
         page.locator(".remote-operational .roi-section"),
@@ -571,7 +559,7 @@ test.describe("remote dashboard states", () => {
         .poll(() => state.statusRequests, { timeout: 5_000 })
         .toBeGreaterThan(previousRequests);
       await expect(
-        page.getByRole("img", { name: "실시간 반려동물 카메라" }),
+        page.locator('video[aria-label="실시간 반려동물 카메라"]'),
       ).toHaveCount(0);
       await expect(page.getByText("카메라 연결 끊김")).toBeVisible();
       await expect(
