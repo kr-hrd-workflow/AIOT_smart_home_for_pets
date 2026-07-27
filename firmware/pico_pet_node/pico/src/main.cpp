@@ -18,6 +18,10 @@ extern "C" int settimeofday(const timeval* value, const struct timezone* zone);
 
 namespace {
 
+static_assert(static_cast<int>(petcare::WifiLinkStatus::joined) == CYW43_LINK_JOIN);
+static_assert(static_cast<int>(petcare::WifiLinkStatus::no_ip) == CYW43_LINK_NOIP);
+static_assert(static_cast<int>(petcare::WifiLinkStatus::up) == CYW43_LINK_UP);
+
 std::uint64_t monotonic_ms() {
     return to_ms_since_boot(get_absolute_time());
 }
@@ -79,19 +83,20 @@ bool connect_wifi_with_usb(
         return true;
     }
 
-    // A failed or just-powered CYW43 association can leave transient state
-    // behind. Both production boards reproduced CYW43_LINK_FAIL on a direct
-    // retry, while leave + a 2 s settle connected repeatedly. Reset the STA
-    // association only when it is not already linked; wait_with_usb services
-    // watchdog and USB provisioning during the settle period.
-    cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
-    wait_with_usb(runtime, diagnostics, 2'000);
+    const auto initial_status =
+        static_cast<petcare::WifiLinkStatus>(link_status);
+    if (!petcare::wifi_link_associated(initial_status)) {
+        // Failed associations need a clean retry. JOIN and NOIP already have
+        // an AP association, so preserve it while DHCP finishes.
+        cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
+        wait_with_usb(runtime, diagnostics, 2'000);
 
-    if (cyw43_arch_wifi_connect_async(
-            runtime.ssid.data(),
-            runtime.wifi_password.data(),
-            CYW43_AUTH_WPA2_AES_PSK) != 0) {
-        return false;
+        if (cyw43_arch_wifi_connect_async(
+                runtime.ssid.data(),
+                runtime.wifi_password.data(),
+                CYW43_AUTH_WPA2_AES_PSK) != 0) {
+            return false;
+        }
     }
 
     const auto deadline =
