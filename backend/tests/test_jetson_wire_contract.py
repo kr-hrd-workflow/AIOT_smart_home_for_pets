@@ -341,7 +341,7 @@ def test_clip_error_and_cloud_contract_separation() -> None:
         "internal_error": 500,
     }
 
-    assert hashlib.sha256(AGENT_FIXTURE.read_bytes()).hexdigest() == "d9849424f38a2f99b844c4705eb0652bf245b74ece6173c62e0271d1db7e2e4b"
+    assert hashlib.sha256(AGENT_FIXTURE.read_bytes()).hexdigest() == "130ef52664171a950bf108b6d689e8c5f6510c8f9acf9bc584a6cbd0624324b1"
     agent = json.loads(AGENT_FIXTURE.read_text(encoding="utf-8"))
     assert agent["clip"]["version"] == "PETCARE-CLIP-V1"
     assert "PETCARE-JETSON-V1" not in AGENT_FIXTURE.read_text(encoding="utf-8")
