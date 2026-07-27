@@ -789,7 +789,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return exit_code
     config = enroll(
         arguments.origin,
-        getpass.getpass("Enrollment code: "),
+        getpass.getpass("Enter the 10-minute code from the PetCare dashboard: "),
         LocalSettings(
             database_url=os.environ["DATABASE_URL"],
             mqtt_profile=os.environ["PETCARE_MQTT_PROFILE"],
