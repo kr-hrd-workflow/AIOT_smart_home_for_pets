@@ -30,7 +30,8 @@ from .jetson_client import JetsonVisionClient
 
 
 SAFE_PARENT_ENVIRONMENT = ("COMSPEC", "PATH", "PATHEXT", "SYSTEMROOT", "TEMP", "TMP", "WINDIR")
-TOOL_NAMES = frozenset({"cloudflared_path", "ffmpeg_path", "ffprobe_path", "python_path", "uv_path"})
+TOOL_NAMES = frozenset({"ffmpeg_path", "ffprobe_path", "python_path", "uv_path"})
+OPTIONAL_TOOL_NAMES = frozenset({"cloudflared_path"})
 STATUS_MAX_AGE = timedelta(seconds=5)
 AGENT_RELOAD_EXIT_CODE = 75
 AGENT_RELOAD_REQUEST = b"jetson_paired\n"
@@ -39,11 +40,11 @@ AGENT_RELOAD_GRACE_SECONDS = 1.0
 
 @dataclass(frozen=True, slots=True)
 class AgentTools:
-    cloudflared_path: Path
     ffmpeg_path: Path
     ffprobe_path: Path
     python_path: Path
     uv_path: Path
+    cloudflared_path: Path | None = None
 
 
 def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -164,18 +165,18 @@ def load_agent_tools(path: Path, *, platform_manifest_path: Path | None = None) 
             or (os.name == "posix" and (payload["platform"], payload["architecture"]) != ("linux", "arm64"))
             or payload["manifest_sha256"] != expected_manifest_hash
             or type(paths) is not dict
-            or set(paths) != TOOL_NAMES
+            or not TOOL_NAMES <= set(paths) <= TOOL_NAMES | OPTIONAL_TOOL_NAMES
             or type(hashes) is not dict
-            or set(hashes) != TOOL_NAMES
+            or set(hashes) != set(paths)
             or type(versions) is not dict
-            or set(versions) != TOOL_NAMES
-            or versions != expected_versions
+            or set(versions) != set(paths)
+            or any(versions[name] != expected_versions[name] for name in versions)
         ):
             raise ValueError("invalid agent tools manifest")
         runtime_root = path.parent
         _validate_protected_runtime_chain(path, runtime_root)
         resolved: dict[str, Path] = {}
-        for name in TOOL_NAMES:
+        for name in paths:
             value = paths[name]
             digest = hashes[name]
             if type(value) is not str or type(digest) is not str or type(versions[name]) is not str:
@@ -197,15 +198,18 @@ def _load_agent_config(path: Path) -> AgentRuntimeConfig:
     path = Path(path)
     if not path.is_absolute():
         raise ValueError("agent config path must be absolute")
-    return AgentRuntimeConfig.model_validate(
-        _strict_object(
-            _secure_read(path, owner_only=True),
-            {
-                "origin", "agent_id", "camera_id", "connector_token", "private_key", "public_key",
-                "local_camera_id", "local_settings",
-            },
-        )
-    )
+    content = _secure_read(path, owner_only=True)
+    required = {
+        "origin", "agent_id", "camera_id", "private_key", "public_key",
+        "local_camera_id", "local_settings",
+    }
+    try:
+        payload = _strict_object(content, required | {"connector_token"})
+    except ValueError as error:
+        if str(error) != "invalid JSON shape":
+            raise
+        payload = _strict_object(content, required)
+    return AgentRuntimeConfig.model_validate(payload)
 
 
 def _home_ip_for(jetson_host: str) -> str:
@@ -599,8 +603,6 @@ class AgentSupervisor:
             tools = load_agent_tools(self.tools_path)
             if self.jetson_config_path is not None:
                 load_jetson_config(self.jetson_config_path)
-            token_path = self.config_path.with_name("connector-token")
-            _write_connector_token(token_path, config.connector_token.get_secret_value())
             backend_environment = build_backend_environment(
                 self.config_path,
                 self.jetson_config_path,
@@ -612,19 +614,26 @@ class AgentSupervisor:
                 [
                     str(tools.python_path), "-m", "uvicorn", "app.main:app",
                     "--host", "127.0.0.1", "--port", "8000", "--no-access-log",
-                ],
-                [
+                ]
+            ]
+            environments = [backend_environment]
+            executable_names = ["python_path"]
+            if config.connector_token is not None:
+                if tools.cloudflared_path is None:
+                    raise ValueError("cloudflared is required for legacy tunnel configuration")
+                token_path = self.config_path.with_name("connector-token")
+                _write_connector_token(token_path, config.connector_token.get_secret_value())
+                commands.append([
                     str(tools.cloudflared_path), "tunnel", "--metrics", "127.0.0.1:20241",
                     "run", "--token-file", str(token_path),
-                ],
-            ]
-            environments = [backend_environment, tunnel_environment]
+                ])
+                environments.append(tunnel_environment)
+                executable_names.append("cloudflared_path")
             launch_options: dict[str, object]
             if os.name == "nt":
                 launch_options = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
             else:
                 launch_options = {"start_new_session": False}
-            executable_names = ("python_path", "cloudflared_path")
             for command, environment, executable_name in zip(
                 commands, environments, executable_names, strict=True
             ):

@@ -17,7 +17,6 @@ from .agent_client import b64url
 
 _SEGMENT = re.compile(r"([1-9]\d*)\.m4s\Z")
 _BOOT_ID = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
-LOCAL_PART_CAP = 12
 
 
 class LiveUploadClient(Protocol):
@@ -87,11 +86,11 @@ class LiveDeliveryWorker:
             "-f", "mpjpeg", "-i", "pipe:0",
             "-an", "-c:v", "libx264", "-profile:v", "baseline",
             "-pix_fmt", "yuv420p", "-r", "30", "-g", "30",
-            "-f", "hls", "-hls_time", "1", "-hls_segment_type", "fmp4",
+            "-f", "hls", "-hls_time", "3", "-hls_segment_type", "fmp4",
             "-hls_list_size", "8",
             "-hls_flags", "delete_segments+independent_segments+temp_file",
             "-start_number", "1",
-            "-hls_fmp4_init_filename", "init.mp4",
+            "-hls_fmp4_init_filename", str(boot_dir / "init.mp4"),
             "-hls_segment_filename", str(boot_dir / "%d.m4s"),
             str(boot_dir / "live.m3u8"),
         ]
@@ -113,10 +112,11 @@ class LiveDeliveryWorker:
 
     def _cap_local_parts(self, state: LiveBootState) -> bool:
         segments = self._segments(state.directory)
-        stale = sorted(segments)[:-LOCAL_PART_CAP]
-        for sequence in stale:
-            segments[sequence].unlink(missing_ok=True)
-        return state.next_sequence not in stale
+        return (
+            not segments
+            or state.next_sequence in segments
+            or max(segments) - state.next_sequence < 8
+        )
 
     def publish_completed(self, state: LiveBootState) -> bool:
         try:
@@ -124,7 +124,7 @@ class LiveDeliveryWorker:
                 raise RuntimeError("live sequence gap")
             init_path = state.directory / "init.mp4"
             if not state.init_uploaded:
-                if not init_path.is_file():
+                if not init_path.is_file() or state.next_sequence not in self._segments(state.directory):
                     return True
                 self._client.upload(
                     init_path,
@@ -134,7 +134,6 @@ class LiveDeliveryWorker:
                     started_at=state.started_at,
                     duration_ms=0,
                 )
-                init_path.unlink(missing_ok=True)
                 state.init_uploaded = True
             segments = self._segments(state.directory)
             while path := segments.get(state.next_sequence):
@@ -144,9 +143,8 @@ class LiveDeliveryWorker:
                     kind="segment",
                     sequence=state.next_sequence,
                     started_at=state.started_at,
-                    duration_ms=1000,
+                    duration_ms=3000,
                 )
-                path.unlink(missing_ok=True)
                 state.next_sequence += 1
             self.last_error = None
             return True

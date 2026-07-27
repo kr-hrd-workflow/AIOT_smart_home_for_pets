@@ -84,8 +84,9 @@ def _component_health_state(components: AgentLifecycleComponents) -> tuple[str, 
 def _media_tool_paths(tools_path: Path) -> tuple[Path, Path]:
     try:
         payload = json.loads(Path(tools_path).read_text(encoding="utf-8"))
-        ffmpeg_value = payload["ffmpeg_path"]
-        ffprobe_value = payload["ffprobe_path"]
+        paths = payload.get("paths", payload)
+        ffmpeg_value = paths["ffmpeg_path"]
+        ffprobe_value = paths["ffprobe_path"]
         ffmpeg_path = Path(ffmpeg_value)
         ffprobe_path = Path(ffprobe_value)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError) as error:

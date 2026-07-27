@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import subprocess
+from threading import Event
 from datetime import UTC, datetime, timedelta
 from ipaddress import ip_address
 from pathlib import Path
@@ -222,6 +223,63 @@ def test_pair_jetson_accepts_same_tailscale_network_pair(tmp_path: Path) -> None
     assert imported.url == "https://100.64.0.10:9443"
     assert imported.home_ip == "100.64.0.11"
     assert imported == load_jetson_config(jetson_path)
+
+
+def test_pair_jetson_accepts_outbound_agent_without_connector_token(tmp_path: Path) -> None:
+    config_path = tmp_path / "agent.json"
+    bundle_path = tmp_path / "pairing.json"
+    jetson_path = tmp_path / "jetson.json"
+    agent_config(config_path)
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    payload.pop("connector_token")
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
+    protect_runtime_file(config_path)
+    pairing_bundle(bundle_path)
+
+    imported = pair_jetson(
+        config_path,
+        bundle_path,
+        jetson_path,
+        home_ip_for=lambda _host: "192.168.50.10",
+        status_check=lambda _config: None,
+    )
+
+    assert imported == load_jetson_config(jetson_path)
+
+
+def test_supervisor_runs_outbound_agent_without_cloudflared(tmp_path: Path) -> None:
+    config_path = tmp_path / "agent.json"
+    tools_path = tmp_path / "agent-tools.json"
+    agent_config(config_path)
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    payload.pop("connector_token")
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
+    protect_runtime_file(config_path)
+    tools = agent_tools(tools_path)
+    tools_payload = json.loads(tools_path.read_text(encoding="utf-8"))
+    for field in ("paths", "executable_sha256", "versions"):
+        tools_payload[field].pop("cloudflared_path")
+    tools_path.write_text(json.dumps(tools_payload), encoding="utf-8")
+    protect_runtime_file(tools_path)
+    backend = FakeProcess(None)
+    calls: list[list[str]] = []
+    stop_event = Event()
+    stop_event.set()
+
+    result = AgentSupervisor(
+        config_path,
+        tools_path,
+        None,
+        popen=lambda command, **_kwargs: calls.append(command) or backend,
+        poll_interval=0.001,
+    ).run(stop_event)
+
+    assert result == 0
+    assert calls == [[
+        str(tools["python_path"]), "-m", "uvicorn", "app.main:app",
+        "--host", "127.0.0.1", "--port", "8000", "--no-access-log",
+    ]]
+    assert not (tmp_path / "connector-token").exists()
 
 
 def certificate_pem_from_file(config: JetsonConfig) -> bytes:

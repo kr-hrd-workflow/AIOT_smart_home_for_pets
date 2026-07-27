@@ -35,7 +35,7 @@ LIVE_PATH = "/api/petcare/agent/live"
 HTTP_TIMEOUT_SECONDS = 30.0
 CLEANUP_HTTP_TIMEOUT_SECONDS = 5.0
 SNAPSHOT_HTTP_TIMEOUT_SECONDS = 1.5
-LIVE_HTTP_TIMEOUT_SECONDS = 3.0
+LIVE_HTTP_TIMEOUT_SECONDS = 10.0
 SNAPSHOT_MAX_BYTES = 128 * 1024
 LIVE_INIT_MAX_BYTES = 256 * 1024
 LIVE_SEGMENT_MAX_BYTES = 1024 * 1024
@@ -387,7 +387,7 @@ class SignedLiveUploadClient:
             or type(sequence) is not int
             or type(duration_ms) is not int
             or (kind == "init" and (sequence != 0 or duration_ms != 0))
-            or (kind == "segment" and (sequence < 1 or duration_ms != 1000))
+            or (kind == "segment" and (sequence < 1 or duration_ms != 3000))
             or started_at.tzinfo is None
             or started_at.utcoffset() is None
         ):

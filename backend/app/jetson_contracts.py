@@ -81,7 +81,7 @@ class JetsonStatus(StrictModel):
 
 
 class JetsonDetection(StrictModel):
-    detected_type: Literal["person", "dog", "cat"]
+    detected_type: Literal["person", "dog", "cat", "bowl", "bed", "couch"]
     confidence: Annotated[StrictFloat, Field(ge=0, le=1, allow_inf_nan=False)]
     bbox_x: Annotated[StrictInt, Field(ge=0, lt=640)]
     bbox_y: Annotated[StrictInt, Field(ge=0, lt=480)]

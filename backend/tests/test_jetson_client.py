@@ -180,6 +180,7 @@ def test_constructor_builds_four_independent_one_connection_pools_with_pinned_tl
     assert all(item["verify"] is context for item in created)
     assert all(item["base_url"] == "https://192.168.50.20:9443" for item in created)
     assert all(item["limits"].max_connections == item["limits"].max_keepalive_connections == 1 for item in created)  # type: ignore[union-attr]
+    assert [item["timeout"].read for item in created] == [2.0, 2.0, 2.0, 10.0]  # type: ignore[union-attr]
 
 
 def test_live_stream_uses_current_boot_on_dedicated_pool_and_yields_raw_chunks(tmp_path: Path) -> None:

@@ -45,7 +45,7 @@ function parseLiveHeaders(request: Request, signed: AgentSignatureHeaders): Live
   const durationMs = Number(durationText);
   if (!Number.isSafeInteger(sequence) || !Number.isSafeInteger(durationMs) || signed.contentLength === 0) fail();
   if ((kind === "init" && (sequence !== 0 || durationMs !== 0)) ||
-      (kind === "segment" && (sequence < 1 || durationMs !== 1000))) fail();
+      (kind === "segment" && (sequence < 1 || durationMs !== 3000))) fail();
   return { cameraId, bootId, kind, sequence, startedAt, durationMs };
 }
 

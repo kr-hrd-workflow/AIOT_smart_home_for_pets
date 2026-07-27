@@ -51,7 +51,7 @@ async function signed(
   const bootId = "boot-a";
   const cameraId = "camera-a";
   const startedAt = "2026-07-27T00:00:00.000Z";
-  const duration = kind === "init" ? "0" : "1000";
+  const duration = kind === "init" ? "0" : "3000";
   const digest = b64url(
     new Uint8Array(await webcrypto.subtle.digest("SHA-256", body)),
   );

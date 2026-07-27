@@ -34,7 +34,7 @@ export function LiveCamera({
       </div>
       <dl className="camera-meta">
         <div><dt>상태</dt><dd>{status.state === "online" ? "온라인" : "오프라인"}</dd></div>
-        <div><dt>FPS</dt><dd>{status.state === "online" ? status.fps.toFixed(1) : "사용 불가"}</dd></div>
+        <div><dt>탐지 FPS</dt><dd>{status.state === "online" ? status.fps.toFixed(1) : "사용 불가"}</dd></div>
         <div><dt>추론</dt><dd>{status.state === "online" ? `${status.inference_ms.toFixed(1)} ms` : "사용 불가"}</dd></div>
       </dl>
     </>

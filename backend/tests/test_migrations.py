@@ -823,8 +823,8 @@ EXPECTED_CHECK_DEFINITIONS = {
     ("camera_events", "ck_camera_events_bbox_y", "CHECK (0 <= bbox_y AND bbox_y < (bbox_y + bbox_height) AND (bbox_y + bbox_height) <= 480)"),
     ("camera_events", "ck_camera_events_center", "CHECK (bbox_x <= center_x AND center_x < (bbox_x + bbox_width) AND bbox_y <= center_y AND center_y < (bbox_y + bbox_height))"),
     ("camera_events", "ck_camera_events_confidence", "CHECK (confidence > '-Infinity'::double precision AND confidence < 'Infinity'::double precision AND confidence >= 0::double precision AND confidence <= 1::double precision)"),
-    ("camera_events", "ck_camera_events_detected_type", "CHECK (detected_type::text = ANY (ARRAY['person'::character varying, 'dog'::character varying, 'cat'::character varying]::text[]))"),
-    ("camera_events", "ck_camera_events_subject_type", "CHECK ((detected_type::text = 'person'::text AND subject_id IS NULL OR detected_type::text = 'dog'::text AND subject_id::text = 'dog_001'::text OR detected_type::text = 'cat'::text AND subject_id::text = 'cat_001'::text) IS TRUE)"),
+    ("camera_events", "ck_camera_events_detected_type", "CHECK (detected_type::text = ANY (ARRAY['person'::character varying, 'dog'::character varying, 'cat'::character varying, 'bowl'::character varying, 'bed'::character varying, 'couch'::character varying]::text[]))"),
+    ("camera_events", "ck_camera_events_subject_type", "CHECK ((detected_type::text = ANY (ARRAY['person'::character varying, 'bowl'::character varying, 'bed'::character varying, 'couch'::character varying]::text[]) AND subject_id IS NULL OR detected_type::text = 'dog'::text AND subject_id::text = 'dog_001'::text OR detected_type::text = 'cat'::text AND subject_id::text = 'cat_001'::text) IS TRUE)"),
     ("cameras", "ck_cameras_camera_id", "CHECK (camera_id::text = 'pc-webcam-01'::text)"),
     ("cameras", "ck_cameras_status", "CHECK (status::text = ANY (ARRAY['online'::character varying, 'offline'::character varying]::text[]))"),
     ("devices", "ck_devices_device_id", "CHECK (device_id::text = ANY (ARRAY['entrance-01'::character varying, 'petzone-01'::character varying]::text[]))"),
@@ -960,6 +960,19 @@ def test_activity_cleanup_revision_is_self_contained_seeded_and_reversible() -> 
     assert source.count("CREATE TABLE activity_cleanup_state") == 1
     assert source.count("INSERT INTO activity_cleanup_state") == 1
     assert source.count('op.execute("DROP TABLE activity_cleanup_state")') == 1
+
+
+def test_camera_context_objects_revision_is_self_contained_and_reversible() -> None:
+    source = (
+        Path(__file__).parents[1]
+        / "migrations"
+        / "versions"
+        / "0006_camera_context_objects.py"
+    ).read_text(encoding="utf-8")
+    assert 'down_revision = "0005_activity_cleanup_state"' in source
+    assert "app.models" not in source
+    assert source.count("DROP CONSTRAINT ck_camera_events_detected_type") == 1
+    assert source.count("DELETE FROM camera_events WHERE detected_type") == 1
 
 
 def test_repetitive_motion_downgrade_removes_only_new_rows(database_url: str) -> None:

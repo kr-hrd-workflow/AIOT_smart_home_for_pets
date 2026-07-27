@@ -285,7 +285,7 @@ export const liveParts = sqliteTable(
     index("live_parts_home_expires_idx").on(table.homeId, table.expiresAt),
     check("live_parts_sequence_check", sql`${table.sequence} >= 0`),
     check("live_parts_size_check", sql`${table.sizeBytes} >= 0`),
-    check("live_parts_duration_check", sql`${table.durationMs} = 1000`),
+    check("live_parts_duration_check", sql`${table.durationMs} IN (1000, 3000)`),
   ],
 );
 

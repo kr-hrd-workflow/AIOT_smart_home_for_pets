@@ -84,12 +84,12 @@ class JetsonVisionClient:
             context = pinned_ssl_context(config.ca_pem)
             created: list[httpx.Client] = []
             try:
-                for _ in range(4):
+                for index in range(4):
                     created.append(client_factory(
                     base_url=config.url,
                     verify=context,
                     limits=httpx.Limits(max_connections=1, max_keepalive_connections=1),
-                    timeout=httpx.Timeout(2.0, connect=1.0),
+                    timeout=httpx.Timeout(10.0 if index == 3 else 2.0, connect=1.0),
                     ))
             except BaseException:
                 for client in created:

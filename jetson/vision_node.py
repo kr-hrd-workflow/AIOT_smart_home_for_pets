@@ -42,6 +42,7 @@ else:
 STATUS_PATH = "/v1/status"
 PREVIEW_PATH = "/v1/preview.jpg"
 LIVE_PATH = "/v1/live.mjpeg"
+DETECTED_TYPES = ("person", "dog", "cat", "bowl", "bed", "couch")
 CLIP_PATH = re.compile(r"^/v1/clips/([0-9a-f]{32})$")
 OBSERVATION_PATH = re.compile(r"^/v1/observations\?after=(0|[1-9][0-9]*)&wait_ms=(0|[1-9][0-9]*)$")
 CANONICAL_UTC = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$")
@@ -353,12 +354,12 @@ class VisionNode(object):
         for name in ("fps", "inference_ms"):
             if type(value[name]) is not float or not math.isfinite(value[name]) or value[name] < 0:
                 raise ValueError("invalid_observation")
-        if type(value["detections"]) is not list or len(value["detections"]) > 3:
+        if type(value["detections"]) is not list or len(value["detections"]) > len(DETECTED_TYPES):
             raise ValueError("invalid_observation")
         classes = []
         for item in value["detections"]:
             keys = ("detected_type", "confidence", "bbox_x", "bbox_y", "bbox_width", "bbox_height")
-            if type(item) is not dict or tuple(item) != keys or item["detected_type"] not in ("person", "dog", "cat"):
+            if type(item) is not dict or tuple(item) != keys or item["detected_type"] not in DETECTED_TYPES:
                 raise ValueError("invalid_observation")
             classes.append(item["detected_type"])
             confidence = item["confidence"]
@@ -1027,7 +1028,11 @@ def _configuration(path):
         "bind_ip", "port", "webcam", "certificate_path", "private_key_path", "psk_path",
         "engine_path", "engine_metadata_path", "state_dir", "temperature_path", "max_temperature_c",
     }
-    if type(value) is not OrderedDict or set(value) != required:
+    if type(value) is not OrderedDict or not required <= set(value) <= required | {"context_objects"}:
+        raise ValueError("invalid_configuration")
+    if "context_objects" not in value:
+        value["context_objects"] = False
+    elif type(value["context_objects"]) is not bool:
         raise ValueError("invalid_configuration")
     try:
         bind_address = ipaddress.ip_address(value["bind_ip"])
@@ -1074,6 +1079,7 @@ def main(argv=None):
     detector = TensorRtYolo(
         config["engine_path"],
         metadata_path=config["engine_metadata_path"],
+        include_context_objects=config["context_objects"],
     )
     camera = OpenCvCamera(config["webcam"])
     probe = SystemProbe(config["temperature_path"], config["max_temperature_c"])

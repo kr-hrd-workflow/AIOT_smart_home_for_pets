@@ -190,6 +190,9 @@ export function Dashboard({
 
             <section id="camera" className="camera-section" data-dashboard-section="camera">
               <SectionHeading title="카메라 확인" meta="640 × 480" />
+              <p className="camera-detection-scope">
+                실시간 탐지: 반려동물, 사람, 급식기, 침대, 소파. 활동·행동 추정은 반려동물 검출만 사용합니다.
+              </p>
               {connectedControls || (mode === "connected" && !camera) ? (
                 <LiveCamera status={data.camera} zones={data.zones} />
               ) : (
@@ -222,7 +225,7 @@ export function Dashboard({
                   </div>
                   <dl className="camera-meta">
                     <div><dt>상태</dt><dd>{data.camera.state === "online" ? "온라인" : "오프라인"}</dd></div>
-                    <div><dt>FPS</dt><dd>{data.camera.state === "online" ? data.camera.fps.toFixed(1) : "사용 불가"}</dd></div>
+                    <div><dt>탐지 FPS</dt><dd>{data.camera.state === "online" ? data.camera.fps.toFixed(1) : "사용 불가"}</dd></div>
                     <div><dt>추론</dt><dd>{data.camera.state === "online" ? `${data.camera.inference_ms.toFixed(1)} ms` : "사용 불가"}</dd></div>
                   </dl>
                 </>

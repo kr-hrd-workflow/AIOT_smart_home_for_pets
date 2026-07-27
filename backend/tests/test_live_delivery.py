@@ -69,7 +69,7 @@ def test_ffmpeg_command_uses_pinned_binary_and_required_fmp4_contract(tmp_path: 
     required = [
         "-an", "-c:v", "libx264", "-profile:v", "baseline",
         "-pix_fmt", "yuv420p", "-r", "30", "-g", "30",
-        "-f", "hls", "-hls_time", "1", "-hls_segment_type", "fmp4",
+        "-f", "hls", "-hls_time", "3", "-hls_segment_type", "fmp4",
         "-hls_list_size", "8",
         "-hls_flags", "delete_segments+independent_segments+temp_file",
     ]
@@ -77,6 +77,7 @@ def test_ffmpeg_command_uses_pinned_binary_and_required_fmp4_contract(tmp_path: 
     assert command[start:start + len(required)] == required
     assert "-start_number" in command
     assert command[command.index("-start_number") + 1] == "1"
+    assert command[command.index("-hls_fmp4_init_filename") + 1] == str(tmp_path / "boot" / "init.mp4")
 
 
 def test_completed_files_publish_init_then_ordered_segments_and_ignore_temp_files(
@@ -110,7 +111,7 @@ def test_completed_files_publish_init_then_ordered_segments_and_ignore_temp_file
     (boot_dir / "init.mp4").write_bytes(b"init")
     (boot_dir / "2.m4s").write_bytes(b"two")
     assert worker.publish_completed(state) is True
-    assert uploaded == [("init", 0, b"init")]
+    assert uploaded == []
 
     (boot_dir / "1.m4s").write_bytes(b"one")
     assert worker.publish_completed(state) is True
@@ -119,11 +120,12 @@ def test_completed_files_publish_init_then_ordered_segments_and_ignore_temp_file
         ("segment", 1, b"one"),
         ("segment", 2, b"two"),
     ]
-    assert not (boot_dir / "1.m4s").exists()
-    assert not (boot_dir / "2.m4s").exists()
+    assert (boot_dir / "init.mp4").exists()
+    assert (boot_dir / "1.m4s").exists()
+    assert (boot_dir / "2.m4s").exists()
 
 
-def test_upload_failure_drops_boot_without_queuing_and_local_files_are_capped(
+def test_upload_failure_drops_boot_without_queuing_or_mutating_ffmpeg_files(
     tmp_path: Path,
 ) -> None:
     class Client:
@@ -149,7 +151,7 @@ def test_upload_failure_drops_boot_without_queuing_and_local_files_are_capped(
 
     assert worker.publish_completed(state) is False
     assert worker.last_error == "live_upload_unavailable"
-    assert len(list(boot_dir.glob("*.m4s"))) <= 12
+    assert len(list(boot_dir.glob("*.m4s"))) == 15
     assert "secret" not in worker.last_error
 
 
@@ -178,7 +180,7 @@ def test_signed_live_upload_matches_server_canonical_contract(tmp_path: Path) ->
         kind="segment",
         sequence=1,
         started_at=NOW,
-        duration_ms=1000,
+        duration_ms=3000,
     )
     request = requests[0]
     body = request.read()
@@ -186,7 +188,7 @@ def test_signed_live_upload_matches_server_canonical_contract(tmp_path: Path) ->
     canonical = "\n".join((
         "PETCARE-LIVE-V1", "POST", "/api/petcare/agent/live",
         "agent-a", "camera-a", "boot-a", "segment", "1",
-        "2026-07-27T01:02:03.456789Z", "1000", str(len(body)), digest, "",
+        "2026-07-27T01:02:03.456789Z", "3000", str(len(body)), digest, "",
     )).encode()
     private_key.public_key().verify(
         base64.urlsafe_b64decode(request.headers["X-PetCare-Signature"] + "=="),

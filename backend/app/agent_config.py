@@ -155,7 +155,7 @@ def require_https_origin(value: str) -> str:
 
 
 def _runtime_payload(config: AgentRuntimeConfig) -> dict[str, Any]:
-    return {
+    payload = {
         "origin": config.origin,
         "agent_id": config.agent_id,
         "camera_id": config.camera_id,
@@ -169,6 +169,9 @@ def _runtime_payload(config: AgentRuntimeConfig) -> dict[str, Any]:
             "mqtt_password": config.local_settings.mqtt_password.get_secret_value(),
         },
     }
+    if config.connector_token is not None:
+        payload["connector_token"] = config.connector_token.get_secret_value()
+    return payload
 
 
 def _current_windows_sid() -> str:

@@ -15,7 +15,7 @@ $Manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $ManifestPath | Convert
 $ManifestHash = (Get-FileHash -LiteralPath $ManifestPath -Algorithm SHA256).Hash
 if (-not $OutputPath) { $OutputPath = Join-Path $RuntimeRoot 'agent-tools.json' }
 $OutputPath = [IO.Path]::GetFullPath($OutputPath)
-$ToolNames = @('cloudflared_path', 'ffmpeg_path', 'ffprobe_path', 'python_path', 'uv_path')
+$ToolNames = @('ffmpeg_path', 'ffprobe_path', 'python_path', 'uv_path')
 
 function Write-Json([object]$Value, [string]$Path) {
     $parent = Split-Path -Parent $Path
@@ -43,13 +43,16 @@ function Write-Json([object]$Value, [string]$Path) {
 
 function Get-ExpectedVersions {
     $managed = $Manifest.managed_exact
-    return [ordered]@{
-        cloudflared_path = [string]$managed.cloudflared.version
+    $versions = [ordered]@{
         ffmpeg_path = [string]$managed.ffmpeg.version
         ffprobe_path = [string]$managed.ffmpeg.version
         python_path = "$($managed.python.version)+$($managed.python.build)"
         uv_path = [string]$managed.uv.version
     }
+    if ($ToolNames -contains 'cloudflared_path') {
+        $versions['cloudflared_path'] = [string]$managed.cloudflared.version
+    }
+    return $versions
 }
 
 function New-Manifest([Collections.IDictionary]$Paths, [bool]$Fixture) {
@@ -86,7 +89,6 @@ function New-Fixture([string]$Path) {
         throw 'managed artifact SHA-256 mismatch'
     }
     $commands = [ordered]@{
-        cloudflared_path = 'cloudflared version 2026.7.2'
         ffmpeg_path = 'ffmpeg version n8.1.2-22-g94138f6973'
         ffprobe_path = 'ffprobe version n8.1.2-22-g94138f6973'
         python_path = 'Python 3.12.13'
@@ -221,6 +223,13 @@ if ((Split-Path -Parent $OutputPath) -cne $runtimePath) {
 }
 
 $managed = $Manifest.managed_exact
+$agentConfigPath = Join-Path $RuntimeRoot 'agent.json'
+$includeCloudflared = $false
+if (Test-Path -LiteralPath $agentConfigPath -PathType Leaf) {
+    $existingAgent = Get-Content -Raw -Encoding UTF8 -LiteralPath $agentConfigPath | ConvertFrom-Json
+    $includeCloudflared = $null -ne $existingAgent.PSObject.Properties['connector_token']
+}
+if ($includeCloudflared) { $ToolNames += 'cloudflared_path' }
 $toolchainPath = Join-Path $RuntimeRoot 'toolchain.json'
 if (-not (Test-Path -LiteralPath $toolchainPath -PathType Leaf)) {
     throw 'run bootstrap_toolchain.ps1 first'
@@ -236,10 +245,12 @@ if (
 }
 
 $ffmpegArchive = Get-VerifiedArtifact 'ffmpeg' $managed.ffmpeg.windows_x64 '.zip'
-$cloudflaredArchive = Get-VerifiedArtifact 'cloudflared' $managed.cloudflared.windows_x64 '.exe'
+$cloudflaredArchive = if ($includeCloudflared) {
+    Get-VerifiedArtifact 'cloudflared' $managed.cloudflared.windows_x64 '.exe'
+} else { $null }
 $agentRoot = Join-Path $RuntimeRoot 'managed/agent'
 $ffmpegRoot = Join-Path $agentRoot ("ffmpeg-" + [string]$managed.ffmpeg.version)
-$cloudflaredRoot = Join-Path $agentRoot ("cloudflared-" + [string]$managed.cloudflared.version)
+$cloudflaredPath = $null
 
 if (-not (Test-Path -LiteralPath $ffmpegRoot -PathType Container)) {
     if ($CheckOnly) { throw 'managed FFmpeg is not extracted' }
@@ -249,29 +260,33 @@ if (-not (Test-Path -LiteralPath $ffmpegRoot -PathType Container)) {
     Expand-FfmpegExecutables $ffmpegArchive $temporary
     Move-Item -LiteralPath $temporary -Destination $ffmpegRoot
 }
-New-Item -ItemType Directory -Force -Path $cloudflaredRoot | Out-Null
-$cloudflaredPath = Join-Path $cloudflaredRoot 'cloudflared.exe'
-if (-not (Test-Path -LiteralPath $cloudflaredPath -PathType Leaf)) {
-    if ($CheckOnly) { throw 'managed cloudflared is not extracted' }
-    New-Item -ItemType HardLink -Path $cloudflaredPath -Target $cloudflaredArchive | Out-Null
+if ($includeCloudflared) {
+    $cloudflaredRoot = Join-Path $agentRoot ("cloudflared-" + [string]$managed.cloudflared.version)
+    New-Item -ItemType Directory -Force -Path $cloudflaredRoot | Out-Null
+    $cloudflaredPath = Join-Path $cloudflaredRoot 'cloudflared.exe'
+    if (-not (Test-Path -LiteralPath $cloudflaredPath -PathType Leaf)) {
+        if ($CheckOnly) { throw 'managed cloudflared is not extracted' }
+        New-Item -ItemType HardLink -Path $cloudflaredPath -Target $cloudflaredArchive | Out-Null
+    }
+    if ((Get-FileHash -LiteralPath $cloudflaredPath -Algorithm SHA256).Hash -cne [string]$managed.cloudflared.windows_x64.sha256) {
+        throw 'managed cloudflared executable SHA-256 mismatch'
+    }
 }
-if ((Get-FileHash -LiteralPath $cloudflaredPath -Algorithm SHA256).Hash -cne [string]$managed.cloudflared.windows_x64.sha256) {
-    throw 'managed cloudflared executable SHA-256 mismatch'
-}
-
 $paths = [ordered]@{
-    cloudflared_path = [IO.Path]::GetFullPath($cloudflaredPath)
     ffmpeg_path = [IO.Path]::GetFullPath((Find-One $ffmpegRoot 'ffmpeg.exe'))
     ffprobe_path = [IO.Path]::GetFullPath((Find-One $ffmpegRoot 'ffprobe.exe'))
     python_path = [IO.Path]::GetFullPath([string]$toolchain.paths.python_path)
     uv_path = [IO.Path]::GetFullPath([string]$toolchain.paths.uv_path)
 }
+if ($includeCloudflared) { $paths['cloudflared_path'] = [IO.Path]::GetFullPath($cloudflaredPath) }
 
-Assert-Output 'cloudflared' @($paths.cloudflared_path, '--version') ([regex]::Escape([string]$managed.cloudflared.version))
 Assert-Output 'ffmpeg' @($paths.ffmpeg_path, '-version') ([regex]::Escape([string]$managed.ffmpeg.version))
 Assert-Output 'ffprobe' @($paths.ffprobe_path, '-version') ([regex]::Escape([string]$managed.ffmpeg.version))
 Assert-Output 'python' @($paths.python_path, '--version') ('Python ' + [regex]::Escape([string]$managed.python.version))
 Assert-Output 'uv' @($paths.uv_path, '--version') ('uv ' + [regex]::Escape([string]$managed.uv.version))
+if ($includeCloudflared) {
+    Assert-Output 'cloudflared' @($paths.cloudflared_path, '--version') ([regex]::Escape([string]$managed.cloudflared.version))
+}
 
 $payload = New-Manifest $paths $false
 Write-Json $payload $OutputPath

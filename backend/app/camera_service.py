@@ -24,6 +24,7 @@ CAMERA_ID = "pc-webcam-01"
 MJPEG_PREFIX = b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
 MJPEG_SUFFIX = b"\r\n"
 AVAILABILITY_SLOTS = 61
+CONTEXT_EVENT_INTERVAL = timedelta(minutes=1)
 
 
 def build_camera_service(
@@ -78,6 +79,7 @@ class CameraService:
         self._lock = Lock()
         self._latest_frame: ProcessedFrame | None = None
         self._availability: deque[int] = deque(maxlen=AVAILABILITY_SLOTS)
+        self._context_persisted_at: dict[str, datetime] = {}
         self._status = CameraStatus(
             state="offline",
             fps=0.0,
@@ -219,7 +221,14 @@ class CameraService:
             camera.status = "online"
             camera.last_frame_at = processed.observed_at
             camera.updated_at = processed.observed_at
-            rows = [CameraEvent(**detection.model_dump()) for detection in processed.detections]
+            persisted = tuple(
+                detection
+                for detection in processed.detections
+                if detection.subject_id is not None
+                or (previous := self._context_persisted_at.get(detection.detected_type)) is None
+                or processed.observed_at - previous >= CONTEXT_EVENT_INTERVAL
+            )
+            rows = [CameraEvent(**detection.model_dump()) for detection in persisted]
             for row in rows:
                 session.add(row)
             session.flush()
@@ -233,6 +242,9 @@ class CameraService:
                 selected_bed_subject_id=processed.selected_bed_subject_id,
             )
             session.commit()
+            for detection in persisted:
+                if detection.subject_id is None:
+                    self._context_persisted_at[detection.detected_type] = processed.observed_at
             return event
         except Exception:
             if session is not None:

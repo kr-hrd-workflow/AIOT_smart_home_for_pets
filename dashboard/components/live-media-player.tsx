@@ -60,6 +60,19 @@ export function LiveMediaPlayer({
     let newestSequence = -1;
     let lastFreshAt = Date.now();
 
+    const preserveVisibleFrame = () => {
+      if (!video.videoWidth || !video.videoHeight) return;
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext("2d")?.drawImage(video, 0, 0);
+        video.poster = canvas.toDataURL("image/jpeg", 0.85);
+      } catch {
+        // The current frame remains visible when capture is unavailable.
+      }
+    };
+
     const closePipeline = () => {
       openReject?.(aborted());
       openReject = undefined;
@@ -178,6 +191,7 @@ export function LiveMediaPlayer({
         const manifest = await client.liveManifest(cameraId, signal);
         const changedBoot = manifest.boot_id !== bootId;
         if (changedBoot) {
+          if (bootId !== undefined) preserveVisibleFrame();
           await openPipeline();
           bootId = manifest.boot_id;
           initAppended = false;
@@ -201,6 +215,13 @@ export function LiveMediaPlayer({
           lastFreshAt = Date.now();
         }
         await synchronizePlayback(manifest.target_latency_seconds);
+        if (changedBoot && video.poster) {
+          video.addEventListener(
+            "playing",
+            () => video.removeAttribute("poster"),
+            { once: true },
+          );
+        }
         if (active) {
           setState(
             Date.now() - lastFreshAt >= offlineAfterMs ? "offline" : "live",

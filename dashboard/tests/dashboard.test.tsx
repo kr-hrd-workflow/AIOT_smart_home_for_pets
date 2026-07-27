@@ -77,6 +77,9 @@ describe("dashboard demo surface", () => {
       "src",
       "/demo-camera.webp",
     );
+    expect(
+      screen.getByText("실시간 탐지: 반려동물, 사람, 급식기, 침대, 소파. 활동·행동 추정은 반려동물 검출만 사용합니다."),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "침대 영점 재설정" })).toBeDisabled();
     expect(screen.getByText("로컬 연결 모드에서 실행할 수 있습니다.")).toBeInTheDocument();
     expect(screen.getAllByText("휴식 추정").length).toBeGreaterThan(0);

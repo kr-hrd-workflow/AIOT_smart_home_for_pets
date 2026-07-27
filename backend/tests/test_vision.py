@@ -139,6 +139,7 @@ def test_normalization_rejects_invalid_and_uses_clamp_floor_ceil():
         {"detected_type": "person", "confidence": 0.5, "xyxy": [640, 1, 641, 2]},
         {"detected_type": "person", "confidence": 0.5, "xyxy": [1, 480, 2, 481]},
         {"detected_type": "bird", "confidence": 0.99, "xyxy": [1, 2, 3, 4]},
+        {"detected_type": "bowl", "confidence": 0.99, "xyxy": [1, 2, 3, 4]},
         {"detected_type": "cat", "confidence": 1.1, "xyxy": [1, 2, 3, 4]},
         {"detected_type": "cat", "confidence": 0.7, "xyxy": [1, 2, float("inf"), 4]},
     ]
@@ -154,7 +155,18 @@ def test_normalization_rejects_invalid_and_uses_clamp_floor_ceil():
             "bbox_height": 480,
             "center_x": 320,
             "center_y": 240,
-        }
+        },
+        {
+            "detected_type": "bowl",
+            "subject_id": None,
+            "confidence": 0.99,
+            "bbox_x": 1,
+            "bbox_y": 2,
+            "bbox_width": 2,
+            "bbox_height": 2,
+            "center_x": 2,
+            "center_y": 3,
+        },
     ]
 
 

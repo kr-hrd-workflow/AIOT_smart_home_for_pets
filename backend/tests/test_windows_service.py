@@ -198,7 +198,7 @@ def test_service_status_never_exposes_paths_or_secrets(tmp_path: Path) -> None:
 def test_service_uses_exact_windows_identity() -> None:
     assert PetCareHomeAgentService._svc_name_ == "PetCareHomeAgent"
     assert PetCareHomeAgentService._svc_display_name_ == "PetCare Home Agent"
-    assert PetCareHomeAgentService._svc_description_ == "Runs the loopback PetCare backend and outbound Cloudflare Tunnel."
+    assert PetCareHomeAgentService._svc_description_ == "Runs the loopback PetCare backend and outbound Sites delivery."
 
 
 def test_service_stop_reports_pending_and_sets_event(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -75,7 +75,7 @@ def _optional_jetson_config_path(path: Path) -> Path | None:
 class PetCareHomeAgentService(win32serviceutil.ServiceFramework):
     _svc_name_ = "PetCareHomeAgent"
     _svc_display_name_ = "PetCare Home Agent"
-    _svc_description_ = "Runs the loopback PetCare backend and outbound Cloudflare Tunnel."
+    _svc_description_ = "Runs the loopback PetCare backend and outbound Sites delivery."
 
     def __init__(self, args: list[str]) -> None:
         super().__init__(args)

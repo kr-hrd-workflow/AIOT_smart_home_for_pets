@@ -114,8 +114,8 @@ class Zone(Base):
 class CameraEvent(Base):
     __tablename__ = "camera_events"
     __table_args__ = (
-        CheckConstraint("detected_type IN ('person','dog','cat')", name="detected_type"),
-        CheckConstraint("((detected_type='person' AND subject_id IS NULL) OR (detected_type='dog' AND subject_id='dog_001') OR (detected_type='cat' AND subject_id='cat_001')) IS TRUE", name="subject_type"),
+        CheckConstraint("detected_type IN ('person','dog','cat','bowl','bed','couch')", name="detected_type"),
+        CheckConstraint("((detected_type IN ('person','bowl','bed','couch') AND subject_id IS NULL) OR (detected_type='dog' AND subject_id='dog_001') OR (detected_type='cat' AND subject_id='cat_001')) IS TRUE", name="subject_type"),
         CheckConstraint("confidence > '-Infinity'::DOUBLE PRECISION AND confidence < 'Infinity'::DOUBLE PRECISION AND confidence BETWEEN 0 AND 1", name="confidence"),
         CheckConstraint("0<=bbox_x AND bbox_x<bbox_x+bbox_width AND bbox_x+bbox_width<=640", name="bbox_x"),
         CheckConstraint("0<=bbox_y AND bbox_y<bbox_y+bbox_height AND bbox_y+bbox_height<=480", name="bbox_y"),

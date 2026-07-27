@@ -119,6 +119,9 @@ def test_camera_and_zone_geometry_are_half_open_and_strict() -> None:
         "observed_at": NOW,
     }
     assert CameraDetectionIn.model_validate(payload).center_x == 639
+    assert CameraDetectionIn.model_validate(
+        payload | {"detected_type": "bowl", "subject_id": None}
+    ).detected_type == "bowl"
     for bad in (
         {"subject_id": None},
         {"confidence": True},
@@ -127,6 +130,7 @@ def test_camera_and_zone_geometry_are_half_open_and_strict() -> None:
         {"center_x": 640},
         {"bbox_x": 0.0},
         {"detected_type": "person", "subject_id": "dog_001"},
+        {"detected_type": "bed", "subject_id": "cat_001"},
     ):
         with pytest.raises(ValidationError):
             CameraDetectionIn.model_validate(payload | bad)

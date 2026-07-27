@@ -63,6 +63,23 @@ def test_strict_models_accept_only_the_frozen_shapes() -> None:
         JetsonClipReceipt.model_validate(FIXTURE["command"]["response"] | {"state": "ready"})
 
 
+def test_observation_accepts_static_pet_home_context_objects() -> None:
+    payload = FIXTURE["observation"]["body"] | {
+        "detections": [
+            FIXTURE["observation"]["body"]["detections"][0],
+            FIXTURE["observation"]["body"]["detections"][0] | {"detected_type": "bowl"},
+            FIXTURE["observation"]["body"]["detections"][0] | {"detected_type": "bed"},
+            FIXTURE["observation"]["body"]["detections"][0] | {"detected_type": "couch"},
+        ],
+    }
+    assert [item.detected_type for item in JetsonObservation.model_validate(payload).detections] == [
+        "dog",
+        "bowl",
+        "bed",
+        "couch",
+    ]
+
+
 @pytest.mark.parametrize(
     "change",
     [

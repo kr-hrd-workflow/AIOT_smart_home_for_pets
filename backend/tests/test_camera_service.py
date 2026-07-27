@@ -241,6 +241,25 @@ def test_valid_frame_persists_selected_detections_then_closes_before_resolution(
     assert not {"image", "frame", "path"} & set(CameraEvent.__table__.columns.keys())
 
 
+def test_context_objects_are_persisted_at_most_once_per_minute() -> None:
+    detections = (
+        {"detected_type": "bowl", "confidence": 0.8, "xyxy": (40.0, 260.0, 260.0, 470.0)},
+    )
+    service, ingress, sessions, _calls = service_for(
+        Source(FRAME, FRAME),
+        Detector(detections),
+        times=[NOW, NOW + timedelta(seconds=30)],
+    )
+
+    assert service.process_once() is True
+    assert service.process_once() is True
+
+    assert [row.detected_type for row in sessions[0].events] == ["bowl"]
+    assert sessions[1].events == []
+    assert ingress.committed[0].detection_ids == (101,)
+    assert ingress.committed[1].detection_ids == ()
+
+
 def test_replacing_zones_changes_the_next_local_frame_classification() -> None:
     detections = (
         {"detected_type": "dog", "confidence": 0.9, "xyxy": (330.0, 190.0, 430.0, 290.0)},

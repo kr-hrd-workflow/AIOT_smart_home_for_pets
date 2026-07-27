@@ -33,8 +33,10 @@ def test_build_composes_concrete_dependencies_without_starting_background_work(
     ffprobe_path.touch()
     tools_path.write_text(
         json.dumps({
-            "ffmpeg_path": str(ffmpeg_path.resolve()),
-            "ffprobe_path": str(ffprobe_path.resolve()),
+            "paths": {
+                "ffmpeg_path": str(ffmpeg_path.resolve()),
+                "ffprobe_path": str(ffprobe_path.resolve()),
+            },
         }),
         encoding="utf-8",
     )

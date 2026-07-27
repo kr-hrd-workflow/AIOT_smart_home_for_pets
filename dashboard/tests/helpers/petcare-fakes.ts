@@ -66,6 +66,7 @@ export class FakeD1 {
       "0001_petcare_tunnels_clips.sql",
       "0002_activity_cleanup_commands.sql",
       "0003_petcare_outbound.sql",
+      "0004_live_three_second_segments.sql",
     ]) {
       this.database.exec(
         readFileSync(resolve(drizzle, migration), "utf8").replaceAll(

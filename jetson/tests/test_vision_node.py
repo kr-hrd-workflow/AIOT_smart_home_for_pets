@@ -279,7 +279,12 @@ class VisionNodeHttpsTests(unittest.TestCase):
             "height": 480,
             "fps": 4.8,
             "inference_ms": 191.2,
-            "detections": [{"detected_type": "dog", "confidence": 0.94, "bbox_x": 100, "bbox_y": 80, "bbox_width": 220, "bbox_height": 260}],
+            "detections": [
+                {"detected_type": "dog", "confidence": 0.94, "bbox_x": 100, "bbox_y": 80, "bbox_width": 220, "bbox_height": 260},
+                {"detected_type": "bowl", "confidence": 0.84, "bbox_x": 10, "bbox_y": 10, "bbox_width": 80, "bbox_height": 80},
+                {"detected_type": "bed", "confidence": 0.74, "bbox_x": 300, "bbox_y": 10, "bbox_width": 80, "bbox_height": 80},
+                {"detected_type": "couch", "confidence": 0.64, "bbox_x": 400, "bbox_y": 10, "bbox_width": 80, "bbox_height": 80},
+            ],
         }
         self.node.publish(observation, JPEG)
         response, content = self.request("GET", target)
@@ -951,6 +956,7 @@ class ConfigurationTests(unittest.TestCase):
                 json.dump(value, handle)
             os.chmod(path, 0o600)
             self.assertEqual(_configuration(path)["bind_ip"], "100.64.0.10")
+            self.assertFalse(_configuration(path)["context_objects"])
 
     def test_runtime_configuration_rejects_non_rfc1918_bind(self):
         value = {

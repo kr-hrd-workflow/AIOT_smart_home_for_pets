@@ -133,7 +133,7 @@ class DeviceOut(StrictModel):
 class CameraDetectionIn(StrictModel):
     camera_id: Literal["pc-webcam-01"]
     subject_id: SubjectId | None
-    detected_type: Literal["person", "dog", "cat"]
+    detected_type: Literal["person", "dog", "cat", "bowl", "bed", "couch"]
     confidence: Annotated[FiniteNumber, Field(ge=0, le=1)]
     bbox_x: StrictInt
     bbox_y: StrictInt
@@ -146,7 +146,14 @@ class CameraDetectionIn(StrictModel):
 
     @model_validator(mode="after")
     def validate_detection(self) -> Self:
-        subjects = {"person": None, "dog": "dog_001", "cat": "cat_001"}
+        subjects = {
+            "person": None,
+            "dog": "dog_001",
+            "cat": "cat_001",
+            "bowl": None,
+            "bed": None,
+            "couch": None,
+        }
         if self.subject_id != subjects[self.detected_type]:
             raise ValueError("detected type and subject do not match")
         right = self.bbox_x + self.bbox_width
@@ -165,7 +172,7 @@ class CameraEventOut(StrictModel):
     id: StrictInt
     camera_id: Literal["pc-webcam-01"]
     subject_id: SubjectId | None
-    detected_type: Literal["person", "dog", "cat"]
+    detected_type: Literal["person", "dog", "cat", "bowl", "bed", "couch"]
     confidence: Annotated[FiniteNumber, Field(ge=0, le=1)]
     bbox_x: StrictInt
     bbox_y: StrictInt

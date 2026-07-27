@@ -9,8 +9,9 @@ import threading
 
 
 FRAME_SHAPE = (480, 640, 3)
-CLASS_ORDER = ("person", "dog", "cat")
-CLASS_IDS = {"person": 0, "cat": 15, "dog": 16}
+CLASS_ORDER = ("person", "dog", "cat", "bowl", "bed", "couch")
+LEGACY_CLASS_ORDER = ("person", "dog", "cat")
+CLASS_IDS = {"person": 0, "cat": 15, "dog": 16, "bowl": 45, "couch": 57, "bed": 59}
 MANIFEST_KEYS = {
     "onnx_opset",
     "export_argv",
@@ -157,11 +158,11 @@ def normalize_detections(candidates):
     return selected
 
 
-def postprocess_yolo(output, confidence_threshold=0.25):
+def postprocess_yolo(output, confidence_threshold=0.25, class_order=CLASS_ORDER):
     if tuple(output.shape) != (1, 84, 8400):
         raise ValueError("invalid_engine_output")
     candidates = []
-    for detected_type in CLASS_ORDER:
+    for detected_type in class_order:
         class_row = 4 + CLASS_IDS[detected_type]
         for anchor in range(8400):
             confidence = float(output[0, class_row, anchor])
@@ -287,7 +288,11 @@ class _CudaRuntime(object):
 
 
 class TensorRtYolo(object):
-    def __init__(self, engine_path, manifest_path=None, metadata_path=None, backend_factory=None, module_model=None):
+    def __init__(self, engine_path, manifest_path=None, metadata_path=None, backend_factory=None, module_model=None,
+                 include_context_objects=False):
+        if type(include_context_objects) is not bool:
+            raise ValueError("invalid_context_objects")
+        self.include_context_objects = include_context_objects
         manifest_path = manifest_path or os.path.join(os.path.dirname(__file__), "model-manifest.json")
         metadata_path = metadata_path or engine_path + ".json"
         engine_bytes, manifest = _validated_engine(
@@ -323,7 +328,8 @@ class TensorRtYolo(object):
         canvas[80:560, :, :] = frame
         tensor = self.np.ascontiguousarray(canvas[:, :, ::-1].transpose(2, 0, 1), dtype=self.np.float32)
         tensor = tensor.reshape((1, 3, 640, 640)) / 255.0
-        return postprocess_yolo(self.backend(tensor))
+        class_order = CLASS_ORDER if self.include_context_objects else LEGACY_CLASS_ORDER
+        return postprocess_yolo(self.backend(tensor), class_order=class_order)
 
     def close(self):
         close = getattr(self.backend, "close", None)

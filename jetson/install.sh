@@ -77,7 +77,7 @@ PY
 write_config() {
     root=$1
     cat >"$root/var/lib/petcare-vision/config.json" <<EOF
-{"bind_ip":"$bind_ip","port":9443,"webcam":"$webcam","certificate_path":"/var/lib/petcare-vision/device.crt","private_key_path":"/var/lib/petcare-vision/device.key","psk_path":"/var/lib/petcare-vision/psk.bin","engine_path":"/opt/petcare-vision/model.engine","engine_metadata_path":"/opt/petcare-vision/model.engine.json","state_dir":"/var/lib/petcare-vision","temperature_path":"/sys/devices/virtual/thermal/thermal_zone0/temp","max_temperature_c":80.0}
+{"bind_ip":"$bind_ip","port":9443,"webcam":"$webcam","certificate_path":"/var/lib/petcare-vision/device.crt","private_key_path":"/var/lib/petcare-vision/device.key","psk_path":"/var/lib/petcare-vision/psk.bin","engine_path":"/opt/petcare-vision/model.engine","engine_metadata_path":"/opt/petcare-vision/model.engine.json","state_dir":"/var/lib/petcare-vision","temperature_path":"/sys/devices/virtual/thermal/thermal_zone0/temp","max_temperature_c":80.0,"context_objects":true}
 EOF
     chmod 600 "$root/var/lib/petcare-vision/config.json"
 }
@@ -227,7 +227,9 @@ openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 825 \
     -keyout /var/lib/petcare-vision/device.key -out /var/lib/petcare-vision/device.crt >/dev/null 2>&1
 head -c 32 /dev/urandom >/var/lib/petcare-vision/psk.bin
 chmod 600 /var/lib/petcare-vision/device.crt /var/lib/petcare-vision/device.key /var/lib/petcare-vision/psk.bin
-write_config ""
+if [ ! -f /var/lib/petcare-vision/config.json ]; then
+    write_config ""
+fi
 chown -R petcare-vision:petcare-vision /var/lib/petcare-vision
 write_pairing_bundle ""
 apply_firewall

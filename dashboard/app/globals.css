@@ -1384,6 +1384,13 @@ a:focus-visible {
   min-height: 600dvh;
 }
 
+.camera-detection-scope {
+  margin: -4px 0 12px;
+  color: #d8ded9;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .landing-page[data-scroll-world-active="true"] .landing-header {
   position: fixed;
   top: 0;

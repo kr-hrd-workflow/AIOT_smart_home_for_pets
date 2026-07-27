@@ -20,9 +20,8 @@ foreach ($name in @('CheckOnly', 'FixtureRoot', 'OutputPath', 'Mutation')) {
 if ($LASTEXITCODE) { throw 'agent runtime fixture bootstrap failed' }
 
 $data = Get-Content -Raw -Encoding UTF8 -LiteralPath $output | ConvertFrom-Json
-$names = @('cloudflared_path', 'ffmpeg_path', 'ffprobe_path', 'python_path', 'uv_path')
+$names = @('ffmpeg_path', 'ffprobe_path', 'python_path', 'uv_path')
 $expectedVersions = @{
-    cloudflared_path = '2026.7.2'
     ffmpeg_path = '8.1.2-22-g94138f6973'
     ffprobe_path = '8.1.2-22-g94138f6973'
     python_path = '3.12.13+20260623'

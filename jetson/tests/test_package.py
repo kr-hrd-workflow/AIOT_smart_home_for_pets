@@ -149,6 +149,7 @@ class PackageTests(unittest.TestCase):
                     "state_dir": "/var/lib/petcare-vision",
                     "temperature_path": "/sys/devices/virtual/thermal/thermal_zone0/temp",
                     "max_temperature_c": 80.0,
+                    "context_objects": True,
                 },
             )
             bundle = json.loads((fixture / "root/petcare-jetson-pairing.json").read_text(encoding="utf-8"))

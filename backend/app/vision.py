@@ -15,8 +15,15 @@ from app.contracts import CameraDetectionIn
 
 
 FRAME_SHAPE = (480, 640, 3)
-CLASS_ORDER = ("person", "dog", "cat")
-SUBJECTS = {"person": None, "dog": "dog_001", "cat": "cat_001"}
+CLASS_ORDER = ("person", "dog", "cat", "bowl", "bed", "couch")
+SUBJECTS = {
+    "person": None,
+    "dog": "dog_001",
+    "cat": "cat_001",
+    "bowl": None,
+    "bed": None,
+    "couch": None,
+}
 MODEL_BYTES = 5_613_764
 MODEL_SHA256 = "0EBBC80D4A7680D14987A577CD21342B65ECFD94632BD9A8DA63AE6417644EE1"
 

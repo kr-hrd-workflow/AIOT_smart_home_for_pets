@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from jetson.tensorrt_yolo import (
+    LEGACY_CLASS_ORDER,
     TensorRtYolo,
     _CudaRuntime,
     _TensorRtBackend,
@@ -66,6 +67,7 @@ class TensorRtYoloTests(unittest.TestCase):
                 {"detected_type": "dog", "confidence": 0.8, "xyxy": [-2.2, -3.8, 640.4, 480.9]},
                 {"detected_type": "dog", "confidence": 0.8, "xyxy": [9.9, 10.2, 19.9, 20.1]},
                 {"detected_type": "cat", "confidence": 0.7, "xyxy": [30.2, 30.2, 40.0, 40.0]},
+                {"detected_type": "bowl", "confidence": 0.6, "xyxy": [50.2, 30.2, 60.0, 40.0]},
                 {"detected_type": "horse", "confidence": 1.0, "xyxy": [1, 2, 3, 4]},
                 {"detected_type": "person", "confidence": float("nan"), "xyxy": [1, 2, 3, 4]},
                 {"detected_type": "cat", "confidence": 1.1, "xyxy": [1, 2, 3, 4]},
@@ -90,6 +92,14 @@ class TensorRtYoloTests(unittest.TestCase):
                     "bbox_width": 10,
                     "bbox_height": 10,
                 },
+                {
+                    "detected_type": "bowl",
+                    "confidence": 0.6,
+                    "bbox_x": 50,
+                    "bbox_y": 30,
+                    "bbox_width": 10,
+                    "bbox_height": 10,
+                },
             ],
         )
 
@@ -101,6 +111,8 @@ class TensorRtYoloTests(unittest.TestCase):
         output[0, 4 + 2, 1] = 0.99
         output[0, 0:4, 2] = [10.0, 10.0, 4.0, 4.0]
         output[0, 4, 2] = np.nan
+        output[0, 0:4, 3] = [100.0, 180.0, 20.0, 20.0]
+        output[0, 4 + 45, 3] = 0.8
 
         self.assertEqual(
             postprocess_yolo(output, 0.25),
@@ -112,8 +124,20 @@ class TensorRtYoloTests(unittest.TestCase):
                     "bbox_y": 179,
                     "bbox_width": 102,
                     "bbox_height": 122,
-                }
+                },
+                {
+                    "detected_type": "bowl",
+                    "confidence": float(output[0, 49, 3]),
+                    "bbox_x": 90,
+                    "bbox_y": 90,
+                    "bbox_width": 20,
+                    "bbox_height": 20,
+                },
             ],
+        )
+        self.assertEqual(
+            [item["detected_type"] for item in postprocess_yolo(output, 0.25, LEGACY_CLASS_ORDER)],
+            ["dog"],
         )
 
     def test_tensorrt_82_backend_validates_bindings_and_copy_order(self):
