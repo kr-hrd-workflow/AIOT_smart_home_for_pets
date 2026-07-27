@@ -138,6 +138,30 @@ afterEach(() => {
 });
 
 describe("LiveMediaPlayer", () => {
+  it("uses the authenticated native HLS playlist on iPhone WebKit", async () => {
+    vi.stubGlobal("MediaSource", undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "canPlayType").mockImplementation(
+      (type) => type === "application/vnd.apple.mpegurl" ? "maybe" : "",
+    );
+    const liveClient = client();
+    render(
+      <LiveMediaPlayer
+        cameraId="camera-1"
+        client={liveClient}
+        alt="live camera"
+      />,
+    );
+
+    const video = screen.getByLabelText("live camera");
+    expect(video).toHaveAttribute(
+      "src",
+      "/api/petcare/cameras/camera-1/live/index.m3u8",
+    );
+    act(() => video.dispatchEvent(new Event("playing")));
+    expect(video).toHaveAttribute("data-live-state", "live");
+    expect(liveClient.liveManifest).not.toHaveBeenCalled();
+  });
+
   it("appends init before ordered parts and starts with a six-second buffer", async () => {
     const liveClient = client();
     render(

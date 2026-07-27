@@ -17,7 +17,7 @@ import { deleteClip, listClips, readClip } from "./clips";
 import type { PetCareEnv } from "./env";
 import { errorResponse, PetCareError } from "./errors";
 import { downloadInstaller, uploadInstaller } from "./installer";
-import { getLiveManifest, getLivePart } from "./live-manifest";
+import { getLiveManifest, getLivePart, getLivePlaylist } from "./live-manifest";
 import { proxyMjpeg, proxyStatus } from "./live-proxy";
 
 export type PetCareExecutionContext = {
@@ -28,6 +28,8 @@ const CAMERA =
   /^\/api\/petcare\/cameras\/([A-Za-z0-9_-]{1,64})\/stream\.mjpeg$/;
 const LIVE_MANIFEST =
   /^\/api\/petcare\/cameras\/([A-Za-z0-9_-]{1,64})\/live$/;
+const LIVE_PLAYLIST =
+  /^\/api\/petcare\/cameras\/([A-Za-z0-9_-]{1,64})\/live\/index\.m3u8$/;
 const LIVE_INIT =
   /^\/api\/petcare\/cameras\/([A-Za-z0-9_-]{1,64})\/live\/([A-Za-z0-9_-]{1,64})\/init\.mp4$/;
 const LIVE_PART =
@@ -147,6 +149,7 @@ export async function routePetCare(
     } else {
       const camera = CAMERA.exec(url.pathname);
       const liveManifest = LIVE_MANIFEST.exec(url.pathname);
+      const livePlaylist = LIVE_PLAYLIST.exec(url.pathname);
       const liveInit = LIVE_INIT.exec(url.pathname);
       const livePart = LIVE_PART.exec(url.pathname);
       const clipMedia = CLIP_MEDIA.exec(url.pathname);
@@ -159,6 +162,10 @@ export async function routePetCare(
         routeName = "live_manifest";
         if (request.method !== "GET") return methodNotAllowed("GET");
         invoke = (_next, user) => getLiveManifest(user, env, liveManifest[1]);
+      } else if (livePlaylist) {
+        routeName = "live_playlist";
+        if (request.method !== "GET") return methodNotAllowed("GET");
+        invoke = (_next, user) => getLivePlaylist(user, env, livePlaylist[1]);
       } else if (liveInit) {
         routeName = "live_init";
         if (request.method !== "GET") return methodNotAllowed("GET");

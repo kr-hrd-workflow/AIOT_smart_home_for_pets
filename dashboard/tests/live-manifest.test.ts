@@ -14,7 +14,11 @@ vi.mock("../lib/petcare/repository", () => ({
   },
 }));
 
-import { getLiveManifest, getLivePart } from "../lib/petcare/live-manifest";
+import {
+  getLiveManifest,
+  getLivePart,
+  getLivePlaylist,
+} from "../lib/petcare/live-manifest";
 
 describe("getLiveManifest", () => {
   it("returns a fresh owned manifest with only same-origin media routes", async () => {
@@ -70,6 +74,39 @@ describe("getLiveManifest", () => {
     expect(get).toHaveBeenCalledWith("live/home-01/camera-01/boot-01/9.m4s");
     expect(response.headers.get("Cache-Control")).toBe("private, no-store, no-transform");
     await expect(response.text()).resolves.toBe("media");
+  });
+
+  it("returns a native HLS playlist with accurate segment durations", async () => {
+    repository.getOwnedLiveStream.mockResolvedValue({
+      bootId: "boot-01",
+      newestSequence: 9,
+      parts: [
+        { sequence: 8, durationMs: 1000 },
+        { sequence: 9, durationMs: 3000 },
+      ],
+    });
+
+    const response = await getLivePlaylist(
+      { sub: "owner-01" } as never,
+      { DB: {} as never, CLIPS: {} as never } as never,
+      "camera-01",
+    );
+
+    expect(response.headers.get("Content-Type")).toBe("application/vnd.apple.mpegurl");
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store, no-transform");
+    await expect(response.text()).resolves.toBe([
+      "#EXTM3U",
+      "#EXT-X-VERSION:7",
+      "#EXT-X-TARGETDURATION:3",
+      "#EXT-X-MEDIA-SEQUENCE:8",
+      "#EXT-X-INDEPENDENT-SEGMENTS",
+      '#EXT-X-MAP:URI="/api/petcare/cameras/camera-01/live/boot-01/init.mp4"',
+      "#EXTINF:1.000,",
+      "/api/petcare/cameras/camera-01/live/boot-01/8.m4s",
+      "#EXTINF:3.000,",
+      "/api/petcare/cameras/camera-01/live/boot-01/9.m4s",
+      "",
+    ].join("\n"));
   });
 
   it("returns 404 before R2 for a foreign boot or part", async () => {

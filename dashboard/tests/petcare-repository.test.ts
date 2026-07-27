@@ -266,6 +266,7 @@ describe("PetCareRepository", () => {
       parts: Array.from({ length: 8 }, (_, index) => ({
         sequence: index + 2,
         objectKey: `live/home-a/camera-a/boot-a/${index + 2}.m4s`,
+        durationMs: 1000,
       })),
     });
     await expect(repo.getOwnedLiveStream("owner-b", "camera-a", now)).resolves.toBeNull();
