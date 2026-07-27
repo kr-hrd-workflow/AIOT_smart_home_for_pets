@@ -104,6 +104,7 @@ it("polls every two seconds and mounts the authenticated live player", async () 
   );
 
   await act(async () => Promise.resolve());
+  await act(async () => vi.advanceTimersByTimeAsync(0));
   expect(client.getStatus).toHaveBeenCalledTimes(1);
   expect(media.videoFeedUrl).not.toHaveBeenCalled();
   expect(screen.getByLabelText("실시간 반려동물 카메라")).toHaveAttribute(

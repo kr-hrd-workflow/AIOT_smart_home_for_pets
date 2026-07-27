@@ -189,7 +189,7 @@ def test_frozen_seed_and_connector_token_fail_outside_exact_contracts(tmp_path: 
     )
     values = (
         agent["clip"]["seed"],
-        agent["enrollment"]["response"]["body"]["connector_token"],
+        "fixture-only-" + "connector-token",
     )
     source = tmp_path / "backend" / "app.py"
     source.parent.mkdir()

@@ -18,7 +18,7 @@ else:
 
 PASS_MARKER = "PRIVACY_CHECK=PASS"
 
-_AGENT_VECTOR_SHA256 = "D9849424F38A2F99B844C4705EB0652BF245B74ECE6173C62E0271D1DB7E2E4B"
+_AGENT_VECTOR_SHA256 = "130EF52664171A950BF108B6D689E8C5F6510C8F9ACF9BC584A6CBD0624324B1"
 _JETSON_VECTOR_SHA256 = "C5B19C1618522DB5D279471C47E124CACD571353EF9D63ADD52A67BEC7FED49F"
 _FROZEN_SEED = "AAECAwQFBgcICQoL" + "DA0ODxAREhMUFRYXGBkaGxwdHh8"
 _FIXTURE_CONNECTOR = "fixture-only-" + "connector-token"
@@ -34,6 +34,14 @@ _MEDIA_ALLOWLIST = {
     "dashboard/public/landing/scroll-world/desktop/scene-01-arrival.mp4",
     "dashboard/public/landing/scroll-world/source/scene-01-arrival.png",
     "dashboard/public/og.png",
+    "output/presentation/assets/admin-mobile-camera.png",
+    "output/presentation/assets/admin-mobile-sensors.png",
+    "output/presentation/assets/bed-sensor.jpg",
+    "output/presentation/assets/dashboard-og.png",
+    "output/presentation/assets/entrance-sensor.jpg",
+    "output/presentation/assets/feeding-sensor.jpg",
+    "output/presentation/assets/landing-home.webp",
+    "output/presentation/assets/system-flow-reference.png",
 }
 _PRIVATE_KEY = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
 _CREDENTIAL_URL = re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://[^/\s:@]+:[^/\s@]+@")
@@ -94,7 +102,7 @@ def _is_excluded_tracked(relative: Path) -> bool:
 def _fixed_allowlist(relative: str, data: bytes) -> set[str]:
     digest = hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest().upper()
     if relative == "contracts/petcare-agent-wire-v1.json" and digest == _AGENT_VECTOR_SHA256:
-        return {_FROZEN_SEED, _FIXTURE_CONNECTOR}
+        return {_FROZEN_SEED}
     if relative == "contracts/petcare-jetson-wire-v1.json" and digest == _JETSON_VECTOR_SHA256:
         return {_FROZEN_SEED}
     return set()

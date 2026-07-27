@@ -81,7 +81,7 @@ jobs:
           )
           & $runtime.paths.cmake_path @arguments
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          & $runtime.paths.cmake_path --build $build --target entrance-01 petzone-01
+          & $runtime.paths.cmake_path --build $build --target entrance-01 petzone-01 bed-01
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
           $cache = Get-Content -Encoding UTF8 (Join-Path $build 'CMakeCache.txt')
@@ -108,7 +108,7 @@ jobs:
               throw "Pico tool path mismatch: $($entry.Key)"
             }
           }
-          foreach ($target in @('entrance-01', 'petzone-01')) {
+          foreach ($target in @('entrance-01', 'petzone-01', 'bed-01')) {
             foreach ($suffix in @('.uf2', '.elf', '.elf.map')) {
               $artifact = Join-Path $build "$target$suffix"
               if (-not (Test-Path -LiteralPath $artifact) -or (Get-Item -LiteralPath $artifact).Length -eq 0) {
