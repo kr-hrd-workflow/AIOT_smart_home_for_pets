@@ -16,11 +16,8 @@ export function RecoveryTokenFields() {
       return;
     }
 
-    const accessToken = params.get("access_token");
-    const refreshToken = params.get("refresh_token");
-    if (!accessToken || !refreshToken) {
-      return;
-    }
+    const accessToken = params.get("access_token") ?? "";
+    const refreshToken = params.get("refresh_token") ?? "";
 
     const timeout = window.setTimeout(() => {
       setTokens({ accessToken, refreshToken });
