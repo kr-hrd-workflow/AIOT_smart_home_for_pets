@@ -17,7 +17,7 @@ PetCare는 두 대의 Raspberry Pi Pico 2 W, Windows Home Agent, Jetson 카메�
 | Sites↔Home Agent 원격 연결 | Cloudflare Tunnel 없이 Ed25519 서명 outbound 전송으로 운영 연결 PASS |
 | Windows Home Agent 설치 파일 | 고정 크기·SHA-256 검증 후 Sites R2 업로드 PASS; 로그인 후 제공 |
 | Sites scheduled 정리·R2 7일 lifecycle | 코드 구현됨; provider 운영 trigger/lifecycle 연결 증거는 `NOT VERIFIED` |
-| Sites 공개 배포 | v13 공개 배포 PASS (source `6109a61`) |
+| Sites 공개 배포 | 최신 공개 배포 PASS; 정확한 source SHA는 Sites deployment metadata로 확인 |
 | 실제 Jetson 비전 서비스·USB 카메라·서명 프리뷰 | 실기기 통과 (JetPack 4.6.6, L4T 32.7.6, TensorRT 8.2.1) |
 | Jetson 고유 프레임 30 FPS 라이브·활동·반복 이동 관측 | 60 Hz 보정 후 단기 실기기 게이트 PASS |
 | Jetson 60분 지속 실행 | `NOT RUN` |

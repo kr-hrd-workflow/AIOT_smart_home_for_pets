@@ -42,8 +42,8 @@ def test_live30_activity_docs_are_observation_only_and_hardware_honest() -> None
 
     assert "Jetson 단기 실기기 라이브 게이트" in readme
     assert "60분 soak는 `NOT RUN`" in readme
-    assert "v13 공개 배포 PASS" in readme
-    assert "source `6109a61`" in readme
+    assert "최신 공개 배포 PASS" in readme
+    assert "Sites deployment metadata" in readme
     assert "한 번의 큰 스크롤에 영상이 약 1~2초 전진" in readme
     assert "outbound HTTPS" in readme
     assert "/auth/callback?next=/reset-password" in runbook
@@ -56,7 +56,7 @@ def test_live30_activity_docs_are_observation_only_and_hardware_honest() -> None
     assert "1,000 ms" in live30_plan
     assert "420 ms" not in live30_spec
     assert "420 ms" not in live30_plan
-    assert "v13 공개 배포 PASS" in implementation
+    assert "최신 공개 배포 PASS" in implementation
     assert "60분 soak `NOT RUN`" in implementation
 
 
