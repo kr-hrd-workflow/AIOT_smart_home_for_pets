@@ -230,10 +230,6 @@ def test_pair_jetson_accepts_outbound_agent_without_connector_token(tmp_path: Pa
     bundle_path = tmp_path / "pairing.json"
     jetson_path = tmp_path / "jetson.json"
     agent_config(config_path)
-    payload = json.loads(config_path.read_text(encoding="utf-8"))
-    payload.pop("connector_token")
-    config_path.write_text(json.dumps(payload), encoding="utf-8")
-    protect_runtime_file(config_path)
     pairing_bundle(bundle_path)
 
     imported = pair_jetson(
@@ -251,10 +247,6 @@ def test_supervisor_runs_outbound_agent_without_cloudflared(tmp_path: Path) -> N
     config_path = tmp_path / "agent.json"
     tools_path = tmp_path / "agent-tools.json"
     agent_config(config_path)
-    payload = json.loads(config_path.read_text(encoding="utf-8"))
-    payload.pop("connector_token")
-    config_path.write_text(json.dumps(payload), encoding="utf-8")
-    protect_runtime_file(config_path)
     tools = agent_tools(tools_path)
     tools_payload = json.loads(tools_path.read_text(encoding="utf-8"))
     for field in ("paths", "executable_sha256", "versions"):

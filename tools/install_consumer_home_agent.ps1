@@ -117,10 +117,14 @@ function Get-VerifiedArtifact(
     return $Path
 }
 
-function Find-One([string]$Root, [string]$Name) {
-    $matches = @(Get-ChildItem -LiteralPath $Root -Recurse -File -Filter $Name)
-    if ($matches.Count -ne 1) { throw "managed executable count is invalid: $Name" }
-    return $matches[0].FullName
+function Get-ManagedExecutable([string]$Root, [string]$RelativePath) {
+    $path = [IO.Path]::GetFullPath((Join-Path $Root $RelativePath))
+    $boundary = [IO.Path]::GetFullPath($Root).TrimEnd('\') + '\'
+    if (-not $path.StartsWith($boundary, [StringComparison]::OrdinalIgnoreCase) -or
+        -not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "managed executable is missing: $RelativePath"
+    }
+    return $path
 }
 
 function Copy-ConsumerSource([string]$Destination) {
@@ -299,7 +303,7 @@ $uvRoot = Join-Path $ManagedRoot 'consumer-uv'
 if (-not (Test-Path -LiteralPath $uvRoot -PathType Container)) {
     Expand-Archive -LiteralPath $uvArchive -DestinationPath $uvRoot
 }
-$uvPath = Find-One $uvRoot 'uv.exe'
+$uvPath = Get-ManagedExecutable $uvRoot 'uv.exe'
 if ((& $uvPath --version) -notmatch "^uv $([regex]::Escape($Manifest.managed_exact.uv.version)) ") {
     throw 'managed uv version mismatch'
 }
@@ -349,11 +353,11 @@ $postgresRoot = Join-Path $RuntimeRoot 'services-managed\postgresql'
 if (-not (Test-Path -LiteralPath $postgresRoot -PathType Container)) {
     Expand-Archive -LiteralPath $postgresArchive -DestinationPath $postgresRoot
 }
-$postgresPath = Find-One $postgresRoot 'postgres.exe'
-$pgCtlPath = Find-One $postgresRoot 'pg_ctl.exe'
-$initdbPath = Find-One $postgresRoot 'initdb.exe'
-$pgIsReadyPath = Find-One $postgresRoot 'pg_isready.exe'
-$psqlPath = Find-One $postgresRoot 'psql.exe'
+$postgresPath = Get-ManagedExecutable $postgresRoot 'pgsql\bin\postgres.exe'
+$pgCtlPath = Get-ManagedExecutable $postgresRoot 'pgsql\bin\pg_ctl.exe'
+$initdbPath = Get-ManagedExecutable $postgresRoot 'pgsql\bin\initdb.exe'
+$pgIsReadyPath = Get-ManagedExecutable $postgresRoot 'pgsql\bin\pg_isready.exe'
+$psqlPath = Get-ManagedExecutable $postgresRoot 'pgsql\bin\psql.exe'
 if ((& $postgresPath --version) -notmatch "^postgres \(PostgreSQL\) $([regex]::Escape($Manifest.managed_exact.postgresql.version.Split('-')[0]))") {
     throw 'managed PostgreSQL version mismatch'
 }

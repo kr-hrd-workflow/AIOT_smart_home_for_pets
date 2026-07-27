@@ -65,6 +65,9 @@ def test_consumer_installer_reuses_pinned_runtime_without_the_local_yolo_stack()
     assert "requirements-home-agent.lock" in source
     assert "--require-hashes --requirement $dependencyLock" in source
     assert "petcare-home-agent.pth" in source
+    assert "Find-One" not in source
+    for executable in ("postgres.exe", "pg_ctl.exe", "initdb.exe", "pg_isready.exe", "psql.exe"):
+        assert f"pgsql\\bin\\{executable}" in source
 
 
 def test_consumer_dependency_inputs_match_the_platform_authority_and_lock_has_hashes() -> None:
