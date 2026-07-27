@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   signInWithPassword: vi.fn(),
   signUp: vi.fn(),
   resetPasswordForEmail: vi.fn(),
+  setSession: vi.fn(),
   updateUser: vi.fn(),
   signOut: vi.fn(),
   requireAuth: vi.fn(),
@@ -86,6 +87,7 @@ beforeEach(() => {
           signInWithPassword: mocks.signInWithPassword,
           signUp: mocks.signUp,
           resetPasswordForEmail: mocks.resetPasswordForEmail,
+          setSession: mocks.setSession,
           updateUser: mocks.updateUser,
           signOut: mocks.signOut,
         },
@@ -98,6 +100,7 @@ beforeEach(() => {
   mocks.signInWithPassword.mockResolvedValue({ data: {}, error: null });
   mocks.signUp.mockResolvedValue({ data: {}, error: null });
   mocks.resetPasswordForEmail.mockResolvedValue({ data: {}, error: null });
+  mocks.setSession.mockResolvedValue({ data: {}, error: null });
   mocks.updateUser.mockResolvedValue({ data: {}, error: null });
   mocks.signOut.mockResolvedValue({ error: null });
   mocks.ensureHome.mockResolvedValue({ id: "home-a" });
@@ -415,6 +418,21 @@ function authPost(
     body: new URLSearchParams(fields),
   });
 }
+
+it("rejects an incomplete recovery token pair before changing the password", async () => {
+  const response = await resetPassword(
+    authPost("/auth/reset-password", {
+      password: "new password for test",
+      access_token: "access-a",
+    }),
+  );
+
+  expect(mocks.setSession).not.toHaveBeenCalled();
+  expect(mocks.updateUser).not.toHaveBeenCalled();
+  expect(response.headers.get("location")).toBe(
+    "https://app.test/reset-password?error=invalid_session",
+  );
+});
 
 it("keeps every auth action usable when runtime configuration is absent", async () => {
   runtimeEnv.SUPABASE_URL = undefined;
