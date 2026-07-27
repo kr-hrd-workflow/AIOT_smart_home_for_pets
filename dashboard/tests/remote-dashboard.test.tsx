@@ -210,6 +210,7 @@ it("prevents duplicate enrollment, reports failure, and permits retry", async ()
       client={client}
       media={media}
       accountClient={accountClient}
+      view="devices"
     />,
   );
 
@@ -272,6 +273,7 @@ it("explains when managed remote enrollment is not configured", async () => {
       client={client}
       media={media}
       accountClient={accountClient}
+      view="devices"
     />,
   );
 
@@ -300,6 +302,7 @@ it("detects a running local Home Agent before remote enrollment", async () => {
       client={client}
       media={media}
       accountClient={accountClient}
+      view="devices"
     />,
   );
 
@@ -325,6 +328,7 @@ it("keeps the setup checklist visible when optional runtime data is absent", asy
       client={client}
       media={media}
       accountClient={accountClient}
+      view="devices"
     />,
   );
 
@@ -365,6 +369,7 @@ it("provisions each Pico from the authenticated dashboard and clears the passwor
       client={client}
       media={media}
       accountClient={accountClient}
+      view="devices"
     />,
   );
 
@@ -409,6 +414,7 @@ it("marks fixed Pico IDs independently and requires the Jetson camera for comple
       client={client}
       media={media}
       accountClient={accountClient}
+      view="devices"
     />,
   );
 
@@ -433,14 +439,15 @@ it("marks fixed Pico IDs independently and requires the Jetson camera for comple
       client={complete.client}
       media={complete.media}
       accountClient={complete.accountClient}
+      view="devices"
     />,
   );
 
   expect(await screen.findByText(/Jetson 카메라를 연결해야/)).toBeInTheDocument();
   expect(screen.queryByText("필수 연결 완료")).not.toBeInTheDocument();
   expect(
-    screen.getByRole("heading", { name: "PetCare 운영 현황", level: 1 }),
-  ).toBeInTheDocument();
+    screen.queryByRole("heading", { name: "PetCare 운영 현황", level: 1 }),
+  ).not.toBeInTheDocument();
   const completeChecklist = screen.getByRole("list", { name: "우리 집 연결" });
   expect(within(completeChecklist).getAllByRole("listitem")[4]).toHaveTextContent(
     "Jetson 카메라필수",
@@ -454,6 +461,7 @@ it("marks the required Jetson camera connected from remote status", async () => 
       client={client}
       media={media}
       accountClient={accountClient}
+      view="devices"
     />,
   );
 
@@ -603,7 +611,7 @@ it("redirects expired sessions and shows initial network failure without demo da
   expect(screen.queryByText("742 g")).not.toBeInTheDocument();
 });
 
-it("keeps enrollment and destructive controls in keyboard order", async () => {
+it("keeps device controls in keyboard order and links to separate settings pages", async () => {
   const user = userEvent.setup();
   const { client, media, accountClient } = mockRemote({
     getStatus: vi.fn().mockResolvedValue({
@@ -618,18 +626,26 @@ it("keeps enrollment and destructive controls in keyboard order", async () => {
       client={client}
       media={media}
       accountClient={accountClient}
+      view="devices"
     />,
   );
 
-  const deviceSettings = await screen.findByRole("button", { name: "기기 설정" });
-  const dataManagement = screen.getByRole("button", { name: "데이터 관리" });
-  const dataPanel = document.getElementById("data-management")!;
+  const dashboard = await screen.findByRole("link", { name: "대시보드" });
+  const deviceSettings = screen.getByRole("link", { name: "기기 설정" });
+  const dataManagement = screen.getByRole("link", { name: "데이터 관리" });
+  expect(dashboard).toHaveAttribute("href", "/dashboard");
+  expect(deviceSettings).toHaveAttribute("href", "/dashboard/devices");
+  expect(deviceSettings).toHaveAttribute("aria-current", "page");
+  expect(dataManagement).toHaveAttribute("href", "/dashboard/data");
+  expect(screen.queryByText("PetCare 데이터 삭제")).not.toBeInTheDocument();
   const installer = screen.getByRole("link", {
     name: "Windows Home Agent 설치",
   });
   const enrollment = screen.getByRole("button", {
     name: "10분 코드 만들기",
   });
+  await user.tab();
+  expect(dashboard).toHaveFocus();
   await user.tab();
   expect(deviceSettings).toHaveFocus();
   await user.tab();
@@ -650,17 +666,4 @@ it("keeps enrollment and destructive controls in keyboard order", async () => {
   expect(screen.getByRole("button", { name: "침대 Pico 설정" })).toHaveFocus();
   await user.tab();
   expect(document.body).toHaveFocus();
-  await user.tab();
-  expect(deviceSettings).toHaveFocus();
-  await user.tab();
-  expect(dataManagement).toHaveFocus();
-  expect(dataPanel).toHaveAttribute("hidden");
-  await user.keyboard("{Enter}");
-  expect(dataManagement).toHaveAttribute("aria-pressed", "true");
-  expect(deviceSettings).toHaveAttribute("aria-pressed", "false");
-  expect(dataPanel).not.toHaveAttribute("hidden");
-  expect(dataPanel.querySelector(".account-deletion")).toBeInTheDocument();
-  expect(dataPanel.querySelector(".connection-card")).toBeNull();
-  await user.tab();
-  expect(screen.getByLabelText("현재 비밀번호")).toHaveFocus();
 });

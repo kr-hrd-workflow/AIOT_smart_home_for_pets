@@ -294,6 +294,14 @@ it("shows activity only from camera coverage while preserving rest evidence", ()
   it("keeps the public root first, the remote dashboard protected, and demo server-only", () => {
     const rootPage = readFileSync(resolve(root, "app/page.tsx"), "utf8");
     const remotePage = readFileSync(resolve(root, "app/dashboard/page.tsx"), "utf8");
+    const deviceSettingsPage = readFileSync(
+      resolve(root, "app/dashboard/devices/page.tsx"),
+      "utf8",
+    );
+    const dataManagementPage = readFileSync(
+      resolve(root, "app/dashboard/data/page.tsx"),
+      "utf8",
+    );
     const demoPage = readFileSync(resolve(root, "app/demo/page.tsx"), "utf8");
     const remoteDashboard = readFileSync(
       resolve(root, "components/remote-dashboard.tsx"),
@@ -309,6 +317,8 @@ it("shows activity only from camera coverage while preserving rest evidence", ()
     expect(rootPage).not.toMatch(/createPetCareRemote|client=|media=/);
     expect(remotePage).toContain("RemoteDashboard");
     expect(remotePage).toMatch(/return <RemoteDashboard \/>/);
+    expect(deviceSettingsPage).toMatch(/<RemoteDashboard view="devices" \/>/);
+    expect(dataManagementPage).toMatch(/<RemoteDashboard view="data" \/>/);
     expect(remoteDashboard).toContain("createPetCareRemoteClient");
     expect(remoteDashboard).toContain("createPetCareRemoteMedia");
     expect(rootPage).not.toMatch(

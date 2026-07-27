@@ -300,21 +300,39 @@
   border-bottom: 1px solid var(--dashboard-line);
 }
 
-.settings-tablist button {
+.settings-tablist a {
+  display: inline-flex;
+  align-items: center;
   min-height: 44px;
   padding: 0 14px;
   border: 1px solid var(--dashboard-line);
   border-radius: 7px;
   background: #fff;
   color: var(--dashboard-muted);
-  font: inherit;
   font-weight: 700;
+  text-decoration: none;
+  transition:
+    color 160ms cubic-bezier(0.23, 1, 0.32, 1),
+    background-color 160ms cubic-bezier(0.23, 1, 0.32, 1),
+    border-color 160ms cubic-bezier(0.23, 1, 0.32, 1),
+    transform 120ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
-.settings-tablist button[aria-pressed="true"] {
+.settings-tablist a[aria-current="page"] {
   border-color: var(--dashboard-focus);
   background: #f4f9f6;
   color: var(--dashboard-ink);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .settings-tablist a:hover {
+    border-color: var(--dashboard-focus);
+    color: var(--dashboard-ink);
+  }
+}
+
+.settings-tablist a:active {
+  transform: scale(0.98);
 }
 
 .connection-heading {

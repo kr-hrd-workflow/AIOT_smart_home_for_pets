@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { AccountDeletion } from "./account-deletion";
 import { Dashboard } from "./dashboard";
@@ -24,41 +24,21 @@ import type { DashboardData, DashboardSummary } from "../lib/types";
 const LOCAL_SETUP_URL = "http://127.0.0.1:8000/setup";
 const HOME_AGENT_INSTALLER_URL = "/api/petcare/installer";
 
-function SettingsSections({
-  deviceSettings,
-  accountClient,
-}: {
-  deviceSettings: ReactNode;
-  accountClient: PetCareAccountClient;
-}) {
-  const [section, setSection] = useState<"devices" | "data">("devices");
+export type RemoteDashboardViewName = "dashboard" | "devices" | "data";
+
+function DashboardNavigation({ view }: { view: RemoteDashboardViewName }) {
   return (
-    <section className="settings-tabs" aria-label="설정">
-      <nav className="settings-tablist" aria-label="설정 섹션">
-        <button
-          type="button"
-          aria-pressed={section === "devices"}
-          aria-controls="device-settings"
-          onClick={() => setSection("devices")}
-        >
-          기기 설정
-        </button>
-        <button
-          type="button"
-          aria-pressed={section === "data"}
-          aria-controls="data-management"
-          onClick={() => setSection("data")}
-        >
-          데이터 관리
-        </button>
-      </nav>
-      <div id="device-settings" className="settings-panel" hidden={section !== "devices"}>
-        {deviceSettings}
-      </div>
-      <div id="data-management" className="settings-panel" hidden={section !== "data"}>
-        <AccountDeletion client={accountClient} />
-      </div>
-    </section>
+    <nav className="settings-tablist" aria-label="대시보드 메뉴">
+      <a href="/dashboard" aria-current={view === "dashboard" ? "page" : undefined}>
+        대시보드
+      </a>
+      <a href="/dashboard/devices" aria-current={view === "devices" ? "page" : undefined}>
+        기기 설정
+      </a>
+      <a href="/dashboard/data" aria-current={view === "data" ? "page" : undefined}>
+        데이터 관리
+      </a>
+    </nav>
   );
 }
 
@@ -94,7 +74,7 @@ function operationalData(summary: DashboardSummary): DashboardData {
   };
 }
 
-export function RemoteDashboard() {
+export function RemoteDashboard({ view = "dashboard" }: { view?: RemoteDashboardViewName }) {
   const [client] = useState(createPetCareRemoteClient);
   const [media] = useState(createPetCareRemoteMedia);
   const [accountClient] = useState(createPetCareAccountClient);
@@ -103,6 +83,7 @@ export function RemoteDashboard() {
       client={client}
       media={media}
       accountClient={accountClient}
+      view={view}
     />
   );
 }
@@ -111,10 +92,12 @@ export function RemoteDashboardView({
   client,
   media,
   accountClient,
+  view = "dashboard",
 }: {
   client: PetCareRemoteClient;
   media: PetCareRemoteMedia;
   accountClient: PetCareAccountClient;
+  view?: RemoteDashboardViewName;
 }) {
   const [status, setStatus] = useState<PetCareStatus | null>(null);
   const [offline, setOffline] = useState<AgentOffline | null>(null);
@@ -250,21 +233,20 @@ export function RemoteDashboardView({
   if (offline) {
     return (
       <main className="remote-page remote-state-page" data-state="offline">
+        <DashboardNavigation view={view} />
         <p className="remote-offline" role="alert">
           에이전트가 오프라인입니다. 마지막 확인:{" "}
           <time dateTime={offline.last_seen_at ?? undefined}>
             {offline.last_seen_at ?? "기록 없음"}
           </time>
         </p>
-        <SettingsSections
-          accountClient={accountClient}
-          deviceSettings={
+        {view === "devices" && (
             <section className="connection-card" aria-label="기기 설정">
               <a href={LOCAL_SETUP_URL}>오프라인 복구 설정 열기</a>
             </section>
-          }
-        />
-        <EventClips client={client} media={media} />
+        )}
+        {view === "data" && <AccountDeletion client={accountClient} />}
+        {view === "dashboard" && <EventClips client={client} media={media} />}
       </main>
     );
   }
@@ -306,10 +288,9 @@ export function RemoteDashboardView({
       className="remote-page remote-dashboard-page"
       data-home-state={status.home.state}
     >
+      <DashboardNavigation view={view} />
       {statusError && <p role="alert">{statusError}</p>}
-      <SettingsSections
-        accountClient={accountClient}
-        deviceSettings={
+      {view === "devices" && (
           <section className="connection-card" aria-labelledby="connection-title">
         <header className="connection-heading">
           <div>
@@ -492,9 +473,9 @@ export function RemoteDashboardView({
             </form>
         </section>
           </section>
-        }
-      />
-      {status.dashboard && status.agent && (
+      )}
+      {view === "data" && <AccountDeletion client={accountClient} />}
+      {view === "dashboard" && status.dashboard && status.agent && (
         <>
           <p className="remote-online" role="status">
             에이전트 온라인 · {cameraOnline ? "카메라 온라인" : "카메라 연결 필요"} · 마지막 확인:{" "}
