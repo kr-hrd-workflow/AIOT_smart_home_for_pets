@@ -98,7 +98,7 @@ describe("private tenant clip handlers", () => {
           "2026-07-20T00:00:00.000Z",
         );
         await run(
-          "INSERT INTO agents (id, home_id, public_key, tunnel_origin) VALUES (?, ?, ?, ?)",
+          "INSERT INTO agents (id, home_id, public_key, tunnel_origin, connection_mode) VALUES (?, ?, ?, ?, 'outbound')",
           `agent-${suffix}`,
           `home-${suffix}`,
           `public-${suffix}`,

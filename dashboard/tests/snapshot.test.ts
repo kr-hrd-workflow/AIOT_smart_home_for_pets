@@ -7,8 +7,6 @@ vi.mock("cloudflare:workers", () => ({ env: {} }));
 
 import { PetCareRepository } from "../lib/petcare/repository";
 import { FakeD1 } from "./helpers/petcare-fakes";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 
 const now = "2026-07-27T00:00:00.000Z";
 let fake: FakeD1;
@@ -44,10 +42,6 @@ async function seed(suffix: "a" | "b") {
 beforeEach(async () => {
   fake = new FakeD1();
   db = fake as unknown as D1Database;
-  await db.exec(
-    readFileSync(resolve(import.meta.dirname, "../drizzle/0003_petcare_outbound.sql"), "utf8")
-      .replaceAll("--> statement-breakpoint", ""),
-  );
   repository = new PetCareRepository(db);
   await seed("a");
   await seed("b");

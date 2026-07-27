@@ -174,7 +174,7 @@ async function activationPendingDb(publicKey = fixture.clip.public_key): Promise
     .run();
   await db
     .prepare(
-      "INSERT INTO agents (id, home_id, public_key, tunnel_origin) VALUES (?, ?, ?, ?)",
+      "INSERT INTO agents (id, home_id, public_key, tunnel_origin, connection_mode) VALUES (?, ?, ?, ?, 'outbound')",
     )
     .bind("agent_01", "home_01", publicKey, "https://agent.example.test/")
     .run();
