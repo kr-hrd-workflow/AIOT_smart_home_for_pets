@@ -9,6 +9,17 @@ from app.config import AppConfig
 from app.contracts import BedCalibrationError
 
 
+def test_factory_calibration_uses_fixed_shipping_zero() -> None:
+    bed = importlib.import_module("app.bed")
+    now = datetime(2026, 7, 20, 1, 0, tzinfo=UTC)
+    config = AppConfig(database_url="postgresql+psycopg://petcare:x@127.0.0.1:55432/petcare_test")
+
+    snapshot = bed.factory_calibration(now, config)
+
+    assert snapshot.baselines == (7.0, 4095.0, 4095.0)
+    assert snapshot.polarities == (1, 1, 1)
+
+
 def test_calibration_overlap_is_positive_area_half_open() -> None:
     bed = importlib.import_module("app.bed")
     zone = (320, 180, 630, 470)

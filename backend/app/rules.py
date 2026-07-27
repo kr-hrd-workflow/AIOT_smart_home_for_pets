@@ -23,6 +23,7 @@ from .bed import (
     CameraFact,
     PressureFact,
     evaluate_calibration,
+    factory_calibration,
 )
 from .config import AppConfig
 from .clip_outbox import enqueue_clip_trigger, utc_now
@@ -700,6 +701,8 @@ class RuleEngine:
         session.commit()
         if calibration is not None:
             self.bed.load_calibration(self._snapshot(calibration), restart=True)
+        else:
+            self.bed.load_calibration(factory_calibration(now, self.config), restart=True)
         for subject_id in ("dog_001", "cat_001"):
             self._schedule_no_meal(session, scheduler, subject_id, now, getattr(scheduler, "effective_monotonic", 0.0))
         self._sync_state_deadlines(scheduler)

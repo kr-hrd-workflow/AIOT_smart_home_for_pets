@@ -11,6 +11,7 @@ from .contracts import BedCalibrationError, ChannelName
 
 
 CHANNELS: tuple[ChannelName, ...] = ("left", "center", "right")
+FACTORY_BASELINES = (7.0, 4095.0, 4095.0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +55,19 @@ class BedEvaluation:
     aggregate_delta: float | None
     bed_subject_ids: tuple[Literal["dog_001", "cat_001"], ...]
     selected_bed_subject_id: Literal["dog_001", "cat_001"] | None
+
+
+def factory_calibration(now: datetime, config: AppConfig) -> CalibrationSnapshot:
+    return CalibrationSnapshot(
+        window_start=now - timedelta(seconds=60),
+        window_end=now,
+        counts=(60, 60, 60),
+        baselines=FACTORY_BASELINES,
+        polarities=config.fsr_polarities,
+        stability_limits=config.fsr_stability_counts,
+        entry_threshold=config.fsr_entry_threshold,
+        exit_threshold=config.fsr_exit_threshold,
+    )
 
 
 class BedState:

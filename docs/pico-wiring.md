@@ -19,6 +19,8 @@
 
 FSR은 각 채널에서 `3.3V → FSR → ADC 접점 → 10kΩ → GND` 전압분배기로 연결합니다. 펌웨어는 `adc` 원값만 발행하며 baseline/polarity/stability/entry/exit/occupancy/fusion을 계산하지 않습니다.
 
+출고 영점은 침대 FSR `left=7`, `center=4095`, `right=4095`로 고정합니다. Home Agent는 저장된 현장 보정값이 없으면 이 값을 자동 사용하며, 수동 영점 재설정은 센서 교체나 장기 편차 복구용으로만 남깁니다.
+
 ## 식기 calibration
 
 각 HX711은 빈 그릇의 `tare_raw`와 알려진 기준 추로 구한 `counts_per_gram`을 `petcare_config.hpp`의 food/water 항목에 별도로 기록한 뒤 다시 빌드합니다. 기본값은 배선 확인용 placeholder이므로 실제 중량 신뢰성 증거가 아닙니다. 두 그릇을 하나의 scale 값으로 공유하지 않습니다.

@@ -40,17 +40,10 @@ export function LiveMediaPlayer({
     const video = videoRef.current;
     if (!video) return;
 
-    const supportsMediaSource =
-      typeof MediaSource !== "undefined" && MediaSource.isTypeSupported(CODEC);
-    if (!supportsMediaSource) {
-      const supportsNativeHls = Boolean(
-        video.canPlayType(HLS_MIME) || video.canPlayType("application/x-mpegURL"),
-      );
-      if (!supportsNativeHls) {
-        setState("unsupported");
-        return;
-      }
-
+    const supportsNativeHls = Boolean(
+      video.canPlayType(HLS_MIME) || video.canPlayType("application/x-mpegURL"),
+    );
+    if (supportsNativeHls) {
       const handlePlaying = () => setState("live");
       const handleError = () => setState("offline");
       video.addEventListener("playing", handlePlaying);
@@ -64,6 +57,13 @@ export function LiveMediaPlayer({
         video.removeEventListener("error", handleError);
         video.removeAttribute("src");
       };
+    }
+
+    const supportsMediaSource =
+      typeof MediaSource !== "undefined" && MediaSource.isTypeSupported(CODEC);
+    if (!supportsMediaSource) {
+      const unsupportedTimer = window.setTimeout(() => setState("unsupported"), 0);
+      return () => window.clearTimeout(unsupportedTimer);
     }
 
     let active = true;

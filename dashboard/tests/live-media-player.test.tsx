@@ -139,7 +139,6 @@ afterEach(() => {
 
 describe("LiveMediaPlayer", () => {
   it("uses the authenticated native HLS playlist on iPhone WebKit", async () => {
-    vi.stubGlobal("MediaSource", undefined);
     vi.spyOn(HTMLMediaElement.prototype, "canPlayType").mockImplementation(
       (type) => type === "application/vnd.apple.mpegurl" ? "maybe" : "",
     );
