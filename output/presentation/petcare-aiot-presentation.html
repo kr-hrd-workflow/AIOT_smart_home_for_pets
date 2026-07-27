@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PetCare Vision AIoT Smart Home</title>
+  <style>
+    @font-face {
+      font-family: "Pretendard";
+      src: url("assets/Pretendard-Bold.woff2") format("woff2");
+      font-weight: 700 900;
+      font-display: swap;
+    }
+
+    :root {
+      --ink: #090b0d;
+      --ink-soft: #111619;
+      --paper: #f3f4f1;
+      --paper-2: #e8ece8;
+      --text: #f1f0ec;
+      --muted: #b9c0bc;
+      --line: rgba(234, 240, 236, .18);
+      --cyan: #abd8da;
+      --green: #176a55;
+      --amber: #c67a3d;
+      --red: #d16b63;
+      --slide-w: 1600;
+      --slide-h: 900;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-width: 320px; min-height: 100%; background: var(--ink); }
+    body {
+      color: var(--text);
+      font-family: "Pretendard", "Malgun Gothic", system-ui, sans-serif;
+      overflow: hidden;
+    }
+    button, a { font: inherit; }
+    a { color: inherit; }
+    .deck { position: fixed; inset: 0; display: grid; place-items: center; }
+    .slide {
+      position: absolute;
+      width: calc(var(--slide-w) * 1px);
+      height: calc(var(--slide-h) * 1px);
+      overflow: hidden;
+      opacity: 0;
+      pointer-events: none;
+      transform: scale(var(--deck-scale, 1)) translateY(18px);
+      transform-origin: center;
+      transition: opacity 260ms ease, transform 360ms cubic-bezier(.16,1,.3,1);
+      background: var(--ink);
+    }
+    .slide.active { opacity: 1; pointer-events: auto; transform: scale(var(--deck-scale, 1)); }
+    .slide.light { color: #17201b; background: var(--paper); }
+    .slide-inner { position: absolute; inset: 0; padding: 76px 88px 64px; }
+    .chrome {
+      position: absolute;
+      inset: 28px 40px auto;
+      z-index: 20;
+      display: flex;
+      justify-content: space-between;
+      color: rgba(241,240,236,.64);
+      font-family: "Pretendard", "Malgun Gothic", system-ui, sans-serif;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: .08em;
+    }
+    .light .chrome { color: rgba(23,32,27,.5); }
+    .eyebrow {
+      margin: 0 0 20px;
+      color: var(--cyan);
+      font-family: "Pretendard", "Malgun Gothic", system-ui, sans-serif;
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: .07em;
+      text-transform: uppercase;
+    }
+    .light .eyebrow { color: var(--green); }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { max-width: 1050px; margin-bottom: 28px; font-size: 82px; line-height: 1.04; letter-spacing: -.055em; }
+    h2 { max-width: 1220px; margin-bottom: 28px; font-size: 58px; line-height: 1.12; letter-spacing: -.045em; }
+    h3 { margin-bottom: 14px; font-size: 25px; line-height: 1.25; letter-spacing: -.025em; }
+    .lead { max-width: 920px; color: var(--muted); font-size: 27px; line-height: 1.55; }
+    .light .lead { color: #53615a; }
+    .accent { color: var(--cyan); }
+    .light .accent { color: var(--green); }
+    .mono { font-family: Consolas, monospace; font-variant-numeric: tabular-nums; }
+    .small { color: var(--muted); font-size: 18px; line-height: 1.55; }
+    .light .small { color: #5a665f; }
+    .rule { height: 1px; background: var(--line); }
+    .light .rule { background: rgba(23,32,27,.16); }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 34px; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; }
+    .split { display: grid; grid-template-columns: .92fr 1.08fr; gap: 70px; align-items: center; height: 100%; }
+    .photo { width: 100%; height: 100%; object-fit: cover; }
+    .photo-frame { position: relative; overflow: hidden; height: 650px; border-radius: 16px; background: #181d20; }
+    .photo-frame::after { position: absolute; inset: 0; box-shadow: inset 0 0 0 1px rgba(255,255,255,.16); border-radius: inherit; content: ""; }
+    .light .photo-frame::after { box-shadow: inset 0 0 0 1px rgba(0,0,0,.16); }
+    .caption { margin-top: 14px; color: var(--muted); font-size: 16px; }
+    .light .caption { color: #5c6861; }
+    .stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 26px; margin-top: 46px; }
+    .stat { padding-top: 18px; border-top: 1px solid var(--line); }
+    .light .stat { border-color: rgba(23,32,27,.18); }
+    .stat strong { display: block; margin-bottom: 8px; color: var(--cyan); font-size: 31px; }
+    .light .stat strong { color: var(--green); }
+    .stat span { color: var(--muted); font-size: 17px; line-height: 1.45; }
+    .light .stat span { color: #56635c; }
+    .plain-list { margin: 30px 0 0; padding: 0; list-style: none; }
+    .plain-list li { display: grid; grid-template-columns: 34px 1fr; gap: 12px; padding: 13px 0; color: var(--muted); font-size: 21px; line-height: 1.45; }
+    .light .plain-list li { color: #526159; }
+    .plain-list li::before { color: var(--cyan); content: "↳"; }
+    .light .plain-list li::before { color: var(--green); }
+
+    .cover { background: #07090a; }
+    .cover::before { position: absolute; inset: 0; background: url("assets/landing-home.webp") center/cover; content: ""; filter: saturate(.78) contrast(1.06); }
+    .cover::after { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(6,8,9,.94) 0%, rgba(6,8,9,.76) 42%, rgba(6,8,9,.08) 77%), linear-gradient(0deg, rgba(6,8,9,.8), transparent 48%); content: ""; }
+    .cover .slide-inner { z-index: 2; display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: 84px; }
+    .cover h1 { max-width: 970px; font-size: 90px; }
+    .cover .meta { display: flex; gap: 28px; color: var(--muted); font-family: Consolas, monospace; font-size: 17px; }
+
+    .problem-layout { display: grid; grid-template-columns: 1.28fr .72fr; gap: 70px; align-items: end; height: 100%; }
+    .question-mark { align-self: center; color: rgba(171,216,218,.16); font-size: 430px; line-height: .8; text-align: center; }
+    .problem-lines { margin-top: 54px; }
+    .problem-lines p { display: flex; justify-content: space-between; gap: 30px; padding: 19px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 21px; }
+    .problem-lines strong { color: var(--text); font-size: 24px; }
+
+    .signal-chain { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin-top: 78px; }
+    .signal-node { min-height: 280px; padding: 30px 28px; border-left: 1px solid var(--line); }
+    .signal-node:last-child { border-right: 1px solid var(--line); }
+    .signal-node .index { display: block; margin-bottom: 60px; color: var(--cyan); font: 700 17px Consolas, monospace; }
+    .signal-node p { color: var(--muted); font-size: 19px; line-height: 1.5; }
+
+    .role-band { min-height: 500px; padding: 30px; border-top: 3px solid var(--cyan); background: #101416; }
+    .role-band:nth-child(2) { margin-top: 48px; }
+    .role-band:nth-child(3) { margin-top: 96px; }
+    .role-band:nth-child(4) { margin-top: 144px; }
+    .role-band strong { display: block; margin: 38px 0 18px; color: var(--cyan); font-size: 28px; }
+    .role-band p { color: var(--muted); font-size: 18px; line-height: 1.55; }
+    .role-band code { color: #e5ebe7; font-family: Consolas, monospace; font-size: 15px; }
+
+    .architecture { display: grid; grid-template-columns: 1fr 72px 1.2fr 72px 1fr; align-items: stretch; margin-top: 48px; }
+    .arch-col { min-height: 485px; padding: 30px; border: 1px solid var(--line); }
+    .arch-col h3 { color: var(--cyan); }
+    .arch-col p { color: var(--muted); font-size: 18px; line-height: 1.5; }
+    .arch-col .arch-item { padding: 16px 0; border-top: 1px solid var(--line); }
+    .arch-arrow { display: grid; place-items: center; color: var(--cyan); font-size: 40px; }
+    .arch-note { margin-top: 20px; color: var(--muted); font-size: 17px; }
+
+    .pipeline { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; margin-top: 76px; }
+    .pipe-step { position: relative; min-height: 330px; padding: 28px; border-top: 3px solid var(--cyan); background: #101416; }
+    .pipe-step:not(:last-child)::after { position: absolute; top: 50%; right: -18px; z-index: 2; color: var(--cyan); content: "→"; font-size: 28px; transform: translateY(-50%); }
+    .pipe-step strong { display: block; margin: 54px 0 18px; font-size: 25px; }
+    .pipe-step p { color: var(--muted); font-size: 17px; line-height: 1.5; }
+    .pipe-step .mono { color: var(--cyan); font-family: "Pretendard", "Malgun Gothic", system-ui, sans-serif; font-size: 15px; font-weight: 700; letter-spacing: .04em; }
+
+    .logic { display: grid; grid-template-columns: 1fr 86px 1fr 86px 1fr; align-items: center; margin-top: 64px; }
+    .logic-box { min-height: 350px; padding: 30px; border: 1px solid var(--line); }
+    .logic-box.emphasis { color: #101619; border: 0; background: var(--cyan); }
+    .logic-box > .mono { font-family: "Pretendard", "Malgun Gothic", system-ui, sans-serif; font-weight: 700; letter-spacing: .04em; }
+    .logic-box h3 { margin-top: 72px; font-size: 31px; }
+    .logic-box p { color: var(--muted); font-size: 19px; line-height: 1.5; }
+    .logic-box.emphasis p { color: rgba(16,22,25,.72); }
+    .logic-op { color: var(--cyan); font-size: 45px; text-align: center; }
+    .caution { margin-top: 32px; padding-left: 20px; border-left: 3px solid var(--amber); color: var(--muted); font-size: 18px; }
+
+    .db-split { display: grid; grid-template-columns: 1.1fr .9fr; gap: 28px; margin-top: 46px; }
+    .db-panel { min-height: 500px; padding: 34px; border: 1px solid var(--line); }
+    .db-panel.local { border-top: 5px solid var(--green); }
+    .db-panel.cloud { border-top: 5px solid var(--cyan); }
+    .db-panel h3 { font-size: 31px; }
+    .db-panel > p { color: var(--muted); font-size: 18px; }
+    .table-cloud { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 28px; margin-top: 28px; }
+    .table-cloud span { padding: 13px 0; border-bottom: 1px solid var(--line); color: #e8ece8; font-family: Consolas, monospace; font-size: 15px; }
+
+    .trust-path { display: grid; grid-template-columns: 1fr 56px 1fr 56px 1fr 56px 1fr; align-items: center; margin-top: 72px; }
+    .trust-node { min-height: 240px; padding: 28px; border: 1px solid var(--line); }
+    .trust-node > .mono { font-family: "Pretendard", "Malgun Gothic", system-ui, sans-serif; font-weight: 700; letter-spacing: .04em; }
+    .trust-node strong { display: block; margin: 40px 0 14px; color: var(--cyan); font-size: 24px; }
+    .trust-node p { color: var(--muted); font-size: 16px; line-height: 1.5; }
+    .trust-arrow { color: var(--cyan); font-size: 31px; text-align: center; }
+    .security-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-top: 36px; }
+    .security-row p { padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 17px; line-height: 1.5; }
+
+    .web-layout { display: grid; grid-template-columns: 1.1fr .9fr; gap: 56px; align-items: center; height: 100%; }
+    .web-visual { position: relative; height: 610px; overflow: hidden; border-radius: 16px; }
+    .web-visual img { width: 100%; height: 100%; object-fit: cover; }
+    .web-visual::after { position: absolute; inset: 0; background: linear-gradient(0deg, rgba(8,11,12,.58), transparent 50%); content: ""; }
+    .surface-list { margin-top: 36px; }
+    .surface-list div { display: grid; grid-template-columns: 150px 1fr; gap: 24px; padding: 18px 0; border-top: 1px solid var(--line); }
+    .surface-list strong { color: var(--cyan); font-family: Consolas, monospace; }
+    .surface-list span { color: var(--muted); font-size: 18px; }
+
+    .demo-slide { background: var(--cyan); color: #0d1517; }
+    .demo-slide .chrome { color: rgba(13,21,23,.48); }
+    .demo-layout { display: grid; grid-template-columns: 1.2fr .8fr; gap: 70px; align-items: end; height: 100%; }
+    .demo-slide h2 { max-width: 900px; margin-bottom: 22px; font-size: 100px; }
+    .demo-slide .lead { color: rgba(13,21,23,.72); }
+    .demo-url { display: block; margin: 38px 0 30px; color: #0d1517; font-family: Consolas, monospace; font-size: 26px; line-height: 1.45; text-decoration-thickness: 2px; text-underline-offset: 8px; }
+    .demo-button { display: inline-flex; min-height: 66px; align-items: center; justify-content: center; padding: 0 28px; border: 0; border-radius: 10px; color: var(--cyan); background: #101619; text-decoration: none; }
+    .demo-check { padding: 34px; border: 1px solid rgba(13,21,23,.3); }
+    .demo-check p { padding: 16px 0; border-top: 1px solid rgba(13,21,23,.22); font-size: 21px; }
+    .demo-check strong { display: block; margin-bottom: 8px; }
+
+    .mobile-layout { display: grid; grid-template-columns: 1fr 410px 410px; gap: 44px; align-items: center; height: 100%; }
+    .phone { position: relative; overflow: hidden; width: 390px; height: 760px; border: 10px solid #151a17; border-radius: 42px; background: #f6f6f3; box-shadow: 0 28px 70px rgba(0,0,0,.3); }
+    .phone::before { position: absolute; top: 9px; left: 50%; z-index: 2; width: 90px; height: 20px; border-radius: 0 0 14px 14px; background: #151a17; content: ""; transform: translateX(-50%); }
+    .phone img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; }
+    .phone-label { margin: 18px 0 0; color: #546159; font-size: 17px; text-align: center; }
+
+    .status-cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 30px; margin-top: 54px; }
+    .status-col { min-height: 490px; padding: 30px; border-top: 5px solid var(--cyan); background: #101416; }
+    .status-col.warn { border-color: var(--amber); }
+    .status-col.pending { border-color: var(--red); }
+    .status-col h3 { margin-bottom: 34px; font-size: 30px; }
+    .status-col p { padding: 14px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 18px; line-height: 1.45; }
+    .status-col .tag { display: inline-block; margin-bottom: 38px; color: var(--cyan); font: 700 15px "Pretendard", "Malgun Gothic", system-ui, sans-serif; letter-spacing: .05em; }
+    .status-col.warn .tag { color: #dfa467; }
+    .status-col.pending .tag { color: #e18a83; }
+
+    .closing { background: #07090a; }
+    .closing::before { position: absolute; inset: 0; background: url("assets/dashboard-og.png") center/cover; content: ""; opacity: .27; filter: saturate(.65); }
+    .closing::after { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(7,9,10,.98), rgba(7,9,10,.62) 64%, rgba(7,9,10,.88)); content: ""; }
+    .closing .slide-inner { z-index: 2; display: grid; align-content: center; }
+    .closing h2 { max-width: 1100px; font-size: 72px; }
+    .closing .final-chain { display: flex; gap: 18px; margin-top: 44px; color: var(--cyan); font: 700 19px Consolas, monospace; }
+
+    .notes { display: none; }
+    .controls { position: fixed; right: 24px; bottom: 22px; z-index: 100; display: flex; align-items: center; gap: 8px; opacity: .4; transition: opacity 180ms ease; }
+    .controls:hover, .controls:focus-within { opacity: 1; }
+    .controls button { width: 42px; height: 42px; border: 1px solid rgba(255,255,255,.24); border-radius: 8px; color: var(--text); background: rgba(9,11,13,.72); cursor: pointer; }
+    .progress { position: fixed; right: 0; bottom: 0; left: 0; z-index: 110; height: 3px; background: rgba(255,255,255,.1); }
+    .progress > div { width: 0; height: 100%; background: var(--cyan); transition: width 250ms ease; }
+    .help { position: fixed; left: 22px; bottom: 18px; z-index: 100; color: rgba(255,255,255,.38); font: 13px Consolas, monospace; }
+    .capture-mode .slide { transition: none; }
+    .capture-mode .controls, .capture-mode .progress, .capture-mode .help { display: none; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .slide, .progress > div { transition: none; }
+    }
+
+    @media print {
+      @page { size: 13.333333in 7.5in; margin: 0; }
+      html, body { width: 13.333333in; height: auto; overflow: visible; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+      .deck { position: static; display: block; }
+      .slide, .slide.active {
+        position: relative;
+        display: block;
+        width: 13.333333in;
+        height: 7.5in;
+        opacity: 1;
+        page-break-after: always;
+        pointer-events: auto;
+        transform: none;
+      }
+      .slide:last-child { page-break-after: auto; }
+      .controls, .progress, .help { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="deck" id="deck" aria-live="polite">
+    <section class="slide cover active" id="slide-1">
+      <div class="chrome"><span>PETCARE VISION AIOT</span><span>01 / 21</span></div>
+      <div class="slide-inner">
+        <p class="eyebrow">반려동물 스마트홈</p>
+        <h1>집 안의 작은 신호를<br><span class="accent">하나의 상태</span>로 읽다</h1>
+        <p class="lead">센서, 엣지 AI, 로컬 서버, 웹 대시보드를 연결한 반려동물 홈 모니터링 시스템</p>
+        <div class="meta"><span>센서</span><span>영상</span><span>Edge</span><span>Web</span></div>
+      </div>
+      <aside class="notes">[Sources] dashboard/public/landing-apartment-photoreal-v3.webp</aside>
+    </section>
+
+    <section class="slide" id="slide-2">
+      <div class="chrome"><span>문제 정의</span><span>02 / 21</span></div>
+      <div class="slide-inner problem-layout">
+        <div>
+          <p class="eyebrow">문제 정의</p>
+          <h2>한 센서만으로는<br>반려동물의 하루를 설명할 수 없습니다.</h2>
+          <div class="problem-lines">
+            <p><strong>압력은 감지됐는데</strong><span>누가 누웠는지 알 수 없습니다.</span></p>
+            <p><strong>밥 무게가 줄었는데</strong><span>실제로 먹었는지 알 수 없습니다.</span></p>
+            <p><strong>움직임이 감지됐는데</strong><span>반려동물인지 사람인지 알 수 없습니다.</span></p>
+          </div>
+        </div>
+        <div class="question-mark">?</div>
+      </div>
+      <aside class="notes">[Sources] README.md, docs/implementation-plan.md</aside>
+    </section>
+
+    <section class="slide" id="slide-3">
+      <div class="chrome"><span>해결 방법</span><span>03 / 21</span></div>
+      <div class="slide-inner">
+        <p class="eyebrow">하나의 시스템</p>
+        <h2>PetCare는 공간의 신호를<br><span class="accent">행동의 맥락</span>으로 바꿉니다.</h2>
+        <div class="signal-chain">
+          <div class="signal-node"><span class="index">01</span><h3>센서</h3><p>침대 압력, 사료·물 무게, 온습도, 움직임을 원시값으로 수집합니다.</p></div>
+          <div class="signal-node"><span class="index">02</span><h3>카메라</h3><p>dog, cat, person을 탐지하고 급식·침대 ROI 안의 위치를 확인합니다.</p></div>
+          <div class="signal-node"><span class="index">03</span><h3>판정</h3><p>센서와 영상이 같은 상황을 확인할 때 식사와 휴식 이벤트를 만듭니다.</p></div>
+          <div class="signal-node"><span class="index">04</span><h3>웹</h3><p>사용자는 한 화면에서 영상, 센서값, 행동 기록과 장치 상태를 확인합니다.</p></div>
+        </div>
+      </div>
+      <aside class="notes">[Sources] README.md, backend/app/rules.py, dashboard/components/dashboard.tsx</aside>
+    </section>
+
+    <section class="slide light" id="slide-4">
+      <div class="chrome"><span>하드웨어 / 침대</span><span>04 / 21</span></div>
+      <div class="slide-inner split">
+        <div>
+          <p class="eyebrow">침대 센서</p>
+          <h2>침대는 압력과 카메라가 함께 확인합니다.</h2>
+          <p class="lead">3채널 FSR이 눌림의 분포를 읽고, 카메라가 dog 또는 cat의 위치를 확인합니다.</p>
+          <div class="stat-row">
+            <div class="stat"><strong>3 CH</strong><span>왼쪽·가운데·오른쪽 압력</span></div>
+            <div class="stat"><strong>60 s</strong><span>비어 있는 침대 영점 보정</span></div>
+            <div class="stat"><strong>2 s</strong><span>카메라와 압력의 동시 확인</span></div>
+          </div>
+          <ul class="plain-list">
+            <li>센서는 0-4095 ADC 원시값만 전송합니다.</li>
+            <li>기준선, 극성, 진입·이탈 임계값은 Home Agent가 관리합니다.</li>
+          </ul>
+        </div>
+        <div>
+          <div class="photo-frame"><img class="photo" src="assets/bed-sensor.jpg" alt="침대 아래 3채널 압력 센서와 Pico 2 W 시제품"></div>
+          <p class="caption">침대 프로토타입: Pico 2 W, 3채널 FSR, 60초 영점 보정</p>
+        </div>
+      </div>
+      <aside class="notes">[Sources] C:/Users/전산1-4/Downloads/IMG_7891.JPG, docs/pico-wiring.md, docs/demo-runbook.md</aside>
+    </section>
+
+    <section class="slide light" id="slide-5">
+      <div class="chrome"><span>하드웨어 / 급식·급수</span><span>05 / 21</span></div>
+      <div class="slide-inner split" style="grid-template-columns:1.08fr .92fr">
+        <div>
+          <div class="photo-frame"><img class="photo" src="assets/feeding-sensor.jpg" alt="밥그릇과 물그릇 아래 로드셀 및 Pico 2 W 시제품"></div>
+          <p class="caption">급식·급수 프로토타입: 로드셀 2채널과 Pico 2 W</p>
+        </div>
+        <div>
+          <p class="eyebrow">밥 · 물 센서</p>
+          <h2>무게 변화만 보지 않고, 실제 머문 장면을 함께 봅니다.</h2>
+          <p class="lead">급식 구역에서 반려동물이 30초 이상 머물고 사료가 5g 이상 줄었을 때 식사 이벤트를 만듭니다.</p>
+          <div class="stat-row">
+            <div class="stat"><strong>2 CH</strong><span>사료·물 무게</span></div>
+            <div class="stat"><strong>30 s</strong><span>급식 ROI 체류</span></div>
+            <div class="stat"><strong>5 g</strong><span>식사 판정 변화량</span></div>
+          </div>
+        </div>
+      </div>
+      <aside class="notes">[Sources] C:/Users/전산1-4/Downloads/IMG_7893.JPG, docs/demo-runbook.md, backend/app/rules.py</aside>
+    </section>
+
+    <section class="slide light" id="slide-6">
+      <div class="chrome"><span>하드웨어 / 현관</span><span>06 / 21</span></div>
+      <div class="slide-inner split">
+        <div>
+          <p class="eyebrow">현관 센서</p>
+          <h2>현관은 집 안의 환경과 움직임을 가장 먼저 감지합니다.</h2>
+          <p class="lead">entrance-01 노드가 온도·습도와 움직임·정지 존재를 MQTT QoS 1으로 전달합니다.</p>
+          <ul class="plain-list">
+            <li>SHT31: 온도와 습도</li>
+            <li>LD2410C: 움직임과 정지 존재</li>
+            <li>Pico 2 W C++ 펌웨어: 주기 수집과 재연결</li>
+            <li>Wi-Fi와 MQTT: USB 없이 운영 데이터 전송</li>
+          </ul>
+        </div>
+        <div>
+          <div class="photo-frame"><img class="photo" src="assets/entrance-sensor.jpg" alt="현관용 온습도 및 존재 센서와 Pico 2 W 시제품"></div>
+          <p class="caption">현관 프로토타입: SHT31, LD2410C, Pico 2 W</p>
+        </div>
+      </div>
+      <aside class="notes">[Sources] C:/Users/전산1-4/Downloads/IMG_7892.JPG, docs/pico-wiring.md, firmware/pico_pet_node</aside>
+    </section>
+
+    <section class="slide" id="slide-7">
+      <div class="chrome"><span>장치별 역할</span><span>07 / 21</span></div>
+      <div class="slide-inner">
+        <p class="eyebrow">역할 분리</p>
+        <h2>각 장치는 자신이 가장 잘하는 일만 맡습니다.</h2>
+        <div class="grid-4" style="margin-top:48px">
+          <div class="role-band"><span class="mono">PICO 2 W</span><strong>센서 노드</strong><p>원시 센서값과 online/offline 상태를 발행합니다.</p><code>C++ · Pico SDK · MQTT QoS 1</code></div>
+          <div class="role-band"><span class="mono">JETSON NANO</span><strong>영상 노드</strong><p>30 FPS 캡처와 TensorRT 추론을 분리하고, 사설망 영상만 Home Agent에 제공합니다.</p><code>TensorRT · MJPEG · TLS/HMAC</code></div>
+          <div class="role-band"><span class="mono">HOME AGENT</span><strong>로컬 허브</strong><p>센서·영상을 판정하고, H.264 조각과 상태를 서명해 외부로 전송합니다.</p><code>FastAPI · PostgreSQL · FFmpeg</code></div>
+          <div class="role-band"><span class="mono">SITES</span><strong>인증된 서비스</strong><p>회원가입, 계정별 가정, 대시보드와 짧은 라이브 미디어를 제공합니다.</p><code>React · Supabase · D1 · R2</code></div>
+        </div>
+      </div>
+      <aside class="notes">[Sources] origin/main README.md at 9dd7f9b, docs/superpowers/specs/2026-07-27-petcare-cloudflare-free-outbound-design.md</aside>
+    </section>
+
+    <section class="slide" id="slide-8">
+      <div class="chrome"><span>시스템 구조</span><span>08 / 21</span></div>
+      <div class="slide-inner">
+        <p class="eyebrow">전체 시스템 구조</p>
+        <h2>집 안으로 들어오는 연결 없이, Home Agent가 밖으로 전송합니다.</h2>
+        <div class="architecture">
+          <div class="arch-col"><h3>현장 장치</h3><div class="arch-item"><strong>3 × Pico 2 W</strong><p>침대, 급식·급수, 현관 센서</p></div><div class="arch-item"><strong>Jetson camera</strong><p>30 FPS 캡처와 객체 탐지</p></div></div>
+          <div class="arch-arrow">→</div>
+          <div class="arch-col"><h3>Windows Home Agent</h3><div class="arch-item"><strong>Local authority</strong><p>MQTT, 규칙, PostgreSQL</p></div><div class="arch-item"><strong>FFmpeg media</strong><p>MJPEG를 H.264 fMP4로 변환</p></div><div class="arch-item"><strong>Signed outbound</strong><p>상태·영상 조각을 HTTPS 전송</p></div></div>
+          <div class="arch-arrow">→</div>
+          <div class="arch-col"><h3>인증된 Sites</h3><div class="arch-item"><strong>D1 + private R2</strong><p>최신 상태와 짧은 라이브 조각</p></div><div class="arch-item"><strong>Supabase + BFF</strong><p>세션과 계정별 가정 확인</p></div><div class="arch-item"><strong>Browser</strong><p>MediaSource·iPhone HLS 재생</p></div></div>
+        </div>
+        <p class="arch-note">Cloudflare Tunnel 없음 · 공유기 포트 개방 없음 · 고객이 별도 네트워크 계정을 만들 필요 없음</p>
+      </div>
+      <aside class="notes">[Sources] origin/main README.md at 9dd7f9b, docs/superpowers/specs/2026-07-27-petcare-cloudflare-free-outbound-design.md</aside>
+    </section>
+
+    <section class="slide" id="slide-9">
+      <div class="chrome"><span>HOME AGENT 서버</span><span>09 / 21</span></div>
+      <div class="slide-inner">
+        <p class="eyebrow">로컬 서버 구성</p>
+        <h2>Windows 한 대가 수집, 판정, 저장, 전송을 독립 서비스로 운영합니다.</h2>
+        <div class="grid-3" style="margin-top:52px">
+          <div class="logic-box"><span class="mono accent">WINDOWS 서비스</span><h3>부팅과 함께 자동 시작</h3><p><strong>PetCarePostgres</strong><br>로컬 운영 DB</p><p><strong>PetCareMqtt</strong><br>Pico 사설 LAN 브로커</p><p><strong>PetCareHomeAgent</strong><br>FastAPI와 백그라운드 워커</p></div>
+          <div class="logic-box"><span class="mono accent">핵심 워커</span><h3>실시간 경로를 분리</h3><p>MQTT 수집 → 스키마 검증</p><p>규칙 워커 → eating·resting·warning</p><p>snapshot 워커 → 2초 최신 상태</p><p>live·clip 워커 → 영상 조각과 사건 클립</p></div>
+          <div class="logic-box"><span class="mono accent">운영 경계</span><h3>집 안 기능은 계속 동작</h3><p>FastAPI·PostgreSQL은 loopback</p><p>MQTT는 사설 LAN·LocalSubnet</p><p>Jetson은 사설 TLS/HMAC</p><p>Sites 장애 시에도 로컬 판정과 기록 유지</p></div>
+        </div>
+        <p class="caution">설치 위치: %ProgramData%\PetCare\HomeAgent · 고객은 설치 후 별도 앱을 계속 실행할 필요가 없습니다.</p>
+      </div>
+      <aside class="notes">[Sources] origin/main README.md and backend/app/agent_lifecycle.py at 9dd7f9b</aside>
+    </section>
+
+    <section class="slide" id="slide-10">
+      <div class="chrome"><span>센서 파이프라인</span><span>10 / 21</span></div>
+      <div class="slide-inner">
+        <p class="eyebrow">센서 데이터 흐름</p>
+        <h2>센서값은 수집에서 판정까지 다섯 단계를 통과합니다.</h2>
+        <div class="pipeline">
+          <div class="pipe-step"><span class="mono">원시값</span><strong>측정</strong><p>FSR, 로드셀, 온습도, 존재 센서가 원시값을 만듭니다.</p></div>
+          <div class="pipe-step"><span class="mono">MQTT</span><strong>발행</strong><p>Pico 노드가 QoS 1로 장치별 토픽에 전송합니다.</p></div>
+          <div class="pipe-step"><span class="mono">수집</span><strong>검증</strong><p>Home Agent가 타입, 단위, 시각과 장치 프로필을 검증합니다.</p></div>
+          <div class="pipe-step"><span class="mono">저장</span><strong>기록</strong><p>PostgreSQL에 읽기, 상태, 보정값을 시간순으로 기록합니다.</p></div>
+          <div class="pipe-step"><span class="mono">융합</span><strong>판단</strong><p>카메라 사건과 결합해 식사, 휴식, 경고 상태를 만듭니다.</p></div>
+        </div>
+      </div>
+      <aside class="notes">[Sources] backend/app/mqtt_ingest.py, backend/app/models.py, backend/app/rule_ingress.py</aside>
+    </section>
+
+    <section class="slide" id="slide-11">
+      <div class="chrome"><span>영상 파이프라인</span><span>11 / 21</span></div>
+      <div class="slide-inner">
+        <p class="eyebrow">영상 처리 흐름</p>
+        <h2>30 FPS 영상은 집 안에서 처리하고, 짧은 조각만 밖으로 보냅니다.</h2>
+        <div class="grid-3" style="margin-top:58px">
+          <div class="logic-box"><span class="mono accent">JETSON</span><h3>캡처와 추론 분리</h3><p>640 × 480 고유 프레임은 30 FPS로, TensorRT 추론은 독립 주기로 실행합니다.</p><div class="stat-row" style="grid-template-columns:1fr"><div class="stat"><strong>30 FPS</strong><span>실기기 단기 게이트 통과</span></div></div></div>
+          <div class="logic-box"><span class="mono accent">HOME AGENT</span><h3>H.264 fMP4 패키징</h3><p>사설 TLS/HMAC MJPEG를 FFmpeg가 무음 H.264 조각으로 변환합니다.</p><div class="stat-row" style="grid-template-columns:1fr"><div class="stat"><strong>3 s</strong><span>현재 라이브 세그먼트</span></div></div></div>
+          <div class="logic-box"><span class="mono accent">브라우저</span><h3>인증된 라이브 재생</h3><p>서명된 외부 전송 결과를 계정별 manifest로 읽고 MSE 또는 HLS로 재생합니다.</p><div class="stat-row" style="grid-template-columns:1fr"><div class="stat"><strong>약 6초</strong><span>현재 목표 재생 지연</span></div></div></div>
+        </div>
+        <p class="caution">연속 녹화와 의료 진단은 하지 않습니다. 영상은 행동 관측을 보조하는 증거입니다.</p>
+      </div>
+      <aside class="notes">[Sources] origin/main backend/app/live_delivery.py, dashboard/lib/petcare/live-manifest.ts, dashboard/components/live-media-player.tsx at 9dd7f9b</aside>
+    </section>
+
+    <section class="slide" id="slide-12">
+      <div class="chrome"><span>OUTBOUND 전송 계약</span><span>12 / 21</span></div>
+      <div class="slide-inner">
+        <p class="eyebrow">API와 전송 주기</p>
+        <h2>각 데이터는 목적에 맞는 크기, 주기, 보존 범위를 가집니다.</h2>
+        <div class="pipeline" style="margin-top:52px">
+          <div class="pipe-step"><span class="mono">등록</span><strong>가정 연결</strong><p>로그인 사용자가 만든 10분 코드를 Home Agent의 Ed25519 공개키와 교환합니다.</p></div>
+          <div class="pipe-step"><span class="mono">상태 요약</span><strong>최신 상태</strong><p>2초마다 128 KiB 이하의 엄격한 DashboardSummary를 서명해 교체 저장합니다.</p></div>
+          <div class="pipe-step"><span class="mono">라이브</span><strong>영상 조각</strong><p>3초 H.264 fMP4를 순번, boot ID, digest와 함께 외부로 업로드합니다.</p></div>
+          <div class="pipe-step"><span class="mono">조회</span><strong>인증된 재생</strong><p>BFF가 소유자, 가정, 카메라 권한을 확인한 뒤 manifest와 비공개 조각을 제공합니다.</p></div>
+          <div class="pipe-step"><span class="mono">사건 클립</span><strong>행동 근거</strong><p>행동 사건의 전후 장면만 별도 MP4로 저장하고 7일 보존 정책을 적용합니다.</p></div>
+        </div>
+        <p class="arch-note">쓰기: Home Agent → /api/petcare/agent/* · 읽기: 로그인 Browser → /api/petcare/cameras/*</p>
+      </div>
+      <aside class="notes">[Sources] origin/main dashboard/lib/petcare/router.ts, agent-signature.ts, live-upload.ts and backend/app/snapshot_delivery.py at 9dd7f9b</aside>
+    </section>
+
+    <section class="slide" id="slide-13">
+      <div class="chrome"><span>행동 융합</span><span>13 / 21</span></div>
+      <div class="slide-inner">
+        <p class="eyebrow">행동 판정 규칙</p>
+        <h2>행동은 센서와 영상이 같은 상황을 설명할 때만 만들어집니다.</h2>
+        <div class="logic">
+          <div class="logic-box"><span class="mono accent">카메라</span><h3>급식 ROI 30초</h3><p>반려동물의 중심점이 급식 영역에 머뭅니다.</p></div>
+          <div class="logic-op">+</div>
+          <div class="logic-box"><span class="mono accent">센서</span><h3>사료 5g 감소</h3><p>과거 10초와 현재 5초의 안정된 중앙값을 비교합니다.</p></div>
+          <div class="logic-op">=</div>
+          <div class="logic-box emphasis"><span class="mono">행동 사건</span><h3>식사 행동</h3><p>카메라 사건과 센서 읽기를 함께 참조한 식사 이벤트를 저장합니다.</p></div>
+        </div>
+        <p class="caution">휴식은 침대 ROI와 FSR 점유를 결합합니다. 불일치는 bed_sensor_mismatch, 반복 이동은 보수적인 관측 warning으로만 표시합니다.</p>
+      </div>
+      <aside class="notes">[Sources] docs/demo-runbook.md, backend/app/rules.py, backend/app/rule_worker.py</aside>
+    </section>
+
+    <section class="slide" id="slide-14">
+      <div class="chrome"><span>로컬 데이터 모델</span><span>14 / 21</span></div>
+      <div class="slide-inner">
+        <p class="eyebrow">PostgreSQL 관계 구조</p>
+        <h2>센서와 영상의 원본 근거를 행동 이벤트까지 추적할 수 있습니다.</h2>
+        <div class="grid-3" style="margin-top:48px">
+          <div class="db-panel local"><p class="eyebrow">센서 영역</p><h3>장치 → 측정 → 휴식</h3><p><strong>devices 1:N sensor_readings</strong></p><div class="table-cloud"><span>devices</span><span>sensor_readings</span><span>bed_calibrations</span><span>rest_sessions</span></div><p>타입·단위·장치 프로필을 CHECK로 고정하고 시각 중복을 방지합니다.</p></div>
+          <div class="db-panel local"><p class="eyebrow">영상 영역</p><h3>카메라 → 관측 → 활동</h3><p><strong>cameras 1:N camera_events</strong></p><div class="table-cloud"><span>cameras</span><span>zones</span><span>camera_events</span><span>activity_observations</span></div><p>bounding box, ROI, dog·cat 대상과 1초 활동 묶음을 보존합니다.</p></div>
+          <div class="db-panel local"><p class="eyebrow">판정 영역</p><h3>근거 2개 → 행동 1개</h3><p><strong>camera_event + sensor_reading</strong></p><div class="table-cloud"><span>behavior_events</span><span>anomaly_events</span><span>clip_trigger_outbox</span><span>activity_cleanup_state</span></div><p>eating·resting은 영상과 센서 FK를 함께 가지며 source_key로 멱등 처리합니다.</p></div>
+        </div>
+      </div>
+      <aside class="notes">[Sources] origin/main backend/app/models.py and backend/migrations/versions/0001 through 0006 at 9dd7f9b</aside>
+    </section>
+
+    <section class="slide" id="slide-15">
+      <div class="chrome"><span>클라우드 데이터 모델</span><span>15 / 21</span></div>
+      <div class="slide-inner">
+        <p class="eyebrow">D1 메타데이터 + 비공개 R2 객체</p>
+        <h2>D1은 소유권과 최신 상태를, R2는 짧은 미디어 바이트를 맡습니다.</h2>
+        <div class="db-split">
+          <div class="db-panel local"><p class="eyebrow">D1 관계 데이터</p><h3>계정별 가정과 최신 재생 목록</h3><p><strong>owner_sub → homes → agents → cameras</strong></p><div class="table-cloud"><span>enrollment_tokens</span><span>agent_snapshots</span><span>live_streams</span><span>live_parts</span><span>clips</span><span>clip_events</span><span>cleanup_commands</span><span>deletion_jobs</span></div><p>상태 요약은 가정당 하나만 교체하고, 오래된 상태는 서버 수신 시각으로 판정합니다.</p></div>
+          <div class="db-panel cloud"><p class="eyebrow">비공개 R2 객체</p><h3>서버가 저장 경로를 결정</h3><p>Home Agent는 저장 경로를 정할 수 없고, 인증된 BFF만 미디어를 반환합니다.</p><div class="table-cloud"><span>live/.../init.mp4</span><span>live/.../{seq}.m4s</span><span>clips/.../*.mp4</span><span>installer/*.exe</span></div><p>라이브는 짧게 순환 보관하고, 사건 클립은 7일 정책을 적용합니다. 응답은 private·no-store입니다.</p></div>
+        </div>
+      </div>
+      <aside class="notes">[Sources] origin/main dashboard/drizzle/0003_petcare_outbound.sql, 0004_live_three_second_segments.sql, live-upload.ts and live-manifest.ts at 9dd7f9b</aside>
+    </section>
+
+    <section class="slide" id="slide-16">
+      <div class="chrome"><span>서버·보안</span><span>16 / 21</span></div>
+      <div class="slide-inner">
+        <p class="eyebrow">보안 흐름</p>
+        <h2>집 안에서 처리하고, 필요한 정보만 안전하게 먼저 보냅니다.</h2>
+        <div class="trust-path">
+          <div class="trust-node"><span class="mono accent">집 안</span><strong>집 안에서 처리</strong><p>센서 수집, 영상 분석, 행동 판정과 기록을 Home Agent가 수행합니다.</p></div><div class="trust-arrow">→</div>
+          <div class="trust-node"><span class="mono accent">전송</span><strong>필요한 정보만 전송</strong><p>2초 상태 요약과 짧은 영상 조각만 암호화된 HTTPS로 보냅니다.</p></div><div class="trust-arrow">→</div>
+          <div class="trust-node"><span class="mono accent">검증</span><strong>서버에서 검증</strong><p>보낸 장치, 전송 시각, 위변조 여부와 계정 소유권을 확인합니다.</p></div><div class="trust-arrow">→</div>
+          <div class="trust-node"><span class="mono accent">사용자</span><strong>내 계정에서 확인</strong><p>로그인 사용자는 자신의 가정 데이터만 PC와 모바일에서 봅니다.</p></div>
+        </div>
+        <div class="security-row"><p><strong>외부 접속 차단</strong><br>공유기 설정, 포트 개방, 별도 터널 프로그램이 필요하지 않습니다.</p><p><strong>위변조 방지</strong><br>전자서명과 1회용 값을 사용해 전송 내용을 매 요청마다 확인합니다.</p><p><strong>정보 최소화</strong><br>Wi-Fi 비밀번호, 내부 IP, 장치 비밀키는 브라우저에 보내지 않습니다.</p></div>
+      </div>
+      <aside class="notes">[Sources] origin/main docs/privacy.md and docs/superpowers/specs/2026-07-27-petcare-cloudflare-free-outbound-design.md at 9dd7f9b</aside>
+    </section>
+
+    <section class="slide" id="slide-17">
+      <div class="chrome"><span>웹 서비스</span><span>17 / 21</span></div>
+      <div class="slide-inner web-layout">
+        <div class="web-visual"><img src="assets/dashboard-og.png" alt="PetCare 공개 랜딩의 스마트홈 장면"></div>
+        <div>
+          <p class="eyebrow">웹 서비스 구성</p>
+          <h2>공개 소개와 실제 운영을 하나의 제품 안에서 분리했습니다.</h2>
+          <div class="surface-list">
+            <div><strong>/</strong><span>프로젝트를 소개하는 시네마틱 랜딩</span></div>
+            <div><strong>/demo</strong><span>네트워크 호출 없이 동작하는 공개 체험 화면</span></div>
+            <div><strong>/dashboard</strong><span>관리자 인증 후 실제 영상과 센서를 보는 운영 화면</span></div>
+            <div><strong>/api/petcare</strong><span>tenant 검증 뒤 outbound snapshot·미디어를 읽는 BFF 경로</span></div>
+          </div>
+        </div>
+      </div>
+      <aside class="notes">[Sources] dashboard/public/og.png, README.md, dashboard/app/page.tsx, dashboard/app/demo/page.tsx, dashboard/app/dashboard/page.tsx</aside>
+    </section>
+
+    <section class="slide demo-slide" id="slide-18" data-demo-url="https://kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site/dashboard">
+      <div class="chrome"><span>라이브 시연</span><span>18 / 21</span></div>
+      <div class="slide-inner demo-layout">
+        <div>
+          <p class="eyebrow" style="color:#176a55">실제 시연</p>
+          <h2>이제 실제 웹으로 확인합니다.</h2>
+          <p class="lead">발표 화면을 브라우저로 전환해 랜딩, 로그인, 관리자 대시보드와 실시간 영상을 시연합니다.</p>
+          <a class="demo-url" href="https://kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site/dashboard" target="_blank" rel="noreferrer">kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site/dashboard</a>
+          <a class="demo-button" href="https://kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site/dashboard" target="_blank" rel="noreferrer">실제 관리자 화면 열기</a>
+        </div>
+        <div class="demo-check">
+          <p><strong>랜딩</strong>스크롤과 공간 스토리</p>
+          <p><strong>관리자 로그인</strong>인증된 운영 화면 진입</p>
+          <p><strong>실시간 대시보드</strong>영상, 센서값, 장치 상태 확인</p>
+        </div>
+      </div>
+      <aside class="notes">[Sources] Production public Sites URL verified from README.md</aside>
+    </section>
+
+    <section class="slide light" id="slide-19">
+      <div class="chrome"><span>모바일 대시보드</span><span>19 / 21</span></div>
+      <div class="slide-inner mobile-layout">
+        <div>
+          <p class="eyebrow">실제 운영 계정</p>
+          <h2>같은 운영 화면을 모바일에서도 확인합니다.</h2>
+          <p class="lead">데모 데이터가 아닌 실제 관리자 계정의 반응형 대시보드입니다.</p>
+          <ul class="plain-list">
+            <li>실시간 카메라와 탐지 FPS</li>
+            <li>활동·휴식 상태와 침대 센서</li>
+            <li>현관·침대 온습도와 움직임</li>
+            <li>장치, 데이터베이스, MQTT 상태</li>
+          </ul>
+        </div>
+        <div><div class="phone"><img src="assets/admin-mobile-camera.png" alt="실제 관리자 계정의 모바일 실시간 카메라 화면"></div><p class="phone-label">실제 관리자 카메라 · 390 × 844</p></div>
+        <div><div class="phone"><img src="assets/admin-mobile-sensors.png" alt="실제 관리자 계정의 모바일 환경 센서와 장치 상태 화면"></div><p class="phone-label">실제 관리자 센서값 · 390 × 844</p></div>
+      </div>
+      <aside class="notes">[Sources] Authenticated administrator dashboard screenshots captured 2026-07-27 from kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site/dashboard</aside>
+    </section>
+
+    <section class="slide" id="slide-20">
+      <div class="chrome"><span>향후 개발</span><span>20 / 21</span></div>
+      <div class="slide-inner">
+        <p class="eyebrow">제품화 로드맵</p>
+        <h2>이제 남은 일은 프로토타입을 제품으로 끌어올리는 것입니다.</h2>
+        <div class="status-cols">
+          <div class="status-col"><span class="tag">01 · 제품화</span><h3>전용 PetCare Hub로 전환</h3><p>고객 PC 의존 → 제품에 포함된 PetCare Hub</p><p>Jetson·Home Agent를 단일 엣지 장치로 통합</p><p>QR·SoftAP 기반 무설치 Wi-Fi 온보딩</p><p>브레드보드 → PCB·케이스·하네스</p><p>전원·발열·장기 보정·반복 생산 공정</p></div>
+          <div class="status-col warn"><span class="tag">02 · AI 확장</span><h3>카메라 객체·행동 분석 확장</h3><p>물 마시기·배변·놀이·긁기 등 행동 클래스</p><p>여러 마리 개체 구분과 재식별</p><p>pose·trajectory 기반 활동 맥락</p><p>공간·조명별 데이터셋과 오탐 지표</p><p>모델 버전·평가·안전한 업데이트 체계</p></div>
+          <div class="status-col pending"><span class="tag">03 · 운영</span><h3>설치가 아닌 장치군 운영으로</h3><p>공장 초기 등록과 장치별 보안 신원</p><p>서명 OTA, A/B 업데이트, 자동 롤백</p><p>장기 연속 운전·전원/망 복구·원격 진단</p><p>미디어 보존·정리, 알림, 일·주간 리포트</p><p>다중 카메라·다중 가정 확장성</p></div>
+        </div>
+      </div>
+      <aside class="notes">[Roadmap] Derived from origin/main README.md current gaps, MVP ceilings and production verification items at 9dd7f9b</aside>
+    </section>
+
+    <section class="slide closing" id="slide-21">
+      <div class="chrome"><span>마무리</span><span>21 / 21</span></div>
+      <div class="slide-inner">
+        <p class="eyebrow">PetCare Vision AIoT</p>
+        <h2>센서가 신호를 만들고,<br>AI가 맥락을 더하고,<br><span class="accent">웹이 돌봄의 언어로 보여줍니다.</span></h2>
+        <p class="lead">작은 프로토타입에서 시작해 실제 관리자 대시보드까지 연결한, 로컬 우선 반려동물 스마트홈입니다.</p>
+        <div class="final-chain"><span>PICO</span><span>→</span><span>JETSON</span><span>→</span><span>HOME AGENT</span><span>→</span><span>SITES</span></div>
+      </div>
+      <aside class="notes">[Sources] Project repository and verified production dashboard</aside>
+    </section>
+  </main>
+
+  <div class="controls" aria-label="슬라이드 제어">
+    <button type="button" id="prev" aria-label="이전 슬라이드">←</button>
+    <button type="button" id="next" aria-label="다음 슬라이드">→</button>
+  </div>
+  <div class="help">← → 이동 · F 전체화면 · O 시연 열기</div>
+  <div class="progress" aria-hidden="true"><div id="progressBar"></div></div>
+
+  <script>
+    if (new URLSearchParams(location.search).has("capture")) document.body.classList.add("capture-mode");
+    const slides = [...document.querySelectorAll(".slide")];
+    const progressBar = document.getElementById("progressBar");
+    let current = Math.max(0, Math.min(slides.length - 1, Number(location.hash.replace("#slide-", "")) - 1 || 0));
+
+    function fit() {
+      const scale = Math.min(innerWidth / 1600, innerHeight / 900);
+      document.documentElement.style.setProperty("--deck-scale", scale);
+    }
+
+    function show(index) {
+      current = Math.max(0, Math.min(slides.length - 1, index));
+      slides.forEach((slide, i) => {
+        slide.classList.toggle("active", i === current);
+        slide.setAttribute("aria-hidden", i === current ? "false" : "true");
+      });
+      progressBar.style.width = `${((current + 1) / slides.length) * 100}%`;
+      history.replaceState(null, "", `#slide-${current + 1}`);
+    }
+
+    function openDemo() {
+      const url = slides[current].dataset.demoUrl;
+      if (url) window.open(url, "_blank", "noopener,noreferrer");
+    }
+
+    document.getElementById("prev").addEventListener("click", () => show(current - 1));
+    document.getElementById("next").addEventListener("click", () => show(current + 1));
+    addEventListener("resize", fit);
+    addEventListener("keydown", event => {
+      if (["ArrowRight", "PageDown", " "].includes(event.key)) { event.preventDefault(); show(current + 1); }
+      if (["ArrowLeft", "PageUp"].includes(event.key)) { event.preventDefault(); show(current - 1); }
+      if (event.key === "Home") show(0);
+      if (event.key === "End") show(slides.length - 1);
+      if (event.key.toLowerCase() === "f") document.documentElement.requestFullscreen?.();
+      if (event.key.toLowerCase() === "o" || (event.key === "Enter" && slides[current].dataset.demoUrl)) openDemo();
+    });
+
+    fit();
+    show(current);
+  </script>
+</body>
+</html>
