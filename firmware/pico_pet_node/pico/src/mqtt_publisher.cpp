@@ -83,7 +83,8 @@ bool MqttPublisher::publish_status(const TelemetryMessage& message) {
 
 bool MqttPublisher::request_time(std::string_view device_id) {
     if (!connected_.load() ||
-        (device_id != "entrance-01" && device_id != "petzone-01")) {
+        (device_id != "entrance-01" && device_id != "petzone-01" &&
+         device_id != "bed-01")) {
         return false;
     }
     std::array<char, 64> request_topic{};

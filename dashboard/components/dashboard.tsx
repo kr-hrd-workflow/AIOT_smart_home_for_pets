@@ -58,18 +58,11 @@ export function ClientDashboardEntry({ fallback }: { fallback: ReactNode }) {
 }
 
 const sensorLabels = {
-  temperature: "온도",
-  humidity: "습도",
   presence_moving: "움직임",
   presence_stationary: "정지 감지",
   food_weight: "사료",
   water_weight: "물",
-  bed_pressure_left: "왼쪽",
-  bed_pressure_center: "가운데",
-  bed_pressure_right: "오른쪽",
 } as const;
-
-const channelLabels = { left: "왼쪽", center: "가운데", right: "오른쪽" } as const;
 const activityStateLabels = {
   active: "지금 움직임 관측",
   still: "지금 정지 관측",
@@ -82,8 +75,8 @@ function seconds(value: number) {
   return hours ? `${hours}시간 ${minutes}분` : `${minutes}분`;
 }
 
-function sensorValue(sensor?: SensorReadingOut) {
-  if (!sensor) return "사용 불가";
+function sensorValue(sensor?: SensorReadingOut, unavailableLabel = "사용 불가") {
+  if (!sensor) return unavailableLabel;
   if (sensor.unit === "bool") return sensor.value ? "감지" : "없음";
   return `${sensor.value} ${sensor.unit === "adc" ? "ADC" : sensor.unit}`;
 }
@@ -124,11 +117,40 @@ export function Dashboard({
   connectedControls?: ConnectedControls;
   busy?: boolean;
 }) {
-  const byType = new Map(data.latest_sensors.map((sensor) => [sensor.sensor_type, sensor]));
-  const selectedCamera = camera ?? demoCamera;
-  const currentRest = data.behaviors.find(
-    (behavior) => behavior.behavior_type === "resting" && behavior.ended_at === null,
+  const byDeviceAndType = new Map(
+    data.latest_sensors.map((sensor) => [`${sensor.device_id}:${sensor.sensor_type}`, sensor]),
   );
+  const sensorFor = (
+    deviceId: SensorReadingOut["device_id"],
+    sensorType: SensorReadingOut["sensor_type"],
+  ) => byDeviceAndType.get(`${deviceId}:${sensorType}`);
+  const bedOnline = data.devices.some(
+    (device) => device.device_id === "bed-01" && device.status === "online",
+  );
+  const environmentReadings = [
+    { label: "현관 온도", sensor: sensorFor("entrance-01", "temperature") },
+    { label: "현관 습도", sensor: sensorFor("entrance-01", "humidity") },
+    {
+      label: "침대 온도",
+      sensor: bedOnline ? sensorFor("bed-01", "temperature") : undefined,
+      unavailableLabel: bedOnline ? undefined : "연결 안 됨",
+    },
+    {
+      label: "침대 습도",
+      sensor: bedOnline ? sensorFor("bed-01", "humidity") : undefined,
+      unavailableLabel: bedOnline ? undefined : "연결 안 됨",
+    },
+    { label: sensorLabels.presence_moving, sensor: sensorFor("entrance-01", "presence_moving") },
+    { label: sensorLabels.presence_stationary, sensor: sensorFor("entrance-01", "presence_stationary") },
+    { label: sensorLabels.food_weight, sensor: sensorFor("petzone-01", "food_weight") },
+    { label: sensorLabels.water_weight, sensor: sensorFor("petzone-01", "water_weight") },
+  ];
+  const selectedCamera = camera ?? demoCamera;
+  const currentRest = bedOnline
+    ? data.behaviors.find(
+      (behavior) => behavior.behavior_type === "resting" && behavior.ended_at === null,
+    )
+    : undefined;
   const totalObservedSeconds = data.activity.reduce(
     (total, activity) => total + activity.today_observed_seconds,
     0,
@@ -182,10 +204,10 @@ export function Dashboard({
           <div className="dashboard-grid">
             <section id="summary" className="summary-strip" data-dashboard-section="summary" aria-label="핵심 요약">
               <SummaryCell label="오늘 활동 추정" value={activityValue} detail={activityDetail} />
-              <SummaryCell label="오늘 휴식 추정" value={seconds(data.bed.today_rest_seconds)} detail={sevenDayCopy(data)} />
-              <SummaryCell label="야간 침대 이탈" value={`${data.bed.nighttime_exit_count}회`} detail="22:00–06:00" />
-              <SummaryCell label="사료" value={sensorValue(byType.get("food_weight"))} detail="최근 측정" />
-              <SummaryCell label="물" value={sensorValue(byType.get("water_weight"))} detail="최근 측정" />
+              <SummaryCell label="오늘 휴식 추정" value={bedOnline ? seconds(data.bed.today_rest_seconds) : "연결 안 됨"} detail={bedOnline ? sevenDayCopy(data) : "침대 Pico 오프라인"} />
+              <SummaryCell label="야간 침대 이탈" value={bedOnline ? `${data.bed.nighttime_exit_count}회` : "연결 안 됨"} detail={bedOnline ? "22:00–06:00" : "침대 Pico 오프라인"} />
+              <SummaryCell label="사료" value={sensorValue(sensorFor("petzone-01", "food_weight"))} detail="최근 측정" />
+              <SummaryCell label="물" value={sensorValue(sensorFor("petzone-01", "water_weight"))} detail="최근 측정" />
             </section>
 
             <section id="camera" className="camera-section" data-dashboard-section="camera">
@@ -233,7 +255,7 @@ export function Dashboard({
             </section>
 
             <section id="rest" className="rest-panel panel" data-dashboard-section="confirmed-rest">
-              <SectionHeading title="활동 · 휴식" meta={data.bed.camera_confirmed ? "카메라 확인" : "확인 대기"} />
+              <SectionHeading title="활동 · 휴식" meta={bedOnline ? (data.bed.camera_confirmed ? "카메라 확인" : "확인 대기") : "침대 연결 안 됨"} />
               <div className="activity-list" role="list" aria-label="반려동물별 활동 관측">
                 {data.activity.map((activity) => {
                   const activityValue = activity.today_observed_seconds === 0
@@ -251,20 +273,14 @@ export function Dashboard({
                 })}
               </div>
               <div className="rest-subject">
-                <strong>{currentRest?.subject_id ?? "현재 휴식 없음"}</strong>
-                <span>{data.bed.fusion_state === "confirmed_rest" ? "휴식 추정" : fusionCopy(data.bed.fusion_state)}</span>
+                <strong>{bedOnline ? (currentRest?.subject_id ?? "현재 휴식 없음") : "침대 연결 안 됨"}</strong>
+                <span>{bedOnline ? (data.bed.fusion_state === "confirmed_rest" ? "휴식 추정" : fusionCopy(data.bed.fusion_state)) : "연결 안 됨"}</span>
               </div>
-              <p className="rest-duration">{seconds(data.bed.current_rest_seconds)}</p>
-              <p className="secondary-copy">{sevenDayCopy(data)}</p>
-              <div className="channel-table" role="table" aria-label="침대 센서 세 채널">
-                {data.bed.channels.map((channel) => (
-                  <div role="row" key={channel.channel}>
-                    <strong role="rowheader">{channelLabels[channel.channel]}</strong>
-                    <span role="cell">{channel.available && channel.raw !== null ? `${channel.raw} ADC` : "센서 사용 불가"}</span>
-                    <span role="cell">기준 {channel.baseline ?? "—"}</span>
-                    <span role="cell">변화 {channel.delta ?? "—"}</span>
-                  </div>
-                ))}
+              <p className="rest-duration">{bedOnline ? seconds(data.bed.current_rest_seconds) : "—"}</p>
+              <p className="secondary-copy">{bedOnline ? sevenDayCopy(data) : "침대 Pico를 연결하세요."}</p>
+              <div className="rest-subject" data-bed-occupancy>
+                <strong>침대 상태</strong>
+                <span>{bedOccupancyCopy(data.bed.pressure_state, bedOnline)}</span>
               </div>
             </section>
 
@@ -276,10 +292,10 @@ export function Dashboard({
             <section className="environment-section" data-dashboard-section="environment-food">
               <SectionHeading title="환경 · 급식" meta="최근 측정" />
               <div className="reading-table">
-                {(["temperature", "humidity", "presence_moving", "presence_stationary", "food_weight", "water_weight"] as const).map((type) => (
-                  <div key={type}>
-                    <span>{sensorLabels[type]}</span>
-                    <strong>{sensorValue(byType.get(type))}</strong>
+                {environmentReadings.map(({ label, sensor, unavailableLabel }) => (
+                  <div key={label}>
+                    <span>{label}</span>
+                    <strong>{sensorValue(sensor, unavailableLabel)}</strong>
                   </div>
                 ))}
               </div>
@@ -460,6 +476,20 @@ function fusionCopy(state: DashboardData["bed"]["fusion_state"]) {
     confirmed_rest: "휴식 추정",
     unconfirmed_pressure: "카메라 확인 대기",
     sensor_check: "침대 센서 확인 필요",
+  } as const;
+  return labels[state];
+}
+
+function bedOccupancyCopy(
+  state: DashboardData["bed"]["pressure_state"],
+  isOnline: boolean,
+) {
+  if (!isOnline) return "연결 안 됨";
+  const labels = {
+    unavailable: "센서 사용 불가",
+    uncalibrated: "보정 필요",
+    empty: "침대 비어 있음",
+    occupied: "침대 올라와 있음",
   } as const;
   return labels[state];
 }

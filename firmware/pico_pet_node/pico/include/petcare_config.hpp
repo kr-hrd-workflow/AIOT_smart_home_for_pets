@@ -56,7 +56,7 @@ inline constexpr std::uint32_t food_hx711_timeout_us = 100'000;
 inline constexpr std::uint32_t water_hx711_timeout_us = 100'000;
 inline constexpr std::int32_t food_tare_raw = -251'961;
 inline constexpr double food_counts_per_gram = 408.54117647058825;
-inline constexpr std::int32_t water_tare_raw = 114'845;
+inline constexpr std::int32_t water_tare_raw = 112'907;
 inline constexpr double water_counts_per_gram = -413.1862745098039;
 inline constexpr double weight_max_grams = 5'000.0;
 inline constexpr WeightCalibration food_calibration{food_tare_raw, food_counts_per_gram};

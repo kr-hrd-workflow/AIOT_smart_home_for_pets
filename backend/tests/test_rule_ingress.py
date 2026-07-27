@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import threading
 import time
+from concurrent.futures import Future
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.events import EVENT_QUEUE_MAXSIZE, SensorReadingCommitted
-from app.rule_ingress import IngressTombstone, RuleEnvelope, RuleIngress
+from app.events import CalibrateBedCommand, EVENT_QUEUE_MAXSIZE, SensorReadingCommitted
+from app.rule_ingress import IngressCommand, IngressTombstone, RuleEnvelope, RuleIngress
 
 
 NOW = datetime(2026, 7, 16, 0, 0, tzinfo=UTC)
@@ -69,6 +70,23 @@ def test_reverse_resolution_releases_committed_items_in_ticket_order() -> None:
     items = [ingress.get(timeout=0.1), ingress.get(timeout=0.1)]
     assert [item.ticket_id for item in items] == [1, 2]
     assert all(isinstance(item, RuleEnvelope) for item in items)
+
+
+def test_command_waits_behind_an_outstanding_source_ticket_without_rejection() -> None:
+    ingress = RuleIngress(FakeClock())
+    first = ingress.begin("camera")
+    future = Future()
+
+    assert ingress.try_submit_command(CalibrateBedCommand(device_id="bed-01"), future)
+    with pytest.raises(TimeoutError):
+        ingress.get(timeout=0.01)
+
+    ingress.resolve_committed(first, EVENT)
+    event = ingress.get(timeout=0.1)
+    command = ingress.get(timeout=0.1)
+    assert isinstance(event, RuleEnvelope) and event.ticket_id == 1
+    assert isinstance(command, IngressCommand) and command.ticket_id == 2
+    assert command.future is future
 
 
 def test_tombstone_advances_order_and_ticket_resolves_once() -> None:

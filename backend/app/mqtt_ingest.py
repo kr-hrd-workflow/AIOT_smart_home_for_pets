@@ -40,7 +40,7 @@ EXACT_SUBSCRIPTIONS = (
     ("home/pico/+/status", 1),
     ("home/pico/+/time/request", 1),
 )
-PICO_PRODUCTS = frozenset({"entrance-01", "petzone-01"})
+PICO_PRODUCTS = frozenset({"entrance-01", "petzone-01", "bed-01"})
 STATUS_IDENTITY_LIMIT = 4096
 
 

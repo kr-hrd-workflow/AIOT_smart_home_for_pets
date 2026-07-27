@@ -254,7 +254,7 @@ class RuleIngress:
     ) -> bool:
         timeout_at = time.monotonic() + timeout
         with self._condition:
-            while self._accepting and (self._pending or len(self._ready) >= self._capacity):
+            while self._accepting and len(self._ready) + len(self._pending) >= self._capacity:
                 remaining = timeout_at - time.monotonic()
                 if remaining <= 0:
                     return False
@@ -270,11 +270,8 @@ class RuleIngress:
                 ticket.received_at_utc,
                 ticket.received_at_monotonic,
             )
-            self._ready.append(item)
-            self._ready_receipts[ticket.ticket_id] = ticket.received_at_monotonic
-            self._ready_event_count += 1
-            self._last_released_ticket_id = ticket.ticket_id
-            self._condition.notify_all()
+            self._pending[ticket.ticket_id] = _Pending(None, ticket, item)
+            self._release_ready_locked()
             return True
 
     def stop_accepting(self) -> None:

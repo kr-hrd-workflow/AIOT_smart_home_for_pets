@@ -66,8 +66,8 @@ def test_ffmpeg_command_uses_pinned_binary_and_required_fmp4_contract(tmp_path: 
     command = worker.ffmpeg_command(tmp_path / "boot")
 
     assert command[0] == str(ffmpeg.resolve())
-    assert command[command.index("-framerate") + 1] == "30"
-    assert command.index("-framerate") < command.index("-i")
+    assert command[command.index("-r") + 1] == "30"
+    assert command.index("-r") < command.index("-i")
     required = [
         "-an", "-c:v", "libx264", "-profile:v", "baseline",
         "-pix_fmt", "yuv420p", "-r", "30", "-g", "30",

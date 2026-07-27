@@ -13,7 +13,8 @@ PetCare는 센서 노드와 Home 런타임을 분리합니다. 세 Pico 2 W는 C
 | Pico 두 프로필과 MQTT 계약 | 구현·테스트됨 | host CTest 및 firmware contract |
 | Backend/API/DB/rules | 구현·테스트됨 | unit/component/local-live |
 | Dashboard/demo/responsive QA | 구현·테스트됨 | Vitest, Playwright, build |
-| Jetson live 30 FPS·활동·반복 이동 | 소프트웨어 구현·단기 실기기 gate PASS; 60분 soak `NOT RUN` | 10개 1초 창 모두 30/30 고유 프레임, 합산 30.064 FPS |
+| Jetson live 30 FPS | 단기 실기기 gate PASS; 60분 soak `NOT RUN` | 10개 1초 창 모두 30/30 고유 프레임, 합산 30.064 FPS |
+| 활동·반복 이동 | 소프트웨어·fixture 검증됨; 실제 반려동물 실기기 검증 `NOT RUN` | 실기기 행동 증거 없음 |
 | CI | workflow implemented; exact-SHA 결과는 GitHub Actions가 authoritative | 6-job workflow |
 | Sites | 최신 공개 배포 PASS; outbound Home Agent·Jetson 라이브 연결 PASS | exact source is recorded in Sites deployment metadata, public landing/demo, Supabase-authenticated live data |
 | 실제 Pico/센서/웹캠 설치 | NOT RUN | 물리 증거 없음 |

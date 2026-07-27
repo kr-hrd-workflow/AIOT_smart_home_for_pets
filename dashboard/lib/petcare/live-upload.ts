@@ -113,6 +113,21 @@ export async function handleLiveUpload(
   await repository.consumeNonce(verified.agent.agentId, verified.headers.nonce, createdAt);
 
   const key = objectKey(verified.agent.homeId, live);
+  const upload = {
+    homeId: verified.agent.homeId,
+    agentId: verified.agent.agentId,
+    cameraId: verified.agent.cameraId,
+    bootId: live.bootId,
+    kind: live.kind,
+    sequence: live.sequence,
+    objectKey: key,
+    sha256: verified.headers.digest,
+    sizeBytes: verified.bytes.byteLength,
+    startedAt: live.startedAt,
+    durationMs: live.durationMs,
+    createdAt,
+    expiresAt: new Date(now.getTime() + 60_000).toISOString(),
+  };
   let stored: R2Object | null;
   try {
     stored = await env.CLIPS.put(key, verified.bytes, {
@@ -123,48 +138,36 @@ export async function handleLiveUpload(
     throw new PetCareError(503, "upload_retryable");
   }
   if (!stored) {
-    if (await repository.hasPublishedLiveUpload({
-      homeId: verified.agent.homeId,
-      agentId: verified.agent.agentId,
-      cameraId: verified.agent.cameraId,
-      bootId: live.bootId,
-      kind: live.kind,
-      sequence: live.sequence,
-      objectKey: key,
-      sha256: verified.headers.digest,
-      sizeBytes: verified.bytes.byteLength,
-      startedAt: live.startedAt,
-      durationMs: live.durationMs,
-      createdAt,
-      expiresAt: new Date(now.getTime() + 60_000).toISOString(),
-    })) return new Response(null, { status: 204, headers: { "Cache-Control": "private, no-store" } });
-    throw new PetCareError(409, "live_conflict");
+    if (await repository.hasPublishedLiveUpload(upload)) {
+      await repository.completeObjectDeletion(upload.homeId, key);
+      return new Response(null, { status: 204, headers: { "Cache-Control": "private, no-store" } });
+    }
+    try {
+      const existing = await env.CLIPS.get(key);
+      const bytes = existing && new Uint8Array(await existing.arrayBuffer());
+      if (!bytes || bytes.byteLength !== verified.bytes.byteLength ||
+          bytes.some((byte, index) => byte !== verified.bytes[index])) {
+        throw new PetCareError(409, "live_conflict");
+      }
+      stored = existing;
+    } catch (error) {
+      if (error instanceof PetCareError) throw error;
+      throw new PetCareError(503, "upload_retryable");
+    }
   }
   if (stored.size !== verified.bytes.byteLength) {
     await deleteOrQueue(env, repository, verified.agent.homeId, key, createdAt);
     fail("invalid_content_length");
   }
 
-  const expiresAt = new Date(now.getTime() + 60_000).toISOString();
   let trimmed: string[];
   try {
-    trimmed = await repository.publishLiveUpload({
-      homeId: verified.agent.homeId,
-      agentId: verified.agent.agentId,
-      cameraId: verified.agent.cameraId,
-      bootId: live.bootId,
-      kind: live.kind,
-      sequence: live.sequence,
-      objectKey: key,
-      sha256: verified.headers.digest,
-      sizeBytes: verified.bytes.byteLength,
-      startedAt: live.startedAt,
-      durationMs: live.durationMs,
-      createdAt,
-      expiresAt,
-    });
+    trimmed = await repository.publishLiveUpload(upload);
+    await repository.completeObjectDeletion(upload.homeId, key);
   } catch (error) {
-    await deleteOrQueue(env, repository, verified.agent.homeId, key, createdAt);
+    if (!await repository.hasPublishedLiveUpload(upload)) {
+      await deleteOrQueue(env, repository, verified.agent.homeId, key, createdAt);
+    }
     if (error instanceof PetCareError) throw error;
     throw new PetCareError(503, "upload_retryable");
   }

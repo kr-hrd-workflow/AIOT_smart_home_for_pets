@@ -460,7 +460,8 @@ def test_paho_callback_begins_before_validation_and_lifecycle_is_owned() -> None
     assert client.calls[-2:] == [("disconnect",), ("loop_stop",)]
 
 
-def test_time_request_returns_fresh_device_scoped_utc_without_entering_ingress() -> None:
+@pytest.mark.parametrize("device_id", ["petzone-01", "bed-01"])
+def test_time_request_returns_fresh_device_scoped_utc_without_entering_ingress(device_id: str) -> None:
     ingress = RecordingIngress()
     session = FakeSession()
     client = FakeClient()
@@ -475,7 +476,7 @@ def test_time_request_returns_fresh_device_scoped_utc_without_entering_ingress()
     )
     ingestor.start()
     message = SimpleNamespace(
-        topic="home/pico/petzone-01/time/request",
+        topic=f"home/pico/{device_id}/time/request",
         payload=b"",
     )
 
@@ -484,7 +485,7 @@ def test_time_request_returns_fresh_device_scoped_utc_without_entering_ingress()
     assert ingress.calls == []
     assert (
         "publish",
-        "home/pico/petzone-01/time/response",
+        f"home/pico/{device_id}/time/response",
         b"1784203200000",
         1,
         False,

@@ -235,8 +235,7 @@
 .reading-table > div,
 .timeline-list li,
 .health-list > div,
-.zone-table > div,
-.channel-table > div {
+.zone-table > div {
   border-color: var(--dashboard-line);
 }
 
@@ -290,6 +289,32 @@
   border-color: var(--dashboard-line);
   border-radius: 14px;
   box-shadow: 0 20px 56px rgb(44 51 46 / 0.08);
+}
+
+.settings-tablist {
+  display: flex;
+  gap: 8px;
+  width: min(calc(100% - 64px), 1440px);
+  margin: 24px auto 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--dashboard-line);
+}
+
+.settings-tablist button {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--dashboard-line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--dashboard-muted);
+  font: inherit;
+  font-weight: 700;
+}
+
+.settings-tablist button[aria-pressed="true"] {
+  border-color: var(--dashboard-focus);
+  background: #f4f9f6;
+  color: var(--dashboard-ink);
 }
 
 .connection-heading {
@@ -470,6 +495,10 @@
 }
 
 @media (max-width: 700px) {
+  .settings-tablist {
+    width: calc(100% - 28px);
+  }
+
   .remote-page > p,
   .connection-card,
   .clip-section,

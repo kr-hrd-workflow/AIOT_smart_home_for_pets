@@ -88,6 +88,14 @@ describe("dashboard demo surface", () => {
     expect(screen.getAllByText("cat_001").length).toBeGreaterThan(0);
     expect(screen.getByText("640 × 480")).toBeInTheDocument();
     expect(screen.getAllByText("742 g").length).toBeGreaterThan(0);
+    expect(screen.getByText("현관 온도")).toBeInTheDocument();
+    expect(screen.getByText("24.3 C")).toBeInTheDocument();
+    expect(screen.getByText("현관 습도")).toBeInTheDocument();
+    expect(screen.getByText("48 %")).toBeInTheDocument();
+    expect(screen.getByText("침대 온도")).toBeInTheDocument();
+    expect(screen.getByText("23.8 C")).toBeInTheDocument();
+    expect(screen.getByText("침대 습도")).toBeInTheDocument();
+    expect(screen.getByText("51 %")).toBeInTheDocument();
 
     const order = [
       "summary",
@@ -107,7 +115,36 @@ describe("dashboard demo surface", () => {
     );
   });
 
-  it("shows activity only from camera coverage while preserving rest evidence", () => {
+it("does not render stale bed readings for an offline Pico", () => {
+  const stale = structuredClone(demoDashboardData);
+  stale.devices = stale.devices.map((device) =>
+    device.device_id === "bed-01"
+      ? { ...device, status: "offline", last_seen_at: null }
+      : device,
+  );
+  const { container } = render(<Dashboard data={stale} />);
+  const readings = container.querySelector('[data-dashboard-section="environment-food"]')!;
+
+  expect(readings).toHaveTextContent("침대 온도연결 안 됨");
+  expect(readings).toHaveTextContent("침대 습도연결 안 됨");
+  expect(readings).not.toHaveTextContent("23.8 C");
+  expect(readings).not.toHaveTextContent("51 %");
+  expect(container.querySelector("[data-bed-occupancy]")).toHaveTextContent("연결 안 됨");
+  expect(container.querySelector('[data-dashboard-section="summary"]')).toHaveTextContent(
+    "오늘 휴식 추정연결 안 됨",
+  );
+  expect(container.querySelector('[data-dashboard-section="summary"]')).toHaveTextContent(
+    "야간 침대 이탈연결 안 됨",
+  );
+  expect(container.querySelector('[data-dashboard-section="confirmed-rest"]')).toHaveTextContent(
+    "침대 Pico를 연결하세요.",
+  );
+  expect(container.querySelector('[data-dashboard-section="confirmed-rest"]')).not.toHaveTextContent(
+    "42분",
+  );
+});
+
+it("shows activity only from camera coverage while preserving rest evidence", () => {
     const { container, unmount } = render(<Dashboard data={demoDashboardData} />);
     const restPanel = container.querySelector('[data-dashboard-section="confirmed-rest"]')!;
 
@@ -123,10 +160,10 @@ describe("dashboard demo surface", () => {
     );
     expect(restPanel.querySelector(".rest-duration")).toHaveTextContent("42분");
     expect(restPanel.querySelector(".secondary-copy")).not.toBeEmptyDOMElement();
-    expect(restPanel.querySelector(".channel-table")).toHaveAttribute(
-      "aria-label",
-      "침대 센서 세 채널",
-    );
+    expect(restPanel.querySelector("[data-bed-occupancy]")).toHaveTextContent("침대 올라와 있음");
+    expect(restPanel).not.toHaveTextContent("1042 ADC");
+    expect(restPanel).not.toHaveTextContent("1398 ADC");
+    expect(restPanel).not.toHaveTextContent("1156 ADC");
     unmount();
 
     const unavailable = structuredClone(demoDashboardData);
@@ -186,6 +223,7 @@ describe("dashboard demo surface", () => {
     expect(screen.getAllByText("센서 사용 불가").length).toBeGreaterThan(0);
     expect(screen.getByText("카메라 연결 끊김")).toBeInTheDocument();
     expect(screen.getAllByText("기준 데이터 수집 중 · 2/7일").length).toBeGreaterThan(0);
+    expect(container.querySelector("[data-bed-occupancy]")).toHaveTextContent("센서 사용 불가");
     expect(screen.getByRole("status")).toHaveTextContent("왼쪽 센서 입력을 확인하세요.");
     expect(screen.queryByText(/^0 ADC$/)).not.toBeInTheDocument();
     expect(container.querySelector(".camera-meta")).toHaveTextContent(

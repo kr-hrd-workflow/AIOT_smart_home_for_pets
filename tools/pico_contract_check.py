@@ -34,6 +34,10 @@ def check_sensor_target_links() -> None:
         not missing,
         f"targets missing sensors.cpp source/link edge: {', '.join(missing)}",
     )
+    mqtt = (ROOT / "firmware" / "pico_pet_node" / "pico" / "src" / "mqtt_publisher.cpp").read_text(
+        encoding="utf-8"
+    )
+    require('device_id != "bed-01"' in mqtt, "bed Pico time-sync MQTT support")
 
 
 def check_fsr_ownership() -> None:

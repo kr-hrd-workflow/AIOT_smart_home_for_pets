@@ -19,12 +19,13 @@ PetCare는 세 대의 Raspberry Pi Pico 2 W, Windows Home Agent, Jetson 카메�
 | Sites scheduled 정리·R2 7일 lifecycle | 코드 구현됨; provider 운영 trigger/lifecycle 연결 증거는 `NOT VERIFIED` |
 | Sites 공개 배포 | 최신 공개 배포 PASS; 정확한 source SHA는 Sites deployment metadata로 확인 |
 | 실제 Jetson 비전 서비스·USB 카메라·서명 프리뷰 | 실기기 통과 (JetPack 4.6.6, L4T 32.7.6, TensorRT 8.2.1) |
-| Jetson 고유 프레임 30 FPS 라이브·활동·반복 이동 관측 | 60 Hz 보정 후 단기 실기기 게이트 PASS |
+| Jetson 고유 프레임 30 FPS 라이브 | 60 Hz 보정 후 단기 실기기 게이트 PASS |
+| 활동·반복 이동 관측 | 소프트웨어·fixture 검증됨; 실제 반려동물 실기기 검증 `NOT RUN` |
 | Jetson 60분 지속 실행 | `NOT RUN` |
 | 실제 Pico·센서 설치 검수 | `NOT RUN` |
 | 깨끗한 Windows PC에서 전체 설치 검수 | `NOT RUN` |
 
-Jetson 단기 실기기 라이브 게이트는 카메라 전원 주파수를 60 Hz로 보정한 뒤 1초 창 10회 모두 `30/30` 고유 프레임, 합산 `30.064 FPS`, 창 길이 p99 `1.0146초`로 PASS했습니다. 이 결과는 60분 지속 실행을 대체하지 않으며, 60분 soak는 `NOT RUN`입니다.
+Jetson 단기 실기기 라이브 게이트는 카메라 전원 주파수를 60 Hz로 보정한 뒤 1초 창 10회 모두 `30/30` 고유 프레임, 합산 `30.064 FPS`, 창 길이 p99 `1.0146초`로 PASS했습니다. 이 증거는 영상 전송만 검증하며 실제 반려동물 활동·반복 이동 판정은 검증하지 않습니다. 60분 soak와 실제 행동 검증은 `NOT RUN`입니다.
 
 Pico UF2 빌드는 두 프로필 모두 PASS했습니다. `entrance` SHA-256은 `6620E63041C2ADE5764D3F1F175F5BB42E1B3400707A79E23E0BEDD1EDD19203`, `petzone` SHA-256은 `FC241E1AA4517753316ACEA9FEDAC5A84A7BB3A575029943AB81770B433515A3`입니다. 실제 보드 플래시·센서 스모크와 깨끗한 Windows PC 설치 검수는 모두 `NOT RUN`입니다.
 

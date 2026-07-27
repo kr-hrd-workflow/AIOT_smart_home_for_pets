@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { AccountDeletion } from "./account-deletion";
 import { Dashboard } from "./dashboard";
@@ -23,6 +23,44 @@ import type { DashboardData, DashboardSummary } from "../lib/types";
 
 const LOCAL_SETUP_URL = "http://127.0.0.1:8000/setup";
 const HOME_AGENT_INSTALLER_URL = "/api/petcare/installer";
+
+function SettingsSections({
+  deviceSettings,
+  accountClient,
+}: {
+  deviceSettings: ReactNode;
+  accountClient: PetCareAccountClient;
+}) {
+  const [section, setSection] = useState<"devices" | "data">("devices");
+  return (
+    <section className="settings-tabs" aria-label="설정">
+      <nav className="settings-tablist" aria-label="설정 섹션">
+        <button
+          type="button"
+          aria-pressed={section === "devices"}
+          aria-controls="device-settings"
+          onClick={() => setSection("devices")}
+        >
+          기기 설정
+        </button>
+        <button
+          type="button"
+          aria-pressed={section === "data"}
+          aria-controls="data-management"
+          onClick={() => setSection("data")}
+        >
+          데이터 관리
+        </button>
+      </nav>
+      <div id="device-settings" className="settings-panel" hidden={section !== "devices"}>
+        {deviceSettings}
+      </div>
+      <div id="data-management" className="settings-panel" hidden={section !== "data"}>
+        <AccountDeletion client={accountClient} />
+      </div>
+    </section>
+  );
+}
 
 function operationalData(summary: DashboardSummary): DashboardData {
   return {
@@ -218,11 +256,15 @@ export function RemoteDashboardView({
             {offline.last_seen_at ?? "기록 없음"}
           </time>
         </p>
-        <p>
-          <a href={LOCAL_SETUP_URL}>오프라인 복구 설정 열기</a>
-        </p>
+        <SettingsSections
+          accountClient={accountClient}
+          deviceSettings={
+            <section className="connection-card" aria-label="기기 설정">
+              <a href={LOCAL_SETUP_URL}>오프라인 복구 설정 열기</a>
+            </section>
+          }
+        />
         <EventClips client={client} media={media} />
-        <AccountDeletion client={accountClient} />
       </main>
     );
   }
@@ -265,7 +307,10 @@ export function RemoteDashboardView({
       data-home-state={status.home.state}
     >
       {statusError && <p role="alert">{statusError}</p>}
-      <section className="connection-card" aria-labelledby="connection-title">
+      <SettingsSections
+        accountClient={accountClient}
+        deviceSettings={
+          <section className="connection-card" aria-labelledby="connection-title">
         <header className="connection-heading">
           <div>
             <p className="eyebrow">기기 설정</p>
@@ -446,7 +491,9 @@ export function RemoteDashboardView({
               {picoError && <p role="alert">{picoError}</p>}
             </form>
         </section>
-      </section>
+          </section>
+        }
+      />
       {status.dashboard && status.agent && (
         <>
           <p className="remote-online" role="status">
@@ -473,7 +520,6 @@ export function RemoteDashboardView({
           <EventClips client={client} media={media} />
         </>
       )}
-      <AccountDeletion client={accountClient} />
     </div>
   );
 }

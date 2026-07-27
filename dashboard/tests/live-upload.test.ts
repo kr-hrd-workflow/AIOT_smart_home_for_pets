@@ -18,6 +18,7 @@ let privateKey: CryptoKey;
 class ConditionalR2 {
   readonly objects = new Map<string, Uint8Array>();
   failPut = false;
+  failDelete = false;
 
   async put(
     key: string,
@@ -34,7 +35,15 @@ class ConditionalR2 {
   }
 
   async delete(key: string): Promise<void> {
+    if (this.failDelete) throw new Error("synthetic R2 delete failure");
     this.objects.delete(key);
+  }
+
+  async get(key: string): Promise<{ size: number; arrayBuffer(): Promise<ArrayBuffer> } | null> {
+    const bytes = this.objects.get(key);
+    return bytes
+      ? { size: bytes.byteLength, arrayBuffer: async () => bytes.slice().buffer as ArrayBuffer }
+      : null;
   }
 }
 
@@ -214,5 +223,21 @@ describe("signed rolling live upload", () => {
       handleLiveUpload(await signed("segment", 1, new Uint8Array([2]), 2), env, now),
     ).rejects.toMatchObject({ status: 503, code: "upload_retryable" });
     expect(r2.objects.has("live/home-a/camera-a/boot-a/1.m4s")).toBe(false);
+  });
+
+  it("publishes an identical retry when the first D1 write and R2 cleanup fail", async () => {
+    const env = { DB: db, CLIPS: r2 } as unknown as Parameters<typeof handleLiveUpload>[1];
+    await handleLiveUpload(await signed("init", 0, new Uint8Array([1]), 1), env, now);
+    fake.failOnce(/INSERT INTO live_parts/);
+    r2.failDelete = true;
+    await expect(
+      handleLiveUpload(await signed("segment", 1, new Uint8Array([2]), 2), env, now),
+    ).rejects.toMatchObject({ status: 503, code: "upload_retryable" });
+
+    await expect(
+      handleLiveUpload(await signed("segment", 1, new Uint8Array([2]), 3), env, now),
+    ).resolves.toMatchObject({ status: 204 });
+    expect(fake.rows.live_parts).toHaveLength(1);
+    expect(fake.rows.object_deletion_jobs).toHaveLength(0);
   });
 });

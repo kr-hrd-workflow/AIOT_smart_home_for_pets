@@ -621,12 +621,19 @@ it("keeps enrollment and destructive controls in keyboard order", async () => {
     />,
   );
 
-  const installer = await screen.findByRole("link", {
+  const deviceSettings = await screen.findByRole("button", { name: "기기 설정" });
+  const dataManagement = screen.getByRole("button", { name: "데이터 관리" });
+  const dataPanel = document.getElementById("data-management")!;
+  const installer = screen.getByRole("link", {
     name: "Windows Home Agent 설치",
   });
   const enrollment = screen.getByRole("button", {
     name: "10분 코드 만들기",
   });
+  await user.tab();
+  expect(deviceSettings).toHaveFocus();
+  await user.tab();
+  expect(dataManagement).toHaveFocus();
   await user.tab();
   expect(installer).toHaveFocus();
   await user.tab();
@@ -641,6 +648,19 @@ it("keeps enrollment and destructive controls in keyboard order", async () => {
   expect(screen.getByRole("button", { name: "식기 Pico 설정" })).toHaveFocus();
   await user.tab();
   expect(screen.getByRole("button", { name: "침대 Pico 설정" })).toHaveFocus();
+  await user.tab();
+  expect(document.body).toHaveFocus();
+  await user.tab();
+  expect(deviceSettings).toHaveFocus();
+  await user.tab();
+  expect(dataManagement).toHaveFocus();
+  expect(dataPanel).toHaveAttribute("hidden");
+  await user.keyboard("{Enter}");
+  expect(dataManagement).toHaveAttribute("aria-pressed", "true");
+  expect(deviceSettings).toHaveAttribute("aria-pressed", "false");
+  expect(dataPanel).not.toHaveAttribute("hidden");
+  expect(dataPanel.querySelector(".account-deletion")).toBeInTheDocument();
+  expect(dataPanel.querySelector(".connection-card")).toBeNull();
   await user.tab();
   expect(screen.getByLabelText("현재 비밀번호")).toHaveFocus();
 });

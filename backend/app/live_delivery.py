@@ -83,7 +83,7 @@ class LiveDeliveryWorker:
         return [
             str(self._ffmpeg_path),
             "-hide_banner", "-loglevel", "error",
-            "-f", "mpjpeg", "-framerate", "30", "-i", "pipe:0",
+            "-f", "mpjpeg", "-r", "30", "-i", "pipe:0",
             "-an", "-c:v", "libx264", "-profile:v", "baseline",
             "-pix_fmt", "yuv420p", "-r", "30", "-g", "30",
             "-f", "hls", "-hls_time", "3", "-hls_segment_type", "fmp4",

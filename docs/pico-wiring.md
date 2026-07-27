@@ -28,13 +28,13 @@ FSR은 각 채널에서 `3.3V → FSR → ADC 접점 → 10kΩ → GND` 전압�
 3. 무게를 올렸을 때 raw가 감소하는 채널은 `counts_per_gram`을 음수로 둡니다. 현재 water 기본 방향은 이 배선에 맞춰 음수입니다.
 4. 펌웨어는 계산 결과가 음수면 `0g`으로 제한하고, 보정 오류로 `5000g`를 넘으면 값을 발행하지 않습니다. 화면에 `10000g`처럼 표시되면 placeholder 대신 실제 tare/scale을 넣어 다시 빌드해야 합니다.
 
-현재 보정값은 빈 그릇 10회 평균과 기준추 10회 평균으로 계산했습니다. Food는 iPhone 16 본체 `170g`(`tare_raw=-251961`, `counts_per_gram=408.54117647058825`), water는 iPhone 17 Pro 본체 `204g`(`tare_raw=114845`, `counts_per_gram=-413.1862745098039`) 기준입니다. 케이스·필름·부착물이 있으면 그 실제 무게만큼 보정 오차가 생깁니다.
+현재 보정값은 빈 그릇과 기준추 측정값으로 계산했습니다. Food는 iPhone 16 본체 `170g`(`tare_raw=-251961`, `counts_per_gram=408.54117647058825`), water는 iPhone 17 Pro 본체 `204g`으로 구한 기울기를 유지하고 2026-07-27 빈 그릇 12회 평균으로 영점을 다시 맞춘 값(`tare_raw=112907`, `counts_per_gram=-413.1862745098039`)입니다. 케이스·필름·부착물이 있으면 그 실제 무게만큼 보정 오차가 생깁니다.
 
 침대 calibration은 펌웨어가 아니라 `POST /api/bed/calibration`에서 수행합니다. 빈 침대, 사용 가능한 카메라, 최근 60초 동안 채널별 최소 45개 안정된 raw sample이 필요합니다.
 
 ## 시간과 MQTT
 
-부팅 후 `pool.ntp.org`, 실패 시 `time.cloudflare.com`으로 SNTP 동기화되기 전에는 telemetry를 발행하지 않습니다. timestamp는 UTC millisecond `YYYY-MM-DDTHH:mm:ss.SSSZ`이고 역행을 거부합니다. 재동기화는 6시간, 실패 재시도는 15초입니다.
+부팅 후 `pool.ntp.org`, 실패 시 `time.google.com`으로 SNTP 동기화되기 전에는 telemetry를 발행하지 않습니다. timestamp는 UTC millisecond `YYYY-MM-DDTHH:mm:ss.SSSZ`이고 역행을 거부합니다. 재동기화는 6시간, 실패 재시도는 15초입니다.
 
 센서 topic은 `home/pico/{device_id}/sensor/{sensor_type}`, 상태 topic은 `home/pico/{device_id}/status`입니다. QoS 1, 센서 retain false, 상태 retain true이며 10초 heartbeat와 retained offline LWT를 사용합니다. 재연결 backoff는 1, 2, 4, 8, 16, 30초입니다.
 
@@ -68,7 +68,7 @@ FSR은 각 채널에서 `3.3V → FSR → ADC 접점 → 10kΩ → GND` 전압�
   },
   "cadence_ms": {"sht31": 30000, "presence": 1000, "weight": 1000, "fsr": 1000, "status": 10000},
   "mqtt": {"qos": 1, "sensor_retain": false, "status_retain": true},
-  "sntp": {"primary": "pool.ntp.org", "fallback": "time.cloudflare.com", "retry_ms": 15000, "resync_ms": 21600000},
+  "sntp": {"primary": "pool.ntp.org", "fallback": "time.google.com", "retry_ms": 15000, "resync_ms": 21600000},
   "status_payload_keys": ["device_id", "status", "observed_at"],
   "status_values": ["online", "offline"],
   "timestamp_format": "YYYY-MM-DDTHH:mm:ss.SSSZ",
