@@ -345,9 +345,9 @@ test.describe("real /demo route", () => {
       await expect(page.getByText("42분", { exact: true }).first()).toBeVisible();
       await expect(page.getByText("3시간 59분", { exact: true })).toBeVisible();
       await expect(page.getByText("1회", { exact: true })).toBeVisible();
-      await expect(page.getByRole("row", { name: /왼쪽 1042 ADC 기준 812 변화 230/ })).toBeVisible();
-      await expect(page.getByRole("row", { name: /가운데 1398 ADC 기준 905 변화 493/ })).toBeVisible();
-      await expect(page.getByRole("row", { name: /오른쪽 1156 ADC 기준 844 변화 312/ })).toBeVisible();
+      await expect(page.getByText("742 g", { exact: true }).first()).toBeVisible();
+      await expect(page.getByText("512 g", { exact: true }).first()).toBeVisible();
+      await expect(page.getByText("침대에 올라와 있음", { exact: true })).toBeVisible();
       await expect(page.getByText("12시간 식사 기록 없음", { exact: true }).first()).toBeVisible();
       await expect(page.getByText("카메라 확인 대기", { exact: true }).first()).toBeVisible();
       await expect(page.getByText("침대 센서 확인 필요", { exact: true }).first()).toBeVisible();
