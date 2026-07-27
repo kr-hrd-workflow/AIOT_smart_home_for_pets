@@ -34,24 +34,34 @@ class SnapshotDeliveryWorker:
         self.last_error: str | None = None
 
     def _run(self) -> None:
-        next_attempt = time.monotonic()
-        while not self._stop.is_set():
-            remaining = next_attempt - time.monotonic()
-            if remaining > 0 and self._stop.wait(remaining):
-                break
-            try:
-                summary_bytes = self._summary_supplier()
-                if (
-                    type(summary_bytes) is not bytes
-                    or not summary_bytes
-                    or len(summary_bytes) > SNAPSHOT_MAX_BYTES
-                ):
-                    raise ValueError("invalid snapshot body")
-                self._client.upload(summary_bytes)
-                self.last_error = None
-            except Exception:
-                self.last_error = "snapshot_unavailable"
-            next_attempt = time.monotonic() + self._cadence_seconds
+        try:
+            next_attempt = time.monotonic()
+            while not self._stop.is_set():
+                remaining = next_attempt - time.monotonic()
+                if remaining > 0 and self._stop.wait(remaining):
+                    break
+                try:
+                    summary_bytes = self._summary_supplier()
+                    if (
+                        type(summary_bytes) is not bytes
+                        or not summary_bytes
+                        or len(summary_bytes) > SNAPSHOT_MAX_BYTES
+                    ):
+                        raise ValueError("invalid snapshot body")
+                    self._client.upload(summary_bytes)
+                    self.last_error = None
+                except Exception:
+                    self.last_error = "snapshot_unavailable"
+                next_attempt += self._cadence_seconds
+        finally:
+            self._close_client()
+
+    def _close_client(self) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+        self._client.close()
 
     def start(self) -> None:
         with self._lock:
@@ -76,7 +86,4 @@ class SnapshotDeliveryWorker:
             thread.join(timeout_seconds)
             if thread.is_alive():
                 raise TimeoutError("snapshot delivery shutdown timed out")
-        with self._lock:
-            if not self._closed:
-                self._client.close()
-                self._closed = True
+        self._close_client()

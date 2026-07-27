@@ -55,6 +55,7 @@ def test_upload_signs_exact_snapshot_request_and_accepts_private_no_store_204() 
     assert request.headers["Content-Length"] == str(len(body))
     assert request.headers["X-PetCare-Content-SHA256"] == digest
     assert request.headers["X-PetCare-Nonce"] == "AQIDBAUGBwgJCgsMDQ4PEA"
+    assert set(request.extensions["timeout"].values()) == {1.5}
     public_key.verify(
         base64.urlsafe_b64decode(request.headers["X-PetCare-Signature"] + "=="), canonical
     )
@@ -119,4 +120,33 @@ def test_worker_stop_cancels_the_next_cadence_and_closes_once() -> None:
     worker.stop(timeout_seconds=0.2)
 
     assert attempted == [b'{"version":1}']
+    assert closed == [None]
+
+
+def test_worker_timeout_closes_once_when_the_inflight_request_finishes() -> None:
+    entered = threading.Event()
+    release = threading.Event()
+    closed: list[None] = []
+
+    class Client:
+        def upload(self, _summary_bytes: bytes) -> None:
+            entered.set()
+            release.wait(1)
+
+        def close(self) -> None:
+            closed.append(None)
+
+    worker = SnapshotDeliveryWorker(Client(), lambda: b"{}", cadence_seconds=2.0)
+    worker.start()
+    assert entered.wait(1)
+    with pytest.raises(TimeoutError, match="snapshot delivery shutdown timed out"):
+        worker.stop(timeout_seconds=0)
+    assert closed == []
+
+    release.set()
+    deadline = time.monotonic() + 1
+    while not closed and time.monotonic() < deadline:
+        time.sleep(0.005)
+    assert closed == [None]
+    worker.stop(timeout_seconds=1)
     assert closed == [None]
