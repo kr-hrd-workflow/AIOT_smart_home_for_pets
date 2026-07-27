@@ -6,15 +6,15 @@
 
 모든 센서와 Pico의 GND를 공통으로 연결합니다. GPIO 입력은 3.3V를 넘기지 않습니다. LD2410C 전원은 안정된 5V/최소 200mA를 사용하고 센서 TX(3.3V UART)를 Pico GPIO9에 연결합니다. Pico TX는 연결하지 않습니다.
 
-| 장치 | Pico 인터페이스 | 핀 | 전원/주의 |
-| --- | --- | --- | --- |
-| SHT31 | I2C0 | SDA GPIO4, SCL GPIO5 | 3.3V, 주소 `0x44`, pull-up 사용 |
-| LD2410C | UART1 RX | GPIO9 | 센서 5V/200mA 이상, UART 256000 8N1, Pico TX 미연결 |
-| Food HX711 | GPIO | DOUT 10, SCK 11 | 3.3V logic, 식기별 tare/scale 필요 |
-| Water HX711 | GPIO | DOUT 12, SCK 13 | 3.3V logic, 물그릇별 tare/scale 필요 |
-| FSR left | ADC0 | GPIO26 | 3.3V divider, 고정 저항 10kΩ |
-| FSR center | ADC1 | GPIO27 | 3.3V divider, 고정 저항 10kΩ |
-| FSR right | ADC2 | GPIO28 | 3.3V divider, 고정 저항 10kΩ |
+| 장치 | Pico 인터페이스 | GPIO | Pico 헤더 핀 | 전원/주의 |
+| --- | --- | --- | --- | --- |
+| SHT31 | I2C0 | SDA GPIO4, SCL GPIO5 | 6, 7 | 3.3V, 주소 `0x44`, pull-up 사용 |
+| LD2410C | UART1 RX | GPIO9 | 12 | 센서 5V/200mA 이상, UART 256000 8N1, Pico TX 미연결 |
+| Food HX711 | GPIO | DOUT GPIO10, SCK GPIO11 | 14, 15 | 3.3V logic, 식기별 tare/scale 필요 |
+| Water HX711 | GPIO | DOUT GPIO12, SCK GPIO13 | 16, 17 | 3.3V logic, 물그릇별 tare/scale 필요 |
+| FSR left | ADC0 | GPIO26 | 31 | 3.3V divider, 고정 저항 10kΩ |
+| FSR center | ADC1 | GPIO27 | 32 | 3.3V divider, 고정 저항 10kΩ |
+| FSR right | ADC2 | GPIO28 | 34 | 3.3V divider, 고정 저항 10kΩ |
 
 FSR은 각 채널에서 `3.3V → FSR → ADC 접점 → 10kΩ → GND` 전압분배기로 연결합니다. 펌웨어는 `adc` 원값만 발행하며 baseline/polarity/stability/entry/exit/occupancy/fusion을 계산하지 않습니다.
 
@@ -26,9 +26,21 @@ FSR은 각 채널에서 `3.3V → FSR → ADC 접점 → 10kΩ → GND` 전압�
 
 ## 시간과 MQTT
 
-부팅 후 `pool.ntp.org`, 실패 시 `time.cloudflare.com`으로 SNTP 동기화되기 전에는 telemetry를 발행하지 않습니다. timestamp는 UTC millisecond `YYYY-MM-DDTHH:mm:ss.SSSZ`이고 역행을 거부합니다. 재동기화는 6시간, 실패 재시도는 15초입니다.
+부팅 후 `pool.ntp.org`, 실패 시 `time.google.com`으로 SNTP 동기화를 시도합니다. 외부 SNTP가 막혀 있으면 Pico가 MQTT에 연결해 빈 `home/pico/{device_id}/time/request`를 보내고, Home Agent가 `home/pico/{device_id}/time/response`에 13자리 UTC millisecond를 응답합니다. 유효한 시간을 얻기 전에는 telemetry를 발행하지 않습니다. timestamp는 `YYYY-MM-DDTHH:mm:ss.SSSZ`이고 역행을 거부합니다. 재동기화는 6시간, 실패 재시도는 15초입니다.
 
 센서 topic은 `home/pico/{device_id}/sensor/{sensor_type}`, 상태 topic은 `home/pico/{device_id}/status`입니다. QoS 1, 센서 retain false, 상태 retain true이며 10초 heartbeat와 retained offline LWT를 사용합니다. 재연결 backoff는 1, 2, 4, 8, 16, 30초입니다.
+
+## 센서 응답 점검
+
+핀맵은 `petcare_config.hpp`의 production 상수와 동일합니다. 읽기 실패는 해당 센서의 발행만 생략하며 0이나 샘플 값을 대신 발행하지 않습니다. Pico가 `online`이고 heartbeat가 보이는데 일부 채널만 없다면 Wi-Fi/MQTT보다 아래 배선과 전원을 먼저 확인합니다.
+
+| 누락 채널 | 확인할 장치와 신호 |
+| --- | --- |
+| `temperature`, `humidity` | SHT31 3.3V/GND, I2C0 GPIO4/5, 주소 `0x44`, SDA/SCL pull-up |
+| `presence_moving`, `presence_stationary` | LD2410C 안정된 5V/200mA 이상, 공통 GND, 센서 TX → GPIO9, 256000 8N1 |
+| `food_weight` | Food HX711 DOUT GPIO10/SCK GPIO11, DOUT ready와 food 전용 calibration |
+| `water_weight` | Water HX711 DOUT GPIO12/SCK GPIO13, DOUT ready와 water 전용 calibration |
+| `bed_pressure_left/center/right` | GPIO26/27/28, 3.3V 분압, 채널별 10kΩ 고정 저항과 공통 GND |
 
 <!-- petcare-docs:pico-contract -->
 ```json
@@ -59,7 +71,7 @@ FSR은 각 채널에서 `3.3V → FSR → ADC 접점 → 10kΩ → GND` 전압�
   },
   "cadence_ms": {"sht31": 30000, "presence": 1000, "weight": 1000, "fsr": 1000, "status": 10000},
   "mqtt": {"qos": 1, "sensor_retain": false, "status_retain": true},
-  "sntp": {"primary": "pool.ntp.org", "fallback": "time.cloudflare.com", "retry_ms": 15000, "resync_ms": 21600000},
+  "sntp": {"primary": "pool.ntp.org", "fallback": "time.google.com", "retry_ms": 15000, "resync_ms": 21600000},
   "status_payload_keys": ["device_id", "status", "observed_at"],
   "status_values": ["online", "offline"],
   "timestamp_format": "YYYY-MM-DDTHH:mm:ss.SSSZ",
