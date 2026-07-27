@@ -169,7 +169,6 @@ export function LiveMediaPlayer({
       const lag = liveEdge - video.currentTime;
       if (
         video.currentTime < start ||
-        lag < Math.max(0.5, targetLatency - 1) ||
         lag > targetLatency + 1
       ) {
         video.currentTime = target;

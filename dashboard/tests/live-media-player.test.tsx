@@ -206,6 +206,24 @@ describe("LiveMediaPlayer", () => {
     );
   });
 
+  it("never seeks backward when playback catches the live edge", async () => {
+    const liveManifest = vi.fn().mockResolvedValue(manifest("boot-a", 3));
+    render(
+      <LiveMediaPlayer
+        cameraId="camera-1"
+        client={client(liveManifest)}
+        alt="실시간 반려동물 카메라"
+        pollIntervalMs={10}
+      />,
+    );
+
+    await waitFor(() => expect(liveManifest).toHaveBeenCalled());
+    const video = screen.getByLabelText("실시간 반려동물 카메라");
+    video.currentTime = 2.5;
+    await waitFor(() => expect(liveManifest.mock.calls.length).toBeGreaterThan(1));
+    expect(video.currentTime).toBe(2.5);
+  });
+
   it("aborts an in-flight manifest request on unmount", async () => {
     let signal: AbortSignal | undefined;
     const pending = new Promise<PetCareLiveManifest>(() => undefined);
