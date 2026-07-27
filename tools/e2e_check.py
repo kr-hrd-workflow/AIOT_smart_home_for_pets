@@ -248,13 +248,15 @@ def _wait_until(predicate: Callable[[], bool], timeout: float, label: str) -> No
 def _publish_profiles(publisher: MqttPublisher) -> None:
     publisher.publish_status("entrance-01", "online")
     publisher.publish_status("petzone-01", "online")
-    for device_id in ("entrance-01", "petzone-01"):
-        publisher.publish_sensor(device_id, "temperature", 21.5, "C")
-        publisher.publish_sensor(device_id, "humidity", 48.0, "%")
-        publisher.publish_sensor(device_id, "presence_moving", False, "bool")
-        publisher.publish_sensor(device_id, "presence_stationary", True, "bool")
+    publisher.publish_status("bed-01", "online")
+    publisher.publish_sensor("entrance-01", "temperature", 21.5, "C")
+    publisher.publish_sensor("entrance-01", "humidity", 48.0, "%")
+    publisher.publish_sensor("entrance-01", "presence_moving", False, "bool")
+    publisher.publish_sensor("entrance-01", "presence_stationary", True, "bool")
     publisher.publish_sensor("petzone-01", "food_weight", 100.0, "g")
     publisher.publish_sensor("petzone-01", "water_weight", 500.0, "g")
+    publisher.publish_sensor("bed-01", "temperature", 21.5, "C")
+    publisher.publish_sensor("bed-01", "humidity", 48.0, "%")
 
 
 def run_production_handler_sequence(
@@ -331,7 +333,7 @@ def run_production_handler_sequence(
                 int(
                     session.execute(
                         select(func.count(SensorReading.id)).where(
-                            SensorReading.device_id == "petzone-01",
+                            SensorReading.device_id == "bed-01",
                             SensorReading.sensor_type == f"bed_pressure_{channel}",
                             SensorReading.observed_at > datetime.now(UTC) - timedelta(seconds=60),
                         )
@@ -352,7 +354,7 @@ def run_production_handler_sequence(
             if now >= next_sensor:
                 publisher.publish_sensor("petzone-01", "food_weight", phase.food_weight_g, "g")
                 for channel, raw in zip(("left", "center", "right"), phase.pressure, strict=True):
-                    publisher.publish_sensor("petzone-01", f"bed_pressure_{channel}", raw, "adc")
+                    publisher.publish_sensor("bed-01", f"bed_pressure_{channel}", raw, "adc")
                 next_sensor += 1.0
             if now >= next_camera:
                 if not camera.process_once():
@@ -380,7 +382,7 @@ def run_production_handler_sequence(
         calibration_phase = sequence.phase("empty_calibration")
         elapsed[calibration_phase.name] = drive(calibration_phase)
         _wait_until(lambda: min(count_pressure_samples()) >= 45, 10, "calibration samples")
-        calibration = worker.submit(CalibrateBedCommand(device_id="petzone-01")).result(timeout=15)
+        calibration = worker.submit(CalibrateBedCommand(device_id="bed-01")).result(timeout=15)
         if (calibration.window_end - calibration.window_start).total_seconds() != 60:
             raise RuntimeError("calibration window was shortened")
 

@@ -737,7 +737,7 @@ EXPECTED_COLUMN_SIGNATURES = {
 
 EXPECTED_CHECK_NAMES = {
     "devices": {"ck_devices_device_id", "ck_devices_status"},
-    "sensor_readings": {"ck_sensor_readings_one_value", "ck_sensor_readings_finite_number", "ck_sensor_readings_type_unit_value", "ck_sensor_readings_device_profile", "ck_sensor_readings_pressure_range"},
+    "sensor_readings": {"ck_sensor_readings_one_value", "ck_sensor_readings_finite_number", "ck_sensor_readings_type_unit_value", "ck_sensor_readings_device_profile", "ck_sensor_readings_pressure_range", "ck_sensor_readings_weight_range"},
     "cameras": {"ck_cameras_camera_id", "ck_cameras_status"},
     "zones": {"ck_zones_zone_name", "ck_zones_x_bounds", "ck_zones_y_bounds"},
     "camera_events": {"ck_camera_events_detected_type", "ck_camera_events_subject_type", "ck_camera_events_confidence", "ck_camera_events_bbox_x", "ck_camera_events_bbox_y", "ck_camera_events_center"},
@@ -810,7 +810,7 @@ EXPECTED_CHECK_DEFINITIONS = {
     ("anomaly_events", "ck_anomaly_events_relation", "CHECK ((anomaly_type::text = 'no_meal_12h'::text AND (subject_id::text = ANY (ARRAY['dog_001'::character varying, 'cat_001'::character varying]::text[])) AND mismatch_kind IS NULL AND source_behavior_event_id IS NOT NULL OR anomaly_type::text = 'bed_sensor_mismatch'::text AND mismatch_kind::text = 'sensor_check'::text AND (subject_id::text = ANY (ARRAY['dog_001'::character varying, 'cat_001'::character varying]::text[])) AND source_behavior_event_id IS NULL OR anomaly_type::text = 'bed_sensor_mismatch'::text AND mismatch_kind::text = 'unconfirmed_pressure'::text AND subject_id IS NULL AND source_behavior_event_id IS NULL OR anomaly_type::text = 'repetitive_motion'::text AND (subject_id::text = ANY (ARRAY['dog_001'::character varying, 'cat_001'::character varying]::text[])) AND mismatch_kind IS NULL AND source_behavior_event_id IS NULL) IS TRUE)"),
     ("anomaly_events", "ck_anomaly_events_severity", "CHECK (severity::text = 'warning'::text)"),
     ("bed_calibrations", "ck_bed_calibrations_baselines", "CHECK (left_baseline >= 0::double precision AND left_baseline <= 4095::double precision AND left_baseline > '-Infinity'::double precision AND left_baseline < 'Infinity'::double precision AND center_baseline >= 0::double precision AND center_baseline <= 4095::double precision AND center_baseline > '-Infinity'::double precision AND center_baseline < 'Infinity'::double precision AND right_baseline >= 0::double precision AND right_baseline <= 4095::double precision AND right_baseline > '-Infinity'::double precision AND right_baseline < 'Infinity'::double precision)"),
-    ("bed_calibrations", "ck_bed_calibrations_device_id", "CHECK (device_id::text = 'petzone-01'::text)"),
+    ("bed_calibrations", "ck_bed_calibrations_device_id", "CHECK (device_id::text = 'bed-01'::text)"),
     ("bed_calibrations", "ck_bed_calibrations_polarities", "CHECK ((left_polarity = ANY (ARRAY['-1'::integer, 1])) AND (center_polarity = ANY (ARRAY['-1'::integer, 1])) AND (right_polarity = ANY (ARRAY['-1'::integer, 1])))"),
     ("bed_calibrations", "ck_bed_calibrations_sample_counts", "CHECK (left_sample_count >= 45 AND center_sample_count >= 45 AND right_sample_count >= 45)"),
     ("bed_calibrations", "ck_bed_calibrations_stability_limits", "CHECK (left_stability_limit >= 0 AND left_stability_limit <= 4095 AND center_stability_limit >= 0 AND center_stability_limit <= 4095 AND right_stability_limit >= 0 AND right_stability_limit <= 4095)"),
@@ -827,16 +827,17 @@ EXPECTED_CHECK_DEFINITIONS = {
     ("camera_events", "ck_camera_events_subject_type", "CHECK (((detected_type::text = ANY (ARRAY['person'::character varying, 'bowl'::character varying, 'bed'::character varying, 'couch'::character varying]::text[])) AND subject_id IS NULL OR detected_type::text = 'dog'::text AND subject_id::text = 'dog_001'::text OR detected_type::text = 'cat'::text AND subject_id::text = 'cat_001'::text) IS TRUE)"),
     ("cameras", "ck_cameras_camera_id", "CHECK (camera_id::text = 'pc-webcam-01'::text)"),
     ("cameras", "ck_cameras_status", "CHECK (status::text = ANY (ARRAY['online'::character varying, 'offline'::character varying]::text[]))"),
-    ("devices", "ck_devices_device_id", "CHECK (device_id::text = ANY (ARRAY['entrance-01'::character varying, 'petzone-01'::character varying]::text[]))"),
+    ("devices", "ck_devices_device_id", "CHECK (device_id::text = ANY (ARRAY['entrance-01'::character varying, 'petzone-01'::character varying, 'bed-01'::character varying]::text[]))"),
     ("devices", "ck_devices_status", "CHECK (status::text = ANY (ARRAY['online'::character varying, 'offline'::character varying, 'unknown'::character varying]::text[]))"),
     ("rest_sessions", "ck_rest_sessions_last_confirmed", "CHECK (last_confirmed_at >= started_at)"),
     ("rest_sessions", "ck_rest_sessions_open_closed", "CHECK (ended_at IS NULL AND duration_seconds IS NULL AND close_reason IS NULL OR ended_at IS NOT NULL AND duration_seconds IS NOT NULL AND close_reason IS NOT NULL AND ended_at >= started_at AND duration_seconds >= 0 AND (close_reason::text = ANY (ARRAY['pressure_exit'::character varying, 'camera_exit'::character varying, 'sensor_loss'::character varying, 'camera_loss'::character varying, 'shutdown'::character varying, 'restart'::character varying]::text[])))"),
     ("rest_sessions", "ck_rest_sessions_subject_id", "CHECK (subject_id::text = ANY (ARRAY['dog_001'::character varying, 'cat_001'::character varying]::text[]))"),
-    ("sensor_readings", "ck_sensor_readings_device_profile", "CHECK (device_id::text = 'petzone-01'::text OR (sensor_type::text = ANY (ARRAY['temperature'::character varying, 'humidity'::character varying, 'presence_moving'::character varying, 'presence_stationary'::character varying]::text[])))"),
+    ("sensor_readings", "ck_sensor_readings_device_profile", "CHECK (device_id::text = 'entrance-01'::text AND (sensor_type::text = ANY (ARRAY['temperature'::character varying, 'humidity'::character varying, 'presence_moving'::character varying, 'presence_stationary'::character varying]::text[])) OR device_id::text = 'petzone-01'::text AND (sensor_type::text = ANY (ARRAY['food_weight'::character varying, 'water_weight'::character varying]::text[])) OR device_id::text = 'bed-01'::text AND (sensor_type::text = ANY (ARRAY['temperature'::character varying, 'humidity'::character varying, 'bed_pressure_left'::character varying, 'bed_pressure_center'::character varying, 'bed_pressure_right'::character varying]::text[])))"),
     ("sensor_readings", "ck_sensor_readings_finite_number", "CHECK (value_number IS NULL OR value_number > '-Infinity'::double precision AND value_number < 'Infinity'::double precision)"),
     ("sensor_readings", "ck_sensor_readings_one_value", "CHECK ((value_number IS NULL) <> (value_boolean IS NULL))"),
     ("sensor_readings", "ck_sensor_readings_pressure_range", "CHECK ((sensor_type::text <> ALL (ARRAY['bed_pressure_left'::character varying, 'bed_pressure_center'::character varying, 'bed_pressure_right'::character varying]::text[])) OR value_number >= 0::double precision AND value_number <= 4095::double precision AND value_number = trunc(value_number))"),
-    ("sensor_readings", "ck_sensor_readings_type_unit_value", "CHECK (sensor_type::text = 'temperature'::text AND unit::text = 'C'::text AND value_number IS NOT NULL AND value_boolean IS NULL OR sensor_type::text = 'humidity'::text AND unit::text = '%'::text AND value_number IS NOT NULL AND value_boolean IS NULL OR (sensor_type::text = ANY (ARRAY['presence_moving'::character varying, 'presence_stationary'::character varying]::text[])) AND unit::text = 'bool'::text AND value_number IS NULL AND value_boolean IS NOT NULL OR (sensor_type::text = ANY (ARRAY['food_weight'::character varying, 'water_weight'::character varying]::text[])) AND device_id::text = 'petzone-01'::text AND unit::text = 'g'::text AND value_number IS NOT NULL AND value_boolean IS NULL OR (sensor_type::text = ANY (ARRAY['bed_pressure_left'::character varying, 'bed_pressure_center'::character varying, 'bed_pressure_right'::character varying]::text[])) AND device_id::text = 'petzone-01'::text AND unit::text = 'adc'::text AND value_number IS NOT NULL AND value_boolean IS NULL)"),
+    ("sensor_readings", "ck_sensor_readings_type_unit_value", "CHECK (sensor_type::text = 'temperature'::text AND unit::text = 'C'::text AND value_number IS NOT NULL AND value_boolean IS NULL OR sensor_type::text = 'humidity'::text AND unit::text = '%'::text AND value_number IS NOT NULL AND value_boolean IS NULL OR (sensor_type::text = ANY (ARRAY['presence_moving'::character varying, 'presence_stationary'::character varying]::text[])) AND unit::text = 'bool'::text AND value_number IS NULL AND value_boolean IS NOT NULL OR (sensor_type::text = ANY (ARRAY['food_weight'::character varying, 'water_weight'::character varying]::text[])) AND device_id::text = 'petzone-01'::text AND unit::text = 'g'::text AND value_number IS NOT NULL AND value_boolean IS NULL OR (sensor_type::text = ANY (ARRAY['bed_pressure_left'::character varying, 'bed_pressure_center'::character varying, 'bed_pressure_right'::character varying]::text[])) AND device_id::text = 'bed-01'::text AND unit::text = 'adc'::text AND value_number IS NOT NULL AND value_boolean IS NULL)"),
+    ("sensor_readings", "ck_sensor_readings_weight_range", "CHECK ((sensor_type::text <> ALL (ARRAY['food_weight'::character varying, 'water_weight'::character varying]::text[])) OR value_number >= 0::double precision AND value_number <= 5000::double precision)"),
     ("zones", "ck_zones_x_bounds", "CHECK (0 <= x1 AND x1 < x2 AND x2 <= 640)"),
     ("zones", "ck_zones_y_bounds", "CHECK (0 <= y1 AND y1 < y2 AND y2 <= 480)"),
     ("zones", "ck_zones_zone_name", "CHECK (zone_name::text = ANY (ARRAY['food_bowl'::character varying, 'pet_bed'::character varying]::text[]))"),
@@ -1094,12 +1095,57 @@ def reset_data(engine) -> None:
         )
 
 
-def seed_sources(engine) -> tuple[int, int]:
+def test_split_bed_pico_migrates_existing_sensor_history(database_url: str) -> None:
+    config = alembic_config(database_url)
+    command.downgrade(config, "base")
+    command.upgrade(config, "0005_activity_cleanup_state")
+    engine = create_engine(database_url)
     with engine.begin() as connection:
         connection.exec_driver_sql("INSERT INTO devices(device_id) VALUES ('petzone-01')")
+        connection.exec_driver_sql(
+            "INSERT INTO sensor_readings(device_id,sensor_type,value_number,value_boolean,unit,observed_at) VALUES "
+            "('petzone-01','temperature',24,NULL,'C','2026-07-15T00:00:00Z'),"
+            "('petzone-01','humidity',50,NULL,'%','2026-07-15T00:00:01Z'),"
+            "('petzone-01','presence_moving',NULL,true,'bool','2026-07-15T00:00:02Z'),"
+            "('petzone-01','food_weight',100,NULL,'g','2026-07-15T00:00:03Z'),"
+            "('petzone-01','bed_pressure_left',300,NULL,'adc','2026-07-15T00:00:04Z'),"
+            "('petzone-01','water_weight',-100,NULL,'g','2026-07-15T00:00:05Z')"
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO bed_calibrations(device_id,calibrated_at,window_start,window_end,left_sample_count,left_baseline,left_polarity,left_stability_limit,center_sample_count,center_baseline,center_polarity,center_stability_limit,right_sample_count,right_baseline,right_polarity,right_stability_limit,entry_threshold,exit_threshold) VALUES ('petzone-01','2026-07-15T00:01:00Z','2026-07-15T00:00:00Z','2026-07-15T00:01:00Z',45,100,1,40,45,101,1,40,45,102,1,40,450,250)"
+        )
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.exec_driver_sql(
+            "SELECT device_id,sensor_type FROM sensor_readings ORDER BY observed_at"
+        ).all() == [
+            ("bed-01", "temperature"),
+            ("bed-01", "humidity"),
+            ("petzone-01", "food_weight"),
+            ("bed-01", "bed_pressure_left"),
+        ]
+        assert connection.exec_driver_sql("SELECT device_id FROM bed_calibrations").scalar_one() == "bed-01"
+    engine.dispose()
+
+    command.downgrade(config, "0005_activity_cleanup_state")
+    engine = create_engine(database_url)
+    with engine.connect() as connection:
+        assert set(connection.exec_driver_sql("SELECT DISTINCT device_id FROM sensor_readings").scalars()) == {"petzone-01"}
+        assert connection.exec_driver_sql("SELECT device_id FROM bed_calibrations").scalar_one() == "petzone-01"
+        assert connection.exec_driver_sql("SELECT count(*) FROM devices WHERE device_id='bed-01'").scalar_one() == 0
+    engine.dispose()
+    command.upgrade(config, "head")
+
+
+def seed_sources(engine) -> tuple[int, int]:
+    with engine.begin() as connection:
+        connection.exec_driver_sql("INSERT INTO devices(device_id) VALUES ('bed-01')")
         connection.exec_driver_sql("INSERT INTO cameras(camera_id) VALUES ('pc-webcam-01')")
         sensor_id = connection.exec_driver_sql(
-            "INSERT INTO sensor_readings(device_id,sensor_type,value_number,unit,observed_at) VALUES ('petzone-01','bed_pressure_left',100,'adc','2026-07-15T00:00:00Z') RETURNING id"
+            "INSERT INTO sensor_readings(device_id,sensor_type,value_number,unit,observed_at) VALUES ('bed-01','bed_pressure_left',100,'adc','2026-07-15T00:00:00Z') RETURNING id"
         ).scalar_one()
         camera_id = connection.exec_driver_sql(
             "INSERT INTO camera_events(camera_id,subject_id,detected_type,confidence,bbox_x,bbox_y,bbox_width,bbox_height,center_x,center_y,zone_name,observed_at) VALUES ('pc-webcam-01','dog_001','dog',0.9,320,180,100,100,370,230,'pet_bed','2026-07-15T00:00:00Z') RETURNING id"
@@ -1138,14 +1184,14 @@ def test_row_checks_global_open_and_deferred_relationship_matrix(database_url: s
 
     with engine.begin() as connection:
         connection.exec_driver_sql(
-            "INSERT INTO sensor_readings(device_id,sensor_type,value_number,unit,observed_at) VALUES ('petzone-01','humidity',50.0,%s,'2026-07-15T00:00:01Z')",
+            "INSERT INTO sensor_readings(device_id,sensor_type,value_number,unit,observed_at) VALUES ('bed-01','humidity',50.0,%s,'2026-07-15T00:00:01Z')",
             ("%",),
         )
 
     with engine.connect() as connection, connection.begin():
         with pytest.raises(IntegrityError) as caught:
             connection.exec_driver_sql(
-                "INSERT INTO sensor_readings(device_id,sensor_type,value_number,unit,observed_at) VALUES ('petzone-01','bed_pressure_left',4096,'adc','2026-07-15T00:00:01Z')"
+                "INSERT INTO sensor_readings(device_id,sensor_type,value_number,unit,observed_at) VALUES ('bed-01','bed_pressure_left',4096,'adc','2026-07-15T00:00:01Z')"
             )
         assert sqlstate(caught.value) == "23514"
 
@@ -1407,6 +1453,6 @@ def test_row_checks_global_open_and_deferred_relationship_matrix(database_url: s
 
     with engine.begin() as connection:
         connection.exec_driver_sql(
-            "INSERT INTO bed_calibrations(device_id,calibrated_at,window_start,window_end,left_sample_count,left_baseline,left_polarity,left_stability_limit,center_sample_count,center_baseline,center_polarity,center_stability_limit,right_sample_count,right_baseline,right_polarity,right_stability_limit,entry_threshold,exit_threshold) VALUES ('petzone-01','2026-07-15T00:01:00Z','2026-07-15T00:00:00Z','2026-07-15T00:01:00Z',45,100,1,40,45,101,1,40,45,102,1,40,450,250)"
+            "INSERT INTO bed_calibrations(device_id,calibrated_at,window_start,window_end,left_sample_count,left_baseline,left_polarity,left_stability_limit,center_sample_count,center_baseline,center_polarity,center_stability_limit,right_sample_count,right_baseline,right_polarity,right_stability_limit,entry_threshold,exit_threshold) VALUES ('bed-01','2026-07-15T00:01:00Z','2026-07-15T00:00:00Z','2026-07-15T00:01:00Z',45,100,1,40,45,101,1,40,45,102,1,40,450,250)"
         )
     engine.dispose()

@@ -37,14 +37,14 @@ BLOCK_LOCATIONS = {
 HARDWARE_COMPONENTS = (
     "entrance_serial_boot",
     "petzone_serial_boot",
+    "bed_serial_boot",
     "authenticated_sensor_subscription",
     "authenticated_status_subscription",
     "mqtt_reconnect",
     "entrance_sht31_installed",
-    "petzone_sht31_installed",
+    "bed_sht31_installed",
     "spare_sht31_test",
     "entrance_ld2410c_installed",
-    "petzone_ld2410c_installed",
     "food_bowl_calibrated",
     "water_bowl_calibrated",
     "fsr_left_raw",
@@ -130,7 +130,7 @@ def _load_blocks(root: Path) -> dict[str, Any]:
 
 def _validate_architecture(block: Any) -> None:
     expected = {
-        "pico_nodes": ["entrance-01", "petzone-01"],
+        "pico_nodes": ["entrance-01", "petzone-01", "bed-01"],
         "camera_id": "pc-webcam-01",
         "camera_sources": ["usb", "file", "jetson", "disabled"],
         "subjects": ["dog_001", "cat_001"],
@@ -189,10 +189,8 @@ def _validate_pico_contract(block: Any, config: str, mqtt: str) -> None:
         "resolved_platform": "rp2350-arm-s",
         "profiles": {
             "entrance-01": ["temperature", "humidity", "presence_moving", "presence_stationary"],
-            "petzone-01": [
-                "temperature", "humidity", "presence_moving", "presence_stationary",
-                "food_weight", "water_weight", "bed_pressure_left", "bed_pressure_center", "bed_pressure_right",
-            ],
+            "petzone-01": ["food_weight", "water_weight"],
+            "bed-01": ["temperature", "humidity", "bed_pressure_left", "bed_pressure_center", "bed_pressure_right"],
         },
         "pins": {
             "sht31": {"i2c": _cpp_integer(config, "sht31_i2c_index"), "sda": _cpp_integer(config, "sht31_sda_pin"), "scl": _cpp_integer(config, "sht31_scl_pin"), "address": _cpp_integer(config, "sht31_address")},
@@ -232,7 +230,7 @@ def _validate_hardware(block: Any) -> str:
     _require(isinstance(block, dict), "hardware-gate block must be an object")
     _expect(block.get("aggregate"), "NOT RUN", "hardware aggregate")
     nodes = block.get("nodes")
-    _expect(nodes, {"entrance-01": "NOT RUN", "petzone-01": "NOT RUN", "home-camera": "NOT RUN"}, "hardware node statuses")
+    _expect(nodes, {"entrance-01": "NOT RUN", "petzone-01": "NOT RUN", "bed-01": "NOT RUN", "home-camera": "NOT RUN"}, "hardware node statuses")
     components = block.get("components")
     _require(isinstance(components, list), "hardware components must be a list")
     expected = [{"id": name, "status": "NOT RUN", "evidence": None} for name in HARDWARE_COMPONENTS]

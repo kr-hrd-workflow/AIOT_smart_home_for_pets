@@ -38,7 +38,7 @@ class Base(DeclarativeBase):
 class Device(Base):
     __tablename__ = "devices"
     __table_args__ = (
-        CheckConstraint("device_id IN ('entrance-01','petzone-01')", name="device_id"),
+        CheckConstraint("device_id IN ('entrance-01','petzone-01','bed-01')", name="device_id"),
         CheckConstraint("status IN ('online','offline','unknown')", name="status"),
     )
 
@@ -59,11 +59,12 @@ class SensorReading(Base):
             "(sensor_type='humidity' AND unit='%' AND value_number IS NOT NULL AND value_boolean IS NULL) OR "
             "(sensor_type IN ('presence_moving','presence_stationary') AND unit='bool' AND value_number IS NULL AND value_boolean IS NOT NULL) OR "
             "(sensor_type IN ('food_weight','water_weight') AND device_id='petzone-01' AND unit='g' AND value_number IS NOT NULL AND value_boolean IS NULL) OR "
-            "(sensor_type IN ('bed_pressure_left','bed_pressure_center','bed_pressure_right') AND device_id='petzone-01' AND unit='adc' AND value_number IS NOT NULL AND value_boolean IS NULL)",
+            "(sensor_type IN ('bed_pressure_left','bed_pressure_center','bed_pressure_right') AND device_id='bed-01' AND unit='adc' AND value_number IS NOT NULL AND value_boolean IS NULL)",
             name="type_unit_value",
         ),
-        CheckConstraint("device_id='petzone-01' OR sensor_type IN ('temperature','humidity','presence_moving','presence_stationary')", name="device_profile"),
+        CheckConstraint("(device_id='entrance-01' AND sensor_type IN ('temperature','humidity','presence_moving','presence_stationary')) OR (device_id='petzone-01' AND sensor_type IN ('food_weight','water_weight')) OR (device_id='bed-01' AND sensor_type IN ('temperature','humidity','bed_pressure_left','bed_pressure_center','bed_pressure_right'))", name="device_profile"),
         CheckConstraint("sensor_type NOT IN ('bed_pressure_left','bed_pressure_center','bed_pressure_right') OR (value_number BETWEEN 0 AND 4095 AND value_number=trunc(value_number))", name="pressure_range"),
+        CheckConstraint("sensor_type NOT IN ('food_weight','water_weight') OR value_number BETWEEN 0 AND 5000", name="weight_range"),
         UniqueConstraint("device_id", "sensor_type", "observed_at", name="uq_sensor_readings_device_type_observed"),
         Index("ix_sensor_readings_device_type_time", "device_id", "sensor_type", text("observed_at DESC"), text("id DESC")),
         Index("ix_sensor_readings_type_time", "sensor_type", text("observed_at DESC"), text("id DESC")),
@@ -301,7 +302,7 @@ class ClipTriggerOutbox(Base):
 class BedCalibration(Base):
     __tablename__ = "bed_calibrations"
     __table_args__ = (
-        CheckConstraint("device_id='petzone-01'", name="device_id"),
+        CheckConstraint("device_id='bed-01'", name="device_id"),
         CheckConstraint("window_end=window_start+INTERVAL '60 seconds' AND calibrated_at>=window_end", name="window"),
         CheckConstraint("left_sample_count>=45 AND center_sample_count>=45 AND right_sample_count>=45", name="sample_counts"),
         CheckConstraint("left_baseline BETWEEN 0 AND 4095 AND left_baseline > '-Infinity'::DOUBLE PRECISION AND left_baseline < 'Infinity'::DOUBLE PRECISION AND center_baseline BETWEEN 0 AND 4095 AND center_baseline > '-Infinity'::DOUBLE PRECISION AND center_baseline < 'Infinity'::DOUBLE PRECISION AND right_baseline BETWEEN 0 AND 4095 AND right_baseline > '-Infinity'::DOUBLE PRECISION AND right_baseline < 'Infinity'::DOUBLE PRECISION", name="baselines"),

@@ -151,7 +151,7 @@ void SensorSchedule::prepare(std::uint32_t due_ms, bool sht_due, bool fast_due, 
     pending_size_ = 0;
     pending_index_ = 0;
 
-    if (sht_due) {
+    if (sht_due && profile_ != DeviceProfile::petzone_01) {
         bool failed = false;
         double temperature = 0.0;
         double humidity = 0.0;
@@ -176,7 +176,7 @@ void SensorSchedule::prepare(std::uint32_t due_ms, bool sht_due, bool fast_due, 
 
     if (fast_due) {
         bool failed = false;
-        if (source_.read_presence) {
+        if (profile_ == DeviceProfile::entrance_01 && source_.read_presence) {
             bool moving = false;
             bool stationary = false;
             if (source_.read_presence(source_.context, moving, stationary)) {
@@ -185,7 +185,7 @@ void SensorSchedule::prepare(std::uint32_t due_ms, bool sht_due, bool fast_due, 
             } else {
                 failed = true;
             }
-        } else {
+        } else if (profile_ == DeviceProfile::entrance_01) {
             failed = true;
         }
 
@@ -205,6 +205,8 @@ void SensorSchedule::prepare(std::uint32_t due_ms, bool sht_due, bool fast_due, 
             } else {
                 failed = true;
             }
+        }
+        if (profile_ == DeviceProfile::bed_01) {
             if (source_.read_fsr) {
                 constexpr std::array<FsrChannel, 3> channels{{
                     FsrChannel::left, FsrChannel::center, FsrChannel::right,
@@ -271,18 +273,20 @@ bool SensorHardware::init() {
     static_assert(config::presence_cadence_ms == config::weight_cadence_ms);
     static_assert(config::presence_cadence_ms == config::fsr_cadence_ms);
 
+#if defined(PETCARE_PROFILE_ENTRANCE) || defined(PETCARE_PROFILE_BED)
     i2c_init(i2c0, config::sht31_i2c_baud_hz);
     gpio_set_function(config::sht31_sda_pin, GPIO_FUNC_I2C);
     gpio_set_function(config::sht31_scl_pin, GPIO_FUNC_I2C);
     gpio_pull_up(config::sht31_sda_pin);
     gpio_pull_up(config::sht31_scl_pin);
-
+#endif
+#if defined(PETCARE_PROFILE_ENTRANCE)
     uart_init(uart1, config::ld2410c_baud);
     uart_set_format(uart1, config::ld2410c_data_bits, config::ld2410c_stop_bits, UART_PARITY_NONE);
     uart_set_fifo_enabled(uart1, true);
     gpio_set_function(config::ld2410c_rx_pin, GPIO_FUNC_UART);
 
-#if defined(PETCARE_PROFILE_PETZONE)
+#elif defined(PETCARE_PROFILE_PETZONE)
     for (const auto pin : {config::food_hx711_dout_pin, config::water_hx711_dout_pin}) {
         gpio_init(pin);
         gpio_set_dir(pin, GPIO_IN);
@@ -292,6 +296,7 @@ bool SensorHardware::init() {
         gpio_put(pin, false);
         gpio_set_dir(pin, GPIO_OUT);
     }
+#elif defined(PETCARE_PROFILE_BED)
     adc_init();
     for (const auto pin : {config::fsr_left_pin, config::fsr_center_pin, config::fsr_right_pin}) {
         adc_gpio_init(pin);
@@ -311,7 +316,9 @@ void SensorHardware::drain_presence() {
 }
 
 void SensorHardware::poll() {
+#if defined(PETCARE_PROFILE_ENTRANCE)
     drain_presence();
+#endif
 }
 
 bool SensorHardware::read_sht31(void*, double& temperature, double& humidity) {
@@ -366,7 +373,8 @@ bool SensorHardware::read_hx711(
     sleep_us(1);
 
     const auto signed_raw = static_cast<std::int32_t>(raw) - ((raw & 0x800000U) ? 0x01000000 : 0);
-    return calibration.grams(signed_raw, grams) && std::isfinite(grams);
+    return calibration.grams(signed_raw, grams) && std::isfinite(grams) &&
+           grams <= config::weight_max_grams;
 }
 
 bool SensorHardware::read_weight(void*, Bowl bowl, double& grams) {

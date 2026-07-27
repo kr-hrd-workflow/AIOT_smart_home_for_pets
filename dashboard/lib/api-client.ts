@@ -24,7 +24,7 @@ const nullableUtc = utc.nullable();
 const finite = z.number().finite();
 const nonNegativeInteger = z.number().int().nonnegative();
 const channel = z.enum(["left", "center", "right"]);
-const DEVICE_ORDER = ["entrance-01", "petzone-01"] as const;
+const DEVICE_ORDER = ["entrance-01", "petzone-01", "bed-01"] as const;
 const SENSOR_ORDER = [
   "temperature",
   "humidity",
@@ -84,7 +84,7 @@ const health = z
 
 const device = z
   .object({
-    device_id: z.enum(["entrance-01", "petzone-01"]),
+    device_id: z.enum(["entrance-01", "petzone-01", "bed-01"]),
     status: z.enum(["online", "offline", "unknown"]),
     last_seen_at: nullableUtc,
   })
@@ -93,7 +93,7 @@ const device = z
 const sensor = z
   .object({
     id: nonNegativeInteger,
-    device_id: z.enum(["entrance-01", "petzone-01"]),
+    device_id: z.enum(["entrance-01", "petzone-01", "bed-01"]),
     sensor_type: z.enum([
       "temperature",
       "humidity",
@@ -117,10 +117,10 @@ const sensor = z
       return typeof value.value === "boolean" && value.unit === "bool";
     }
     if (value.sensor_type === "food_weight" || value.sensor_type === "water_weight") {
-      return value.device_id === "petzone-01" && typeof value.value === "number" && value.unit === "g";
+      return value.device_id === "petzone-01" && typeof value.value === "number" && value.value >= 0 && value.value <= 5000 && value.unit === "g";
     }
     return (
-      value.device_id === "petzone-01" &&
+      value.device_id === "bed-01" &&
       typeof value.value === "number" &&
       Number.isInteger(value.value) &&
       Number(value.value) >= 0 &&
@@ -226,7 +226,7 @@ const sevenDay = z
 
 const bedStatus = z
   .object({
-    device_id: z.literal("petzone-01"),
+    device_id: z.literal("bed-01"),
     sensor_state: z.enum(["unavailable", "uncalibrated", "ready"]),
     pressure_state: z.enum(["unavailable", "uncalibrated", "empty", "occupied"]),
     fusion_state: z.enum(["unavailable", "empty", "confirmed_rest", "unconfirmed_pressure", "sensor_check"]),
@@ -311,7 +311,7 @@ const calibrationChannel = z
   .strict();
 const calibrationSuccess = z
   .object({
-    device_id: z.literal("petzone-01"),
+    device_id: z.literal("bed-01"),
     calibrated_at: utc,
     window_start: utc,
     window_end: utc,
@@ -421,7 +421,7 @@ export class PetCareClient {
       method: "POST",
       credentials: "omit",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ device_id: "petzone-01" }),
+      body: JSON.stringify({ device_id: "bed-01" }),
       signal,
     });
     const body = await responseJson(response);

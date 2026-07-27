@@ -590,7 +590,7 @@ if ($LASTEXITCODE) { throw 'Home Agent service installation failed' }
 if ($LASTEXITCODE) { throw 'Home Agent service dependency configuration failed' }
 
 Write-Output 'PetCare Home Agent installation PASS'
-Write-Output 'Return to the authenticated dashboard to configure both Pico Wi-Fi connections.'
+Write-Output 'Return to the authenticated dashboard to configure all three Pico Wi-Fi connections.'
 }
 catch {
     if ($temporaryServicesStarted) {

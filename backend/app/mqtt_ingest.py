@@ -256,7 +256,7 @@ def load_sensor_watermarks(session_factory: Callable[[], Session]) -> dict[tuple
 def ensure_devices(session_factory: Callable[[], Session]) -> None:
     session = session_factory()
     try:
-        for device_id in ("entrance-01", "petzone-01"):
+        for device_id in ("entrance-01", "petzone-01", "bed-01"):
             if session.get(Device, device_id) is None:
                 session.add(Device(device_id=device_id))
         session.commit()

@@ -27,7 +27,7 @@ def check_sensor_target_links() -> None:
     cmake = (ROOT / "firmware" / "pico_pet_node" / "pico" / "CMakeLists.txt").read_text(encoding="utf-8")
     function = cmake[cmake.index("function(add_petcare_node"):cmake.index("endfunction()")]
     missing = [
-        target for target in ("entrance-01", "petzone-01")
+        target for target in ("entrance-01", "petzone-01", "bed-01")
         if "src/sensors.cpp" not in function or f"add_petcare_node({target} " not in cmake
     ]
     require(
@@ -106,9 +106,10 @@ expected = {
         "presence_moving": ("bool", bool), "presence_stationary": ("bool", bool),
     },
     "petzone-01": {
-        "temperature": ("C", float), "humidity": ("%", int),
-        "presence_moving": ("bool", bool), "presence_stationary": ("bool", bool),
         "food_weight": ("g", int), "water_weight": ("g", int),
+    },
+    "bed-01": {
+        "temperature": ("C", float), "humidity": ("%", int),
         "bed_pressure_left": ("adc", int), "bed_pressure_center": ("adc", int), "bed_pressure_right": ("adc", int),
     },
 }
@@ -132,4 +133,4 @@ for device_id in expected:
 serialized = json.dumps(result, separators=(",", ":"))
 for retired in ("bed_weight", "light_lux", "motion", "door_open", "firmware_version", "ip", "uptime_sec", "timestamp"):
     require(f'"{retired}"' not in serialized, f"retired field {retired}")
-print("PASS Pico two-profile sensor/status contract")
+print("PASS Pico three-profile sensor/status contract")

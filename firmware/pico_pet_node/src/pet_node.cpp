@@ -12,21 +12,20 @@ namespace {
 struct SensorSpec {
     ValueKind kind;
     std::string_view unit;
-    bool petzone_only;
 };
 
 bool sensor_spec(std::string_view sensor_type, SensorSpec& output) {
     if (sensor_type == "temperature") {
-        output = {ValueKind::number, "C", false};
+        output = {ValueKind::number, "C"};
     } else if (sensor_type == "humidity") {
-        output = {ValueKind::number, "%", false};
+        output = {ValueKind::number, "%"};
     } else if (sensor_type == "presence_moving" || sensor_type == "presence_stationary") {
-        output = {ValueKind::boolean, "bool", false};
+        output = {ValueKind::boolean, "bool"};
     } else if (sensor_type == "food_weight" || sensor_type == "water_weight") {
-        output = {ValueKind::number, "g", true};
+        output = {ValueKind::number, "g"};
     } else if (sensor_type == "bed_pressure_left" || sensor_type == "bed_pressure_center" ||
                sensor_type == "bed_pressure_right") {
-        output = {ValueKind::integer, "adc", true};
+        output = {ValueKind::integer, "adc"};
     } else {
         return false;
     }
@@ -40,6 +39,10 @@ bool profile_for_device(std::string_view device_id, DeviceProfile& profile) {
     }
     if (device_id == "petzone-01") {
         profile = DeviceProfile::petzone_01;
+        return true;
+    }
+    if (device_id == "bed-01") {
+        profile = DeviceProfile::bed_01;
         return true;
     }
     return false;
@@ -101,6 +104,8 @@ std::string_view profile_device_id(DeviceProfile profile) {
         return "entrance-01";
     case DeviceProfile::petzone_01:
         return "petzone-01";
+    case DeviceProfile::bed_01:
+        return "bed-01";
     }
     return {};
 }
@@ -112,9 +117,14 @@ bool profile_allows(DeviceProfile profile, std::string_view sensor_type) {
     }
     switch (profile) {
     case DeviceProfile::entrance_01:
-        return !spec.petzone_only;
+        return sensor_type == "temperature" || sensor_type == "humidity" ||
+               sensor_type == "presence_moving" || sensor_type == "presence_stationary";
     case DeviceProfile::petzone_01:
-        return true;
+        return sensor_type == "food_weight" || sensor_type == "water_weight";
+    case DeviceProfile::bed_01:
+        return sensor_type == "temperature" || sensor_type == "humidity" ||
+               sensor_type == "bed_pressure_left" || sensor_type == "bed_pressure_center" ||
+               sensor_type == "bed_pressure_right";
     }
     return false;
 }
@@ -133,14 +143,14 @@ bool TelemetryMessage::assign(std::string_view new_topic, std::string_view new_p
 }
 
 bool WeightCalibration::grams(std::int32_t raw, double& output) const {
-    if (!std::isfinite(counts_per_gram) || counts_per_gram <= 0.0) {
+    if (!std::isfinite(counts_per_gram) || counts_per_gram == 0.0) {
         return false;
     }
     const double candidate = (static_cast<double>(raw) - static_cast<double>(tare_raw)) / counts_per_gram;
     if (!std::isfinite(candidate)) {
         return false;
     }
-    output = candidate;
+    output = std::max(0.0, candidate);
     return true;
 }
 

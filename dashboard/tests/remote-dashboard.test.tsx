@@ -215,11 +215,12 @@ it("prevents duplicate enrollment, reports failure, and permits retry", async ()
 
   const checklist = await screen.findByRole("list", { name: "우리 집 연결" });
   const steps = within(checklist).getAllByRole("listitem");
-  expect(steps).toHaveLength(4);
+  expect(steps).toHaveLength(5);
   expect(steps[0]).toHaveTextContent("홈 에이전트");
   expect(steps[1]).toHaveTextContent("현관 Pico");
-  expect(steps[2]).toHaveTextContent("생활공간 Pico");
-  expect(steps[3]).toHaveTextContent("Jetson 카메라필수");
+  expect(steps[2]).toHaveTextContent("식기 Pico");
+  expect(steps[3]).toHaveTextContent("침대 Pico");
+  expect(steps[4]).toHaveTextContent("Jetson 카메라필수");
   const button = await screen.findByRole("button", { name: "10분 코드 만들기" });
   expect(steps[0]).toContainElement(button);
   const installer = screen.getByRole("link", {
@@ -328,7 +329,7 @@ it("keeps the setup checklist visible when optional runtime data is absent", asy
   );
 
   const checklist = await screen.findByRole("list", { name: "우리 집 연결" });
-  expect(within(checklist).getAllByRole("listitem")).toHaveLength(4);
+  expect(within(checklist).getAllByRole("listitem")).toHaveLength(5);
   expect(
     screen.getByRole("link", { name: "오프라인 복구 설정 열기" }),
   ).toHaveAttribute("href", "http://127.0.0.1:8000/setup");
@@ -398,6 +399,7 @@ it("marks fixed Pico IDs independently and requires the Jetson camera for comple
         devices: [
           { device_id: "entrance-01", status: "online", last_seen_at: "2026-07-20T01:00:00Z" },
           { device_id: "petzone-01", status: "offline", last_seen_at: null },
+          { device_id: "bed-01", status: "offline", last_seen_at: null },
         ],
       },
     }),
@@ -413,7 +415,8 @@ it("marks fixed Pico IDs independently and requires the Jetson camera for comple
   const firstChecklist = await screen.findByRole("list", { name: "우리 집 연결" });
   const firstSteps = within(firstChecklist).getAllByRole("listitem");
   expect(firstSteps[1]).toHaveTextContent("현관 Pico연결됨");
-  expect(firstSteps[2]).toHaveTextContent("생활공간 Pico연결 필요");
+  expect(firstSteps[2]).toHaveTextContent("식기 Pico연결 필요");
+  expect(firstSteps[3]).toHaveTextContent("침대 Pico연결 필요");
   expect(screen.queryByText("필수 연결 완료")).not.toBeInTheDocument();
 
   view.unmount();
@@ -439,7 +442,7 @@ it("marks fixed Pico IDs independently and requires the Jetson camera for comple
     screen.getByRole("heading", { name: "PetCare 운영 현황", level: 1 }),
   ).toBeInTheDocument();
   const completeChecklist = screen.getByRole("list", { name: "우리 집 연결" });
-  expect(within(completeChecklist).getAllByRole("listitem")[3]).toHaveTextContent(
+  expect(within(completeChecklist).getAllByRole("listitem")[4]).toHaveTextContent(
     "Jetson 카메라필수",
   );
 });
@@ -455,7 +458,7 @@ it("marks the required Jetson camera connected from remote status", async () => 
   );
 
   const checklist = await screen.findByRole("list", { name: "우리 집 연결" });
-  expect(within(checklist).getAllByRole("listitem")[3]).toHaveTextContent(
+  expect(within(checklist).getAllByRole("listitem")[4]).toHaveTextContent(
     "Jetson 카메라필수연결됨",
   );
   expect(screen.getByText("필수 연결 완료")).toBeInTheDocument();

@@ -2,7 +2,7 @@
 
 ## 현재 아키텍처
 
-PetCare는 센서 노드와 Home 런타임을 분리합니다. 두 Pico 2 W는 C++로 센서 원값과 online/offline 상태를 MQTT QoS 1로 발행합니다. Home 런타임은 loopback PostgreSQL/MQTT, FastAPI, 카메라 파이프라인, 규칙 worker, vinext 대시보드를 실행합니다. 카메라 입력은 `usb`, 테스트용 `file`, 승인된 `jetson`, 또는 `disabled` 중 하나입니다.
+PetCare는 센서 노드와 Home 런타임을 분리합니다. 세 Pico 2 W는 C++로 센서 원값과 online/offline 상태를 MQTT QoS 1로 발행합니다. Home 런타임은 loopback PostgreSQL/MQTT, FastAPI, 카메라 파이프라인, 규칙 worker, vinext 대시보드를 실행합니다. 카메라 입력은 `usb`, 테스트용 `file`, 승인된 `jetson`, 또는 `disabled` 중 하나입니다.
 
 센서·카메라 fact는 UTC observed time과 process-local monotonic deadline을 함께 사용합니다. 규칙 엔진만 eating/resting, FSR 점유, camera fusion, owner/handoff, mismatch를 판정하고 커밋된 결과만 대시보드 허브에 전달합니다. dog/cat 검출은 별도의 UTC 1초 활동 bucket으로 집계하며, 관측 공백은 정지로 채우지 않습니다. 반복 이동은 카메라 관측 warning일 뿐 의료·건강 판정이 아닙니다.
 

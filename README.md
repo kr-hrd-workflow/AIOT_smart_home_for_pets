@@ -1,6 +1,6 @@
 # PetCare Vision AIoT Smart Home
 
-PetCare는 두 대의 Raspberry Pi Pico 2 W, Windows Home Agent, Jetson 카메라, 공개 Sites 웹을 연결해 반려동물의 식사·휴식·카메라 관측 활동을 보여주는 제품입니다. 공개 랜딩과 fixture 전용 체험 화면은 누구나 볼 수 있고, 실제 가정 데이터와 기기 등록은 Supabase 로그인과 tenant 범위로 보호됩니다.
+PetCare는 세 대의 Raspberry Pi Pico 2 W, Windows Home Agent, Jetson 카메라, 공개 Sites 웹을 연결해 반려동물의 식사·휴식·카메라 관측 활동을 보여주는 제품입니다. 공개 랜딩과 fixture 전용 체험 화면은 누구나 볼 수 있고, 실제 가정 데이터와 기기 등록은 Supabase 로그인과 tenant 범위로 보호됩니다.
 
 공개 Sites 주소는 [kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site](https://kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site)입니다. 배포 시 검증된 `dashboard` subtree와 공개 URL의 source commit을 함께 확인합니다.
 
@@ -10,7 +10,7 @@ PetCare는 두 대의 Raspberry Pi Pico 2 W, Windows Home Agent, Jetson 카메�
 
 | 범위 | 상태 |
 | --- | --- |
-| Pico 2 W C++ 펌웨어와 MQTT 계약 | `entrance`·`petzone` 두 프로필 빌드 PASS |
+| Pico 2 W C++ 펌웨어와 MQTT 계약 | `entrance`·`petzone`·`bed` 세 프로필 |
 | FastAPI, PostgreSQL, MQTT, 행동 규칙 | 구현·로컬 통합 테스트됨 |
 | 공개 랜딩, `/demo`, 로그인 후 대시보드 | 연속 스크롤 scrub·인증 장애 fallback까지 구현·테스트됨 |
 | Supabase 고객 가입·로그인과 tenant 분리 | 구현·production Site URL·두 콜백 설정됨; 일반 고객 메일용 Custom SMTP는 미구성 |
@@ -40,7 +40,8 @@ Pico UF2 빌드는 두 프로필 모두 PASS했습니다. `entrance` SHA-256은 
 ### 장치 역할
 
 - `entrance-01`: SHT31 온습도와 LD2410C 이동/정지 존재 센서
-- `petzone-01`: SHT31·LD2410C에 식기/물그릇 HX711 채널과 침대 FSR 3채널 추가
+- `petzone-01`: 식기/물그릇 HX711 두 채널
+- `bed-01`: SHT31 온습도와 침대 FSR 3채널
 - Home Agent: 로컬 MQTT 수신, PostgreSQL, FastAPI, 카메라 추론, 활동·휴식·반복 이동 관측, 행동 규칙, Sites 연결
 - 카메라: 기본 USB, 테스트용 `file`, 승인된 `jetson`, 또는 `disabled`
 - Sites: 공개 제품 소개·데모와 Supabase 인증 기반 원격 대시보드
@@ -54,7 +55,7 @@ Pico는 FSR의 `0..4095` ADC 원값만 발행합니다. 침대 baseline, polarit
 <!-- petcare-docs:architecture -->
 ```json
 {
-  "pico_nodes": ["entrance-01", "petzone-01"],
+  "pico_nodes": ["entrance-01", "petzone-01", "bed-01"],
   "camera_id": "pc-webcam-01",
   "camera_sources": ["usb", "file", "jetson", "disabled"],
   "subjects": ["dog_001", "cat_001"],

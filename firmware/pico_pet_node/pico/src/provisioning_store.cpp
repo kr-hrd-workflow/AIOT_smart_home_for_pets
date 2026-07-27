@@ -134,7 +134,7 @@ ProvisioningError process_frame(
             stdio_flush();
             return ProvisioningError::none;
         }
-        if (device_id != "entrance-01" && device_id != "petzone-01") {
+        if (device_id != "entrance-01" && device_id != "petzone-01" && device_id != "bed-01") {
             return ProvisioningError::wrong_product;
         }
         std::array<std::uint8_t, max_product_id_bytes + 1> payload{};

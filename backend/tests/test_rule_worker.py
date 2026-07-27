@@ -683,7 +683,7 @@ def test_cancelled_command_never_executes_or_mutates_rule_state() -> None:
     ticket = ingress.begin("mqtt")
     ingress.resolve_committed(ticket, EVENT)
     assert entered_apply.wait(1)
-    future = worker.submit(CalibrateBedCommand(device_id="petzone-01"))
+    future = worker.submit(CalibrateBedCommand(device_id="bed-01"))
     assert future.cancel()
     release_apply.set()
     worker.shutdown()
@@ -721,7 +721,7 @@ def test_command_cannot_be_cancelled_after_execution_has_started() -> None:
 
     worker = rule_worker.RuleWorker(ingress=ingress, clock=clock, session_factory=Session, engine=Engine())
     worker.start()
-    future = worker.submit(CalibrateBedCommand(device_id="petzone-01"))
+    future = worker.submit(CalibrateBedCommand(device_id="bed-01"))
     assert entered_command.wait(1)
     cancelled = future.cancel()
     release_command.set()

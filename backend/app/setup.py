@@ -24,7 +24,7 @@ SESSION_SECONDS = 600
 SESSION_LIMIT = 64
 MAX_JETSON_BUNDLE_BYTES = 65_536
 MAX_PICO_REQUEST_BYTES = 256
-PICO_PRODUCTS = frozenset({"entrance-01", "petzone-01"})
+PICO_PRODUCTS = frozenset({"entrance-01", "petzone-01", "bed-01"})
 ALLOWED_HOSTS = frozenset({"127.0.0.1:8000", "localhost:8000"})
 SECURITY_HEADERS: Mapping[str, str] = {
     "Cache-Control": "no-store",
@@ -307,7 +307,7 @@ SETUP_HTML = """<!doctype html>
 <body>
   <main class="shell">
     <p class="eyebrow">LOCAL · PRIVATE · 10 MINUTES</p>
-    <h1>두 개의 센서를<br>우리 집 Wi-Fi에.</h1>
+    <h1>세 개의 센서를<br>우리 집 Wi-Fi에.</h1>
     <p class="intro">
       이 페이지는 이 PC 안에서만 열립니다. Wi-Fi 비밀번호는 클라우드로 전송되지 않으며,
       선택한 Pico에 한 번만 전달됩니다.
@@ -337,15 +337,23 @@ SETUP_HTML = """<!doctype html>
 
       <article class="panel device" data-device="petzone-01">
         <span class="step-number">02</span>
-        <h2>생활공간 센서</h2>
-        <p class="device-copy">식기와 침대가 있는 생활공간의 Pico를 USB로 연결하세요.</p>
-        <button class="connect" type="button" data-product="petzone-01">생활공간 Pico 연결</button>
+        <h2>식기 센서</h2>
+        <p class="device-copy">사료와 물그릇 무게를 확인하는 Pico를 USB로 연결하세요.</p>
+        <button class="connect" type="button" data-product="petzone-01">식기 Pico 연결</button>
         <p class="status" data-testid="petzone-status" data-state="idle" aria-live="polite">연결 대기</p>
+      </article>
+
+      <article class="panel device" data-device="bed-01">
+        <span class="step-number">03</span>
+        <h2>침대 센서</h2>
+        <p class="device-copy">침대 압력과 주변 온습도를 확인하는 Pico를 USB로 연결하세요.</p>
+        <button class="connect" type="button" data-product="bed-01">침대 Pico 연결</button>
+        <p class="status" data-testid="bed-status" data-state="idle" aria-live="polite">연결 대기</p>
       </article>
     </section>
 
     <div class="complete" id="complete" hidden>
-      <span>두 센서의 설정이 끝났습니다. 이제 USB를 분리해도 Wi-Fi로 동작합니다.</span>
+      <span>세 센서의 설정이 끝났습니다. 이제 USB를 분리해도 Wi-Fi로 동작합니다.</span>
       <button class="finish" id="finish" type="button">설정 완료</button>
     </div>
 
@@ -390,11 +398,13 @@ SETUP_HTML = """<!doctype html>
       const completed = new Set();
       const productLabels = {
         "entrance-01": "현관",
-        "petzone-01": "생활공간",
+        "petzone-01": "식기",
+        "bed-01": "침대",
       };
       const statuses = {
         "entrance-01": document.querySelector("[data-testid='entrance-status']"),
         "petzone-01": document.querySelector("[data-testid='petzone-status']"),
+        "bed-01": document.querySelector("[data-testid='bed-status']"),
       };
 
       class SetupError extends Error {
@@ -624,7 +634,7 @@ SETUP_HTML = """<!doctype html>
 
           completed.add(product);
           setStatus(product, "연결 완료", "success");
-          if (completed.size === 2) {
+          if (completed.size === 3) {
             ssidInput.value = "";
             wifiPasswordInput.value = "";
             completeMessage.hidden = false;

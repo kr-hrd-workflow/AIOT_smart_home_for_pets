@@ -18,7 +18,7 @@ def test_mismatch_attempts_once_at_exact_thirty_second_boundary() -> None:
         subject_id=None,
         episode_started_at=started,
         occurred_at=started + timedelta(seconds=30),
-        source_key=f"petzone-01:bed_sensor_mismatch:unconfirmed_pressure:{rules.utc_key(started)}",
+        source_key=f"bed-01:bed_sensor_mismatch:unconfirmed_pressure:{rules.utc_key(started)}",
     )
     assert state.evaluate(started + timedelta(minutes=20), 1210.0) is None
 

@@ -100,7 +100,7 @@ class Camera:
 
 def bed_status() -> BedStatus:
     return BedStatus(
-        device_id="petzone-01",
+        device_id="bed-01",
         sensor_state="ready",
         pressure_state="empty",
         fusion_state="empty",
@@ -134,7 +134,7 @@ def bed_status() -> BedStatus:
 
 def calibration_success() -> BedCalibrationSuccess:
     return BedCalibrationSuccess(
-        device_id="petzone-01",
+        device_id="bed-01",
         calibrated_at=NOW,
         window_start=datetime(2026, 7, 20, 11, 59, tzinfo=UTC),
         window_end=NOW,
@@ -338,7 +338,7 @@ def sessions() -> sessionmaker:
             "CREATE TABLE zones (zone_name TEXT PRIMARY KEY, x1 INTEGER, y1 INTEGER, x2 INTEGER, y2 INTEGER, enabled BOOLEAN, created_at DATETIME, updated_at DATETIME)"
         )
         connection.exec_driver_sql(
-            "INSERT INTO devices VALUES ('petzone-01','online','2026-07-20 11:59:00',NULL,NULL),('entrance-01','offline',NULL,NULL,NULL)"
+            "INSERT INTO devices VALUES ('petzone-01','online','2026-07-20 11:59:00',NULL,NULL),('entrance-01','offline',NULL,NULL,NULL),('bed-01','offline',NULL,NULL,NULL)"
         )
         connection.exec_driver_sql(
             "INSERT INTO sensor_readings VALUES "
@@ -434,7 +434,7 @@ def test_every_http_route_returns_exact_models_and_order(sessions: sessionmaker)
         assert health.status_code == 200
         assert list(health.json()) == ["status", "database", "mqtt", "camera", "queue", "worker"]
 
-        assert [row["device_id"] for row in client.get("/api/devices").json()] == ["entrance-01", "petzone-01"]
+        assert [row["device_id"] for row in client.get("/api/devices").json()] == ["entrance-01", "petzone-01", "bed-01"]
         sensors = client.get("/api/sensors/latest").json()
         assert [(row["device_id"], row["sensor_type"], row["value"]) for row in sensors] == [
             ("entrance-01", "presence_moving", True),
@@ -480,7 +480,7 @@ def test_every_http_route_returns_exact_models_and_order(sessions: sessionmaker)
             },
         ]
 
-        calibration = client.post("/api/bed/calibration", json={"device_id": "petzone-01"})
+        calibration = client.post("/api/bed/calibration", json={"device_id": "bed-01"})
         assert calibration.status_code == 200
         assert list(calibration.json()) == ["device_id", "calibrated_at", "window_start", "window_end", "channels"]
         assert len(worker.submitted) == 1
@@ -550,16 +550,16 @@ def test_calibration_failure_mapping_and_strict_body(sessions: sessionmaker) -> 
         BedCalibrationError(code="occupied", message="Bed is occupied", channels=[])
     )
     with TestClient(make_app(sessions, worker=Worker(rejected))) as client:
-        response = client.post("/api/bed/calibration", json={"device_id": "petzone-01"})
+        response = client.post("/api/bed/calibration", json={"device_id": "bed-01"})
         assert response.status_code == 409
         assert response.json() == {"code": "occupied", "message": "Bed is occupied", "channels": []}
 
     with TestClient(make_app(sessions, worker=Worker(RuleQueueUnavailable()))) as client:
-        response = client.post("/api/bed/calibration", json={"device_id": "petzone-01"})
+        response = client.post("/api/bed/calibration", json={"device_id": "bed-01"})
         assert response.status_code == 503
         assert response.json() == {"code": "queue_unavailable", "message": "Rule queue is unavailable"}
         assert client.post(
-            "/api/bed/calibration", json={"device_id": "petzone-01", "extra": True}
+            "/api/bed/calibration", json={"device_id": "bed-01", "extra": True}
         ).json() == {"code": "validation_error", "message": "Request validation failed"}
 
 
@@ -587,7 +587,7 @@ def test_calibration_timeout_cancels_the_queued_command(sessions: sessionmaker) 
 
     worker = WaitingWorker()
     with TestClient(make_app(sessions, worker=worker)) as client:
-        response = client.post("/api/bed/calibration", json={"device_id": "petzone-01"})
+        response = client.post("/api/bed/calibration", json={"device_id": "bed-01"})
 
     assert response.status_code == 503
     assert response.json() == {"code": "worker_unavailable", "message": "Rule worker is unavailable"}
@@ -780,7 +780,7 @@ def test_worker_unavailable_errors_are_exact(sessions: sessionmaker) -> None:
     with TestClient(application) as client:
         bed = client.get("/api/bed/status")
         summary_response = client.get("/api/dashboard/summary")
-        calibration = client.post("/api/bed/calibration", json={"device_id": "petzone-01"})
+        calibration = client.post("/api/bed/calibration", json={"device_id": "bed-01"})
     assert bed.status_code == 503
     assert bed.json() == {"code": "worker_unavailable", "message": "Rule worker is unavailable"}
     assert summary_response.status_code == 503

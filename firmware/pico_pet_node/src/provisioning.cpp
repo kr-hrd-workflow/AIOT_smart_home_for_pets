@@ -35,7 +35,7 @@ void write_u32(std::uint8_t* output, std::uint32_t value) {
 }
 
 bool fixed_product(std::string_view value) {
-    return value == "entrance-01" || value == "petzone-01";
+    return value == "entrance-01" || value == "petzone-01" || value == "bed-01";
 }
 
 bool valid_ipv4(std::string_view value) {

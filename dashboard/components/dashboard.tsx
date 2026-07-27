@@ -374,6 +374,7 @@ const unavailableDashboardData: DashboardData = {
   devices: [
     { device_id: "entrance-01", status: "unknown", last_seen_at: null },
     { device_id: "petzone-01", status: "unknown", last_seen_at: null },
+    { device_id: "bed-01", status: "unknown", last_seen_at: null },
   ],
   latest_sensors: [],
   camera: {
@@ -384,7 +385,7 @@ const unavailableDashboardData: DashboardData = {
     reason: "camera_unavailable",
   },
   bed: {
-    device_id: "petzone-01",
+    device_id: "bed-01",
     sensor_state: "unavailable",
     pressure_state: "unavailable",
     fusion_state: "unavailable",

@@ -15,7 +15,7 @@ export type PetCareStatus = {
 };
 
 export type Enrollment = { code: string; expiresAt: string };
-export type PicoProduct = "entrance-01" | "petzone-01";
+export type PicoProduct = "entrance-01" | "petzone-01" | "bed-01";
 export type PicoProvisioned = {
   status: "provisioned";
   product: PicoProduct;
@@ -97,7 +97,7 @@ function isPicoProvisioned(value: unknown): value is PicoProvisioned {
   return (
     hasExactKeys(value, ["status", "product"]) &&
     value.status === "provisioned" &&
-    (value.product === "entrance-01" || value.product === "petzone-01")
+    (value.product === "entrance-01" || value.product === "petzone-01" || value.product === "bed-01")
   );
 }
 
@@ -132,39 +132,34 @@ function isOneOf(value: unknown, choices: readonly string[]): boolean {
 function isDevice(value: unknown): boolean {
   return (
     hasExactKeys(value, ["device_id", "status", "last_seen_at"]) &&
-    isOneOf(value.device_id, ["entrance-01", "petzone-01"]) &&
+    isOneOf(value.device_id, ["entrance-01", "petzone-01", "bed-01"]) &&
     isOneOf(value.status, ["online", "offline", "unknown"]) &&
     isNullableString(value.last_seen_at)
   );
 }
 
 function isSensor(value: unknown): boolean {
-  return (
-    hasExactKeys(value, [
-      "id",
-      "device_id",
-      "sensor_type",
-      "value",
-      "unit",
-      "observed_at",
-    ]) &&
-    isNumber(value.id) &&
-    isOneOf(value.device_id, ["entrance-01", "petzone-01"]) &&
-    isOneOf(value.sensor_type, [
-      "temperature",
-      "humidity",
-      "presence_moving",
-      "presence_stationary",
-      "food_weight",
-      "water_weight",
-      "bed_pressure_left",
-      "bed_pressure_center",
-      "bed_pressure_right",
-    ]) &&
-    (isNumber(value.value) || typeof value.value === "boolean") &&
-    isOneOf(value.unit, ["C", "%", "bool", "g", "adc"]) &&
-    typeof value.observed_at === "string"
-  );
+  if (
+    !hasExactKeys(value, ["id", "device_id", "sensor_type", "value", "unit", "observed_at"]) ||
+    !isNumber(value.id) ||
+    typeof value.observed_at !== "string"
+  ) return false;
+  if (value.sensor_type === "temperature" || value.sensor_type === "humidity") {
+    return isOneOf(value.device_id, ["entrance-01", "bed-01"]) &&
+      isNumber(value.value) && value.unit === (value.sensor_type === "temperature" ? "C" : "%");
+  }
+  if (value.sensor_type === "presence_moving" || value.sensor_type === "presence_stationary") {
+    return value.device_id === "entrance-01" && typeof value.value === "boolean" && value.unit === "bool";
+  }
+  if (value.sensor_type === "food_weight" || value.sensor_type === "water_weight") {
+    return value.device_id === "petzone-01" && isNumber(value.value) &&
+      value.value >= 0 && value.value <= 5000 && value.unit === "g";
+  }
+  if (isOneOf(value.sensor_type, ["bed_pressure_left", "bed_pressure_center", "bed_pressure_right"])) {
+    return value.device_id === "bed-01" && isNumber(value.value) && Number.isInteger(value.value) &&
+      value.value >= 0 && value.value <= 4095 && value.unit === "adc";
+  }
+  return false;
 }
 
 function isBehavior(value: unknown): boolean {
@@ -309,7 +304,7 @@ function isBed(value: unknown): boolean {
       "seven_day",
       "calibrated_at",
     ]) &&
-    value.device_id === "petzone-01" &&
+    value.device_id === "bed-01" &&
     isOneOf(value.sensor_state, ["unavailable", "uncalibrated", "ready"]) &&
     isOneOf(value.pressure_state, [
       "unavailable",
