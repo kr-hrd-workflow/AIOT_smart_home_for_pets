@@ -130,6 +130,25 @@ export type PublishLiveUploadInput = {
   expiresAt: string;
 };
 
+export type OwnedLivePart = {
+  sequence: number;
+  objectKey: string;
+};
+
+export type OwnedLiveStream = {
+  homeId: string;
+  cameraId: string;
+  bootId: string;
+  initObjectKey: string;
+  newestSequence: number;
+  parts: OwnedLivePart[];
+};
+
+export type AbandonedLiveObject = {
+  objectKey: string;
+  kind: "init" | "part";
+};
+
 export type ActivityCleanupCommand = {
   commandId: string;
   homeId: string;
@@ -1530,6 +1549,94 @@ export class PetCareRepository {
       if (isConstraint(error)) throw new PetCareError(409, "live_conflict");
       throw error;
     }
+  }
+
+  async getOwnedLiveStream(
+    ownerSub: string,
+    cameraId: string,
+    now: string,
+  ): Promise<OwnedLiveStream | null> {
+    const stream = await this.db
+      .prepare(`
+        SELECT ls.home_id, ls.camera_id, ls.boot_id, ls.init_object_key, ls.newest_sequence
+        FROM homes h
+        JOIN agents a ON a.home_id = h.id
+          AND a.connection_mode = 'outbound' AND a.revoked_at IS NULL
+        JOIN cameras c ON c.home_id = h.id AND c.agent_id = a.id
+          AND c.id = ? AND c.disabled_at IS NULL
+        JOIN live_streams ls ON ls.home_id = h.id AND ls.agent_id = a.id
+          AND ls.camera_id = c.id
+        LEFT JOIN tenant_cleanup tc ON tc.home_id = h.id
+        WHERE h.owner_sub = ? AND h.deleted_at IS NULL
+          AND tc.home_id IS NULL AND ls.expires_at > ?
+        LIMIT 1
+      `)
+      .bind(cameraId, ownerSub, now)
+      .first<{
+        home_id: string;
+        camera_id: string;
+        boot_id: string;
+        init_object_key: string;
+        newest_sequence: number;
+      }>();
+    if (!stream) return null;
+
+    const parts = await this.db
+      .prepare(`
+        SELECT sequence, object_key FROM live_parts
+        WHERE home_id = ? AND boot_id = ? AND expires_at > ?
+          AND sequence <= ?
+        ORDER BY sequence DESC LIMIT 8
+      `)
+      .bind(stream.home_id, stream.boot_id, now, stream.newest_sequence)
+      .all<{ sequence: number; object_key: string }>();
+    return {
+      homeId: stream.home_id,
+      cameraId: stream.camera_id,
+      bootId: stream.boot_id,
+      initObjectKey: stream.init_object_key,
+      newestSequence: stream.newest_sequence,
+      parts: parts.results.reverse().map((part: { sequence: number; object_key: string }) => ({
+        sequence: part.sequence,
+        objectKey: part.object_key,
+      })),
+    };
+  }
+
+  async listAbandonedLiveObjects(
+    cutoff: string,
+    limit: number,
+  ): Promise<AbandonedLiveObject[]> {
+    const result = await this.db
+      .prepare(`
+        SELECT init_object_key AS object_key, 'init' AS kind
+        FROM live_streams WHERE updated_at <= ?
+        UNION ALL
+        SELECT object_key, 'part' AS kind
+        FROM live_parts WHERE created_at <= ?
+        ORDER BY object_key LIMIT ?
+      `)
+      .bind(cutoff, cutoff, limit)
+      .all<{ object_key: string; kind: "init" | "part" }>();
+    return result.results.map((row: { object_key: string; kind: "init" | "part" }) => ({
+      objectKey: row.object_key,
+      kind: row.kind,
+    }));
+  }
+
+  async deleteAbandonedLiveMetadata(
+    objectKey: string,
+    kind: "init" | "part",
+  ): Promise<boolean> {
+    const result = await this.db
+      .prepare(
+        kind === "init"
+          ? "DELETE FROM live_streams WHERE init_object_key = ?"
+          : "DELETE FROM live_parts WHERE object_key = ?",
+      )
+      .bind(objectKey)
+      .run();
+    return result.meta.changes === 1;
   }
 
   async requireActivityCleanupAgent(

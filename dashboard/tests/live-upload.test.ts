@@ -1,8 +1,5 @@
 // @vitest-environment node
 
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { webcrypto } from "node:crypto";
 
@@ -106,12 +103,6 @@ async function run(sql: string, ...values: unknown[]) {
 beforeEach(async () => {
   fake = new FakeD1();
   db = fake as unknown as D1Database;
-  await db.exec(
-    readFileSync(
-      resolve(import.meta.dirname, "../drizzle/0003_petcare_outbound.sql"),
-      "utf8",
-    ).replaceAll("--> statement-breakpoint", ""),
-  );
   const pair = await webcrypto.subtle.generateKey(
     "Ed25519",
     true,
