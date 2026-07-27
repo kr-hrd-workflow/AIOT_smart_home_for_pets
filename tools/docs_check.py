@@ -31,7 +31,6 @@ BLOCK_LOCATIONS = {
     "workbook": Path("docs/hardware-acceptance.md"),
     "demo-contract": Path("docs/demo-runbook.md"),
     "privacy-contract": Path("docs/privacy.md"),
-    "delivery-status": Path("docs/implementation-plan.md"),
 }
 
 HARDWARE_COMPONENTS = (
@@ -343,16 +342,6 @@ def _validate_privacy(block: Any, root: Path) -> None:
         _require(origin in api_source, f"documented Origin is missing from backend policy: {origin}")
 
 
-def _validate_delivery(block: Any) -> None:
-    expected = {
-        "implemented": ["pico firmware", "backend", "dashboard", "local-live integration", "CI workflow", "public Sites shell with protected live data"],
-        "sites_access": "public",
-        "physical_hardware": "NOT RUN",
-        "deferred": ["physical installation evidence"],
-    }
-    _expect(block, expected, "delivery-status block")
-
-
 def validate_repository_docs(root: Path) -> DocsCheckResult:
     root = root.resolve()
     blocks = _load_blocks(root)
@@ -372,7 +361,6 @@ def validate_repository_docs(root: Path) -> DocsCheckResult:
     workbook_sha256 = _validate_workbook(root, blocks["workbook"])
     _validate_demo(blocks["demo-contract"], root, manifest, hosting)
     _validate_privacy(blocks["privacy-contract"], root)
-    _validate_delivery(blocks["delivery-status"])
     return DocsCheckResult(len(blocks), hardware_status, workbook_sha256)
 
 

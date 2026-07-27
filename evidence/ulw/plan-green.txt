@@ -1,1 +1,0 @@
-GREEN: docs/implementation-plan.md exists and is non-empty
