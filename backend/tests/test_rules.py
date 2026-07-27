@@ -207,12 +207,12 @@ def test_rule_engine_calibration_persists_one_atomic_snapshot(
         )
     now = NOW + timedelta(hours=1)
     with sessions() as session:
-        session.add(Device(device_id="petzone-01"))
+        session.add(Device(device_id="bed-01"))
         for channel, base in (("left", 100), ("center", 200), ("right", 300)):
             for index in range(45):
                 session.add(
                     SensorReading(
-                        device_id="petzone-01",
+                        device_id="bed-01",
                         sensor_type=f"bed_pressure_{channel}",
                         value_number=float(base + index % 3),
                         value_boolean=None,
@@ -239,7 +239,7 @@ def test_rule_engine_calibration_persists_one_atomic_snapshot(
         camera_service=Camera(),
     )
     with sessions() as session:
-        result = engine.command(session, CalibrateBedCommand(device_id="petzone-01"), now, 50.0, Scheduler())
+        result = engine.command(session, CalibrateBedCommand(device_id="bed-01"), now, 50.0, Scheduler())
     accepted = engine.bed.calibration
     monkeypatch.setattr(
         engine,
@@ -249,7 +249,7 @@ def test_rule_engine_calibration_persists_one_atomic_snapshot(
     with sessions() as session, pytest.raises(RuntimeError, match="evaluation failed"):
         engine.command(
             session,
-            CalibrateBedCommand(device_id="petzone-01"),
+            CalibrateBedCommand(device_id="bed-01"),
             now + timedelta(microseconds=1),
             50.000001,
             Scheduler(),
@@ -257,7 +257,7 @@ def test_rule_engine_calibration_persists_one_atomic_snapshot(
     with sessions() as session, pytest.raises(rules.BedCalibrationRejected):
         engine.command(
             session,
-            CalibrateBedCommand(device_id="petzone-01"),
+            CalibrateBedCommand(device_id="bed-01"),
             now + timedelta(seconds=121),
             171.0,
             Scheduler(),
@@ -434,7 +434,7 @@ def test_rule_engine_opens_and_atomically_closes_confirmed_rest(database_url: st
             )
         )
     with sessions() as session:
-        session.add_all([Device(device_id="petzone-01"), Camera(camera_id="pc-webcam-01")])
+        session.add_all([Device(device_id="bed-01"), Camera(camera_id="pc-webcam-01")])
         session.commit()
 
     class CameraAvailability:
@@ -472,7 +472,7 @@ def test_rule_engine_opens_and_atomically_closes_confirmed_rest(database_url: st
         for channel in ("left", "center", "right"):
             with sessions() as session:
                 row = SensorReading(
-                    device_id="petzone-01",
+                    device_id="bed-01",
                     sensor_type=f"bed_pressure_{channel}",
                     value_number=float(raw),
                     value_boolean=None,
@@ -487,7 +487,7 @@ def test_rule_engine_opens_and_atomically_closes_confirmed_rest(database_url: st
                     session,
                     SensorReadingCommitted(
                         reading_id=row.id,
-                        device_id="petzone-01",
+                        device_id="bed-01",
                         sensor_type=f"bed_pressure_{channel}",
                         observed_at=at,
                     ),
@@ -726,7 +726,7 @@ def test_rule_engine_persists_one_warning_for_a_continuous_pressure_mismatch(dat
         camera_ids = {} if subject_id is None else {subject_id: 999}
         engine.bed.observe_camera(bed.CameraFact(at, at, monotonic, subjects, subject_id, camera_ids))
         with sessions() as session:
-            engine.deadline(session, "mismatch_tick", "petzone-01", at, scheduler)
+            engine.deadline(session, "mismatch_tick", "bed-01", at, scheduler)
 
     for seconds in range(41):
         tick(NOW + timedelta(seconds=seconds), None)
@@ -855,10 +855,10 @@ def test_rest_owner_rolls_back_with_failed_commit_and_retry_succeeds(
             )
         )
     with sessions() as session:
-        session.add_all([Device(device_id="petzone-01"), Camera(camera_id="pc-webcam-01")])
+        session.add_all([Device(device_id="bed-01"), Camera(camera_id="pc-webcam-01")])
         sensors = [
             SensorReading(
-                device_id="petzone-01",
+                device_id="bed-01",
                 sensor_type=f"bed_pressure_{channel}",
                 value_number=300.0,
                 value_boolean=None,
@@ -1090,7 +1090,11 @@ def test_startup_closes_orphan_eating_and_rest_at_exact_persisted_evidence(datab
     eating_food_at = NOW + timedelta(seconds=7)
     rest_confirmed_at = NOW + timedelta(seconds=8)
     with sessions() as session:
-        session.add_all([Device(device_id="petzone-01"), Camera(camera_id="pc-webcam-01")])
+        session.add_all([
+            Device(device_id="petzone-01"),
+            Device(device_id="bed-01"),
+            Camera(camera_id="pc-webcam-01"),
+        ])
         eating_sensor = SensorReading(
             device_id="petzone-01",
             sensor_type="food_weight",
@@ -1101,7 +1105,7 @@ def test_startup_closes_orphan_eating_and_rest_at_exact_persisted_evidence(datab
             received_at=eating_food_at,
         )
         rest_sensor = SensorReading(
-            device_id="petzone-01",
+            device_id="bed-01",
             sensor_type="bed_pressure_left",
             value_number=300.0,
             value_boolean=None,

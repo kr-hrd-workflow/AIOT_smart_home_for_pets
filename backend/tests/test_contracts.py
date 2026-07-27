@@ -43,7 +43,7 @@ NOW = datetime(2026, 7, 15, 1, 2, 3, tzinfo=UTC)
 
 def sensor_payload(**overrides: object) -> dict[str, object]:
     payload: dict[str, object] = {
-        "device_id": "petzone-01",
+        "device_id": "bed-01",
         "sensor_type": "temperature",
         "value": 23.5,
         "unit": "C",
@@ -59,9 +59,9 @@ def sensor_payload(**overrides: object) -> dict[str, object]:
         ({"device_id": "entrance-01", "sensor_type": "temperature", "value": 21, "unit": "C"}, 21),
         ({"sensor_type": "humidity", "value": 52.25, "unit": "%"}, 52.25),
         ({"device_id": "entrance-01", "sensor_type": "presence_moving", "value": True, "unit": "bool"}, True),
-        ({"sensor_type": "presence_stationary", "value": False, "unit": "bool"}, False),
-        ({"sensor_type": "food_weight", "value": 807, "unit": "g"}, 807),
-        ({"sensor_type": "water_weight", "value": 603.5, "unit": "g"}, 603.5),
+        ({"device_id": "entrance-01", "sensor_type": "presence_stationary", "value": False, "unit": "bool"}, False),
+        ({"device_id": "petzone-01", "sensor_type": "food_weight", "value": 807, "unit": "g"}, 807),
+        ({"device_id": "petzone-01", "sensor_type": "water_weight", "value": 603.5, "unit": "g"}, 603.5),
         ({"sensor_type": "bed_pressure_left", "value": 0, "unit": "adc"}, 0),
         ({"sensor_type": "bed_pressure_center", "value": 4095, "unit": "adc"}, 4095),
         ({"sensor_type": "bed_pressure_right", "value": 1000, "unit": "adc"}, 1000),
@@ -82,6 +82,8 @@ def test_sensor_contract_accepts_exact_union(overrides: dict[str, object], expec
         {"sensor_type": "temperature", "value": float("inf")},
         {"sensor_type": "humidity", "unit": "C"},
         {"device_id": "entrance-01", "sensor_type": "food_weight", "unit": "g"},
+        {"device_id": "petzone-01", "sensor_type": "food_weight", "value": -1, "unit": "g"},
+        {"device_id": "petzone-01", "sensor_type": "water_weight", "value": 5001, "unit": "g"},
         {"sensor_type": "presence_moving", "value": 1, "unit": "bool"},
         {"sensor_type": "bed_pressure_left", "value": 1.0, "unit": "adc"},
         {"sensor_type": "bed_pressure_left", "value": 4096, "unit": "adc"},
@@ -227,7 +229,7 @@ def test_anomaly_output_rejects_invalid_relation(payload: dict[str, object]) -> 
 
 def test_events_are_closed_frozen_values() -> None:
     assert EVENT_QUEUE_MAXSIZE == 1024
-    reading = SensorReadingCommitted(reading_id=1, device_id="petzone-01", sensor_type="temperature", observed_at=NOW)
+    reading = SensorReadingCommitted(reading_id=1, device_id="petzone-01", sensor_type="food_weight", observed_at=NOW)
     status = DeviceStatusCommitted(device_id="entrance-01", status="offline", observed_at=NOW)
     frame = CameraFrameCommitted(
         camera_id="pc-webcam-01",

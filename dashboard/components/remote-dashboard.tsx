@@ -173,7 +173,7 @@ export function RemoteDashboardView({
     const submitter = (event.nativeEvent as SubmitEvent)
       .submitter as HTMLButtonElement | null;
     const product = submitter?.value as PicoProduct | undefined;
-    if (product !== "entrance-01" && product !== "petzone-01") return;
+    if (product !== "entrance-01" && product !== "petzone-01" && product !== "bed-01") return;
 
     setProvisioningProduct(product);
     setPicoMessage(null);
@@ -184,7 +184,7 @@ export function RemoteDashboardView({
         password: wifiPassword,
       });
       setPicoMessage(
-        `${product === "entrance-01" ? "현관" : "생활공간"} Pico 설정을 전달했습니다. 온라인 상태를 확인합니다.`,
+        `${product === "entrance-01" ? "현관" : product === "petzone-01" ? "식기" : "침대"} Pico 설정을 전달했습니다. 온라인 상태를 확인합니다.`,
       );
     } catch {
       setPicoError(
@@ -237,6 +237,11 @@ export function RemoteDashboardView({
       ({ device_id, status: deviceStatus }) =>
         device_id === "petzone-01" && deviceStatus === "online",
     ) ?? false;
+  const bedOnline =
+    status.dashboard?.devices.some(
+      ({ device_id, status: deviceStatus }) =>
+        device_id === "bed-01" && deviceStatus === "online",
+    ) ?? false;
   const cameraOnline =
     status.camera?.state === "online" &&
     status.dashboard?.camera.state === "online";
@@ -253,7 +258,7 @@ export function RemoteDashboardView({
             <p className="eyebrow">기기 설정</p>
             <h1 id="connection-title">우리 집 연결</h1>
           </div>
-          {agentReady && entranceOnline && petzoneOnline && cameraOnline && (
+          {agentReady && entranceOnline && petzoneOnline && bedOnline && cameraOnline && (
             <strong className="connection-complete" role="status">
               필수 연결 완료
             </strong>
@@ -270,7 +275,7 @@ export function RemoteDashboardView({
             </div>
             {agentReady ? (
               <>
-                <p>홈 에이전트가 등록되었습니다. Pico 두 대를 Wi-Fi에 연결하세요.</p>
+                <p>홈 에이전트가 등록되었습니다. Pico 세 대를 Wi-Fi에 연결하세요.</p>
                 <a href={LOCAL_SETUP_URL}>Pico Wi-Fi 설정 열기</a>
               </>
             ) : (
@@ -318,10 +323,17 @@ export function RemoteDashboardView({
           </li>
           <li data-state={petzoneOnline ? "complete" : "pending"}>
             <div className="connection-step-heading">
-              <h2>생활공간 Pico</h2>
+              <h2>식기 Pico</h2>
               <span>{petzoneOnline ? "연결됨" : "연결 필요"}</span>
             </div>
             <p>petzone-01</p>
+          </li>
+          <li data-state={bedOnline ? "complete" : "pending"}>
+            <div className="connection-step-heading">
+              <h2>침대 Pico</h2>
+              <span>{bedOnline ? "연결됨" : "연결 필요"}</span>
+            </div>
+            <p>bed-01</p>
           </li>
           <li data-state={cameraOnline ? "complete" : "pending"}>
             <div className="connection-step-heading">
@@ -394,9 +406,15 @@ export function RemoteDashboardView({
                   disabled={provisioningProduct !== null}
                   aria-busy={provisioningProduct === "petzone-01"}
                 >
-                  {petzoneOnline
-                    ? "생활공간 Pico 다시 설정"
-                    : "생활공간 Pico 설정"}
+                  {petzoneOnline ? "식기 Pico 다시 설정" : "식기 Pico 설정"}
+                </button>
+                <button
+                  type="submit"
+                  value="bed-01"
+                  disabled={provisioningProduct !== null}
+                  aria-busy={provisioningProduct === "bed-01"}
+                >
+                  {bedOnline ? "침대 Pico 다시 설정" : "침대 Pico 설정"}
                 </button>
                 <a href={LOCAL_SETUP_URL}>오프라인 복구 설정 열기</a>
               </div>

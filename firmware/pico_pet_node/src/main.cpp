@@ -42,16 +42,16 @@ int main() {
         {"entrance-01", "presence_moving", SensorValue::boolean(true), "bool", observed_at},
         {"entrance-01", "presence_stationary", SensorValue::boolean(false), "bool", observed_at},
     }};
-    const std::array<SensorReading, 9> petzone{{
-        {"petzone-01", "temperature", SensorValue::number(24.25), "C", observed_at},
-        {"petzone-01", "humidity", SensorValue::number(51.0), "%", observed_at},
-        {"petzone-01", "presence_moving", SensorValue::boolean(true), "bool", observed_at},
-        {"petzone-01", "presence_stationary", SensorValue::boolean(false), "bool", observed_at},
+    const std::array<SensorReading, 2> petzone{{
         {"petzone-01", "food_weight", SensorValue::number(80.0), "g", observed_at},
         {"petzone-01", "water_weight", SensorValue::number(80.0), "g", observed_at},
-        {"petzone-01", "bed_pressure_left", SensorValue::integer(100), "adc", observed_at},
-        {"petzone-01", "bed_pressure_center", SensorValue::integer(200), "adc", observed_at},
-        {"petzone-01", "bed_pressure_right", SensorValue::integer(300), "adc", observed_at},
+    }};
+    const std::array<SensorReading, 5> bed{{
+        {"bed-01", "temperature", SensorValue::number(24.25), "C", observed_at},
+        {"bed-01", "humidity", SensorValue::number(51.0), "%", observed_at},
+        {"bed-01", "bed_pressure_left", SensorValue::integer(100), "adc", observed_at},
+        {"bed-01", "bed_pressure_center", SensorValue::integer(200), "adc", observed_at},
+        {"bed-01", "bed_pressure_right", SensorValue::integer(300), "adc", observed_at},
     }};
     for (const auto& reading : entrance) {
         if (!publish(reading)) return 1;
@@ -61,5 +61,9 @@ int main() {
         if (!publish(reading)) return 1;
     }
     if (!publish({"petzone-01", petcare::DeviceState::online, observed_at})) return 1;
+    for (const auto& reading : bed) {
+        if (!publish(reading)) return 1;
+    }
+    if (!publish({"bed-01", petcare::DeviceState::online, observed_at})) return 1;
     return 0;
 }

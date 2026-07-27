@@ -49,9 +49,12 @@ ENTRANCE = {
     "presence_stationary": (False, "bool"),
 }
 PETZONE = {
-    **ENTRANCE,
     "food_weight": (80.0, "g"),
     "water_weight": (70.0, "g"),
+}
+BED = {
+    "temperature": (22.5, "C"),
+    "humidity": (51.0, "%"),
     "bed_pressure_left": (100, "adc"),
     "bed_pressure_center": (200, "adc"),
     "bed_pressure_right": (300, "adc"),
@@ -247,9 +250,9 @@ def test_entrance_smoke_subscribes_exact_topics_and_reports_heartbeat() -> None:
     assert "top-secret" not in report
 
 
-def test_petzone_requires_all_nine_sensors_and_returns_nonzero_result_when_missing() -> None:
+def test_petzone_requires_both_weight_sensors_and_returns_nonzero_result_when_missing() -> None:
     verifier = SmokeVerifier("petzone-01", now=lambda: NOW, monotonic=monotonic_values(100, 110))
-    client = FakeClient(complete_messages("petzone-01", ENTRANCE))
+    client = FakeClient(complete_messages("petzone-01", {"food_weight": PETZONE["food_weight"]}))
 
     result = run_smoke(
         client,
@@ -264,8 +267,27 @@ def test_petzone_requires_all_nine_sensors_and_returns_nonzero_result_when_missi
 
     assert not result.ok
     assert result.exit_code != 0
-    assert "food_weight" in format_report(result)
-    assert "sensors=4/9" in format_report(result)
+    assert "water_weight" in format_report(result)
+    assert "sensors=1/2" in format_report(result)
+
+
+def test_bed_requires_temperature_humidity_and_three_pressure_channels() -> None:
+    verifier = SmokeVerifier("bed-01", now=lambda: NOW, monotonic=monotonic_values(100, 110))
+    client = FakeClient(complete_messages("bed-01", BED))
+
+    result = run_smoke(
+        client,
+        host="192.168.10.8",
+        port=18883,
+        username="u",
+        password="secret",
+        verifier=verifier,
+        timeout=12,
+        wait=immediate_wait,
+    )
+
+    assert result.ok
+    assert "sensors=5/5" in format_report(result)
 
 
 @pytest.mark.parametrize(

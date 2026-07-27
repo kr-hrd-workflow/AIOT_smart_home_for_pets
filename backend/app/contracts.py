@@ -8,7 +8,7 @@ from typing import Annotated, Literal, Self, TypeAlias
 from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, model_validator
 
 
-DeviceId = Literal["entrance-01", "petzone-01"]
+DeviceId = Literal["entrance-01", "petzone-01", "bed-01"]
 SensorType = Literal[
     "temperature",
     "humidity",
@@ -87,20 +87,20 @@ class SensorReadingIn(StrictModel):
         elif self.sensor_type in {"presence_moving", "presence_stationary"}:
             valid = isinstance(self.value, bool) and self.unit == "bool"
         elif self.sensor_type in {"food_weight", "water_weight"}:
-            valid = self.device_id == "petzone-01" and numeric and self.unit == "g"
+            valid = self.device_id == "petzone-01" and numeric and 0 <= self.value <= 5000 and self.unit == "g"
         else:
             valid = (
-                self.device_id == "petzone-01"
+                self.device_id == "bed-01"
                 and type(self.value) is int
                 and 0 <= self.value <= 4095
                 and self.unit == "adc"
             )
-        if self.device_id == "entrance-01" and self.sensor_type not in {
-            "temperature",
-            "humidity",
-            "presence_moving",
-            "presence_stationary",
-        }:
+        allowed = {
+            "entrance-01": {"temperature", "humidity", "presence_moving", "presence_stationary"},
+            "petzone-01": {"food_weight", "water_weight"},
+            "bed-01": {"temperature", "humidity", "bed_pressure_left", "bed_pressure_center", "bed_pressure_right"},
+        }
+        if self.sensor_type not in allowed[self.device_id]:
             valid = False
         if not valid:
             raise ValueError("sensor contract mismatch")
@@ -276,7 +276,7 @@ class SevenDayComparison(StrictModel):
 
 
 class BedStatus(StrictModel):
-    device_id: Literal["petzone-01"]
+    device_id: Literal["bed-01"]
     sensor_state: Literal["unavailable", "uncalibrated", "ready"]
     pressure_state: Literal["unavailable", "uncalibrated", "empty", "occupied"]
     fusion_state: Literal["unavailable", "empty", "confirmed_rest", "unconfirmed_pressure", "sensor_check"]
@@ -305,7 +305,7 @@ class BedCalibrationChannel(StrictModel):
 
 
 class BedCalibrationSuccess(StrictModel):
-    device_id: Literal["petzone-01"]
+    device_id: Literal["bed-01"]
     calibrated_at: UtcDatetime
     window_start: UtcDatetime
     window_end: UtcDatetime

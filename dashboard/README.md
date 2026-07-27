@@ -22,7 +22,7 @@ PetCare 웹은 React 19와 [vinext](https://github.com/cloudflare/vinext)로 동
 1. 고객이 일반 PetCare 계정을 가입하고 로그인합니다.
 2. `/dashboard`에서 Windows Home Agent 설치 파일을 내려받고 10분 코드를 만듭니다.
 3. 설치 프로그램이 `%ProgramData%\PetCare\HomeAgent`에 로컬 PostgreSQL, MQTT, FastAPI와 Windows 서비스를 설치한 뒤 코드를 사용해 해당 tenant에 등록합니다.
-4. 고객은 Pico 2 W를 Home Agent PC에 USB로 한 번 연결하고 Wi-Fi를 입력합니다. 현관 `entrance-01`과 생활공간 `petzone-01`은 이후 Wi-Fi/MQTT로 동작합니다.
+4. 고객은 Pico 2 W를 Home Agent PC에 USB로 한 번 연결하고 Wi-Fi를 입력합니다. 현관 `entrance-01`, 식기 `petzone-01`, 침대 `bed-01`은 이후 Wi-Fi/MQTT로 동작합니다.
 5. Jetson 카메라는 로컬 `http://127.0.0.1:8000/setup`에서 pairing 파일로 연결합니다. 등록이 끝나면 Home Agent가 자동으로 다시 연결하고 로그인한 Sites 대시보드에 상태와 인증된 라이브 영상을 표시합니다. Jetson 온라인 상태까지 확인되어야 연결 완료로 표시됩니다.
 
 고객은 Supabase나 Cloudflare 프로젝트, URL, 키 또는 JWKS를 설정하지 않습니다. PetCare 운영자가 Sites runtime의 `SUPABASE_URL`과 `SUPABASE_PUBLISHABLE_KEY`를 구성합니다. Home Agent 등록과 원격 상태·영상 연결을 운영할 때는 `.env.example`의 `CF_*` 8개 서버 값도 운영자가 구성합니다.

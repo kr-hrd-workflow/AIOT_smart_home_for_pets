@@ -131,10 +131,11 @@ int main() {
     static_assert(petcare::config::water_hx711_sck_pin == 13);
     static_assert(petcare::config::food_hx711_timeout_us > 0);
     static_assert(petcare::config::water_hx711_timeout_us > 0);
-    static_assert(petcare::config::food_tare_raw == 100);
-    static_assert(petcare::config::food_counts_per_gram == 10.0);
-    static_assert(petcare::config::water_tare_raw == 100);
-    static_assert(petcare::config::water_counts_per_gram == 10.0);
+    static_assert(petcare::config::food_tare_raw == -251'961);
+    static_assert(petcare::config::food_counts_per_gram == 408.54117647058825);
+    static_assert(petcare::config::water_tare_raw == 114'845);
+    static_assert(petcare::config::water_counts_per_gram == -413.1862745098039);
+    static_assert(petcare::config::weight_max_grams == 5'000.0);
     static_assert(&petcare::config::food_calibration != &petcare::config::water_calibration);
     static_assert(petcare::config::fsr_left_pin == 26);
     static_assert(petcare::config::fsr_center_pin == 27);
@@ -145,8 +146,14 @@ int main() {
     static_assert(petcare::config::fsr_adc_max == 4'095);
 
     double grams = 0.0;
-    assert(petcare::config::food_calibration.grams(900, grams) && grams == 80.0);
-    assert(petcare::config::water_calibration.grams(900, grams) && grams == 80.0);
+    assert(petcare::config::food_calibration.grams(petcare::config::food_tare_raw, grams));
+    assert(grams == 0.0);
+    assert(petcare::config::water_calibration.grams(petcare::config::water_tare_raw, grams));
+    assert(grams == 0.0);
+    assert(petcare::config::food_calibration.grams(-182'509, grams));
+    assert(std::abs(grams - 170.0) < 0.001);
+    assert(petcare::config::water_calibration.grams(30'555, grams));
+    assert(std::abs(grams - 204.0) < 0.001);
 
     const std::array<std::uint8_t, 6> sht31{{0x66, 0x66, 0x93, 0x80, 0x00, 0xA2}};
     double temperature = 0.0;
@@ -210,16 +217,14 @@ int main() {
     petcare::ScheduledOutput output{};
     std::array<petcare::ScheduledOutput, 512> outputs{};
     const auto initial_count = drain(petzone, 0, outputs);
-    assert(initial_count == 9);
+    assert(initial_count == 2);
     assert(!petzone.sensor_read_failed());
     assert(!petzone.next_due(999, output));
 
     const auto count = drain(petzone, 30'000, outputs);
-    assert(count == 10);
-    constexpr std::array<std::string_view, 10> shared_order{{
-        "temperature", "humidity", "presence_moving", "presence_stationary",
-        "food_weight", "water_weight", "bed_pressure_left", "bed_pressure_center",
-        "bed_pressure_right", "status",
+    assert(count == 3);
+    constexpr std::array<std::string_view, 3> shared_order{{
+        "food_weight", "water_weight", "status",
     }};
     std::size_t shared_index = 0;
     for (std::size_t index = 0; index < count; ++index) {
@@ -230,8 +235,23 @@ int main() {
     }
     assert(shared_index == shared_order.size());
     assert(!petzone.sensor_read_failed());
-    assert(fake.call_count >= 7);
-    assert((std::string_view{fake.calls.data() + fake.call_count - 7, 7} == "SPFWLCR"));
+    assert(fake.call_count >= 2);
+    assert((std::string_view{fake.calls.data() + fake.call_count - 2, 2} == "FW"));
+
+    FakeSensors bed_fake;
+    petcare::SensorSchedule bed{DeviceProfile::bed_01, bed_fake.source()};
+    bed.start(0);
+    const auto bed_count = drain(bed, 30'000, outputs);
+    assert(bed_count == 6);
+    constexpr std::array<std::string_view, 6> bed_order{{
+        "temperature", "humidity", "bed_pressure_left", "bed_pressure_center",
+        "bed_pressure_right", "status",
+    }};
+    for (std::size_t index = 0; index < bed_count; ++index) {
+        const auto name = outputs[index].kind == OutputKind::status ? std::string_view{"status"} : outputs[index].sensor_type;
+        assert(name == bed_order[index]);
+    }
+    assert((std::string_view{bed_fake.calls.data(), bed_fake.call_count} == "SLCR"));
 
     FakeSensors entrance_fake;
     petcare::SensorSchedule entrance{DeviceProfile::entrance_01, entrance_fake.source()};
@@ -276,7 +296,7 @@ int main() {
     invalid.fsr_valid = {{true, true, true}};
     invalid.fsr[1] = 222;
     drain(invalid_schedule, 2'000, outputs);
-    assert(invalid_schedule.sensor_read_failed());
+    assert(!invalid_schedule.sensor_read_failed());
     invalid.sht_valid = true;
     drain(invalid_schedule, 31'000, outputs);
     assert(!invalid_schedule.sensor_read_failed());

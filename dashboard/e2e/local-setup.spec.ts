@@ -105,7 +105,7 @@ test.afterAll(async () => {
   ]);
 });
 
-test("provisions both fixed Pico products through the Home Agent API", async ({ page }) => {
+test("provisions all three fixed Pico products through the Home Agent API", async ({ page }) => {
   const requests: Array<{ url: string; body: string | null }> = [];
   page.on("request", (request) => {
     if (
@@ -121,7 +121,7 @@ test("provisions both fixed Pico products through the Home Agent API", async ({ 
   await page.getByLabel("Wi-Fi 비밀번호").fill("password-for-test");
   expect(requests).toHaveLength(0);
 
-  await page.getByRole("button", { name: "생활공간 Pico 연결" }).click();
+  await page.getByRole("button", { name: "식기 Pico 연결" }).click();
   await expect(page.getByTestId("petzone-status")).toHaveText("연결 완료");
   expect(requests).toHaveLength(1);
   expect(requests[0].url).toBe(`${setupUrl}/api/pico/petzone-01`);
@@ -130,10 +130,15 @@ test("provisions both fixed Pico products through the Home Agent API", async ({ 
     wifi_password: "password-for-test",
   });
 
+  await page.getByRole("button", { name: "침대 Pico 연결" }).click();
+  await expect(page.getByTestId("bed-status")).toHaveText("연결 완료");
+  expect(requests).toHaveLength(2);
+  expect(requests[1].url).toBe(`${setupUrl}/api/pico/bed-01`);
+
   await page.getByRole("button", { name: "현관 Pico 연결" }).click();
   await expect(page.getByTestId("entrance-status")).toHaveText("연결 완료");
-  expect(requests).toHaveLength(2);
-  expect(requests[1].url).toBe(`${setupUrl}/api/pico/entrance-01`);
+  expect(requests).toHaveLength(3);
+  expect(requests[2].url).toBe(`${setupUrl}/api/pico/entrance-01`);
   await expect(page.getByLabel("Wi-Fi 이름")).toHaveValue("");
   await expect(page.getByLabel("Wi-Fi 비밀번호")).toHaveValue("");
 });
@@ -159,7 +164,8 @@ test("keeps the first step active when the server detects the other Pico", async
 
   await expect(page.getByTestId("entrance-status")).toContainText("다른 Pico");
   await expect(page.getByRole("button", { name: "현관 Pico 연결" })).toBeEnabled();
-  await expect(page.getByRole("button", { name: "생활공간 Pico 연결" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "식기 Pico 연결" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "침대 Pico 연결" })).toBeEnabled();
 });
 
 test("retries while the configured Pico re-enumerates beside the other product", async ({ page }) => {
@@ -257,5 +263,6 @@ test("uses the web page without exposing or requiring Web Serial", async ({ page
     "Home Agent가 USB로 연결된 Pico를 자동으로 찾습니다",
   );
   await expect(page.getByRole("button", { name: "현관 Pico 연결" })).toBeEnabled();
-  await expect(page.getByRole("button", { name: "생활공간 Pico 연결" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "식기 Pico 연결" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "침대 Pico 연결" })).toBeEnabled();
 });

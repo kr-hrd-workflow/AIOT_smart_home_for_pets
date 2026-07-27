@@ -1,4 +1,4 @@
-export type DeviceId = "entrance-01" | "petzone-01";
+export type DeviceId = "entrance-01" | "petzone-01" | "bed-01";
 export type SensorType =
   | "temperature"
   | "humidity"
@@ -84,7 +84,7 @@ export interface SevenDayComparison {
 }
 
 export interface BedStatus {
-  device_id: "petzone-01";
+  device_id: "bed-01";
   sensor_state: "unavailable" | "uncalibrated" | "ready";
   pressure_state: "unavailable" | "uncalibrated" | "empty" | "occupied";
   fusion_state:
@@ -143,7 +143,7 @@ export interface BedCalibrationChannel {
 }
 
 export interface BedCalibrationSuccess {
-  device_id: "petzone-01";
+  device_id: "bed-01";
   calibrated_at: string;
   window_start: string;
   window_end: string;

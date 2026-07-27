@@ -50,4 +50,4 @@ DomainEvent: TypeAlias = SensorReadingCommitted | DeviceStatusCommitted | Camera
 
 
 class CalibrateBedCommand(FrozenEvent):
-    device_id: Literal["petzone-01"]
+    device_id: Literal["bed-01"]

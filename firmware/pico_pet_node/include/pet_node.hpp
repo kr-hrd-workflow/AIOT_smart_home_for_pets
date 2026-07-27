@@ -7,7 +7,7 @@
 
 namespace petcare {
 
-enum class DeviceProfile { entrance_01, petzone_01 };
+enum class DeviceProfile { entrance_01, petzone_01, bed_01 };
 enum class ValueKind { number, boolean, integer };
 enum class DeviceState { online, offline };
 enum class WifiLinkStatus : std::int8_t {

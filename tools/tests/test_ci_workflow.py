@@ -59,7 +59,7 @@ def test_ci_commands_keep_tool_and_platform_identities_explicit() -> None:
     assert "tools/build_pico_host.sh" in host
     for identity in ("pico_sdk.url", "pico_sdk.commit", "pico_sdk.board", "pico_sdk.platform", "pico_sdk.resolved_platform"):
         assert identity in pico
-    assert "entrance-01" in pico and "petzone-01" in pico
+    assert "entrance-01" in pico and "petzone-01" in pico and "bed-01" in pico
 
     assert "managed_exact.containers" in integration
     assert "compose.yml" in integration

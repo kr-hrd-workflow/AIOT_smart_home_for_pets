@@ -11,7 +11,7 @@ from typing import Any
 
 
 MAX_FRAME_BYTES = 768
-PRODUCTS = frozenset({"entrance-01", "petzone-01"})
+PRODUCTS = frozenset({"entrance-01", "petzone-01", "bed-01"})
 _COM_PORT = re.compile(r"COM([1-9][0-9]{0,2})\Z", re.IGNORECASE)
 _PICO_PNP_PREFIXES = (
     "USB\\VID_2E8A&PID_0009\\",

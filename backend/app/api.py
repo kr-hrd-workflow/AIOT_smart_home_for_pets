@@ -40,6 +40,7 @@ PICO_PROVISION_PATHS = frozenset(
     {
         "/api/pico/entrance-01/provision",
         "/api/pico/petzone-01/provision",
+        "/api/pico/bed-01/provision",
     }
 )
 ALLOWED_METHODS = "GET,POST,PUT,OPTIONS"
@@ -176,7 +177,12 @@ def _session(application: FastAPI) -> Session:
 
 
 def _devices(session: Session) -> list[DeviceOut]:
-    rows = session.execute(select(Device).order_by(Device.device_id)).scalars().all()
+    ordering = case(
+        (Device.device_id == "entrance-01", 0),
+        (Device.device_id == "petzone-01", 1),
+        else_=2,
+    )
+    rows = session.execute(select(Device).order_by(ordering)).scalars().all()
     return [
         DeviceOut(device_id=row.device_id, status=row.status, last_seen_at=_aware(row.last_seen_at))
         for row in rows
@@ -199,7 +205,11 @@ def _latest_sensors(session: Session) -> list[SensorReadingOut]:
         )
         .label("position"),
     ).subquery()
-    device_order = case((ranked.c.device_id == "entrance-01", 0), else_=1)
+    device_order = case(
+        (ranked.c.device_id == "entrance-01", 0),
+        (ranked.c.device_id == "petzone-01", 1),
+        else_=2,
+    )
     sensor_order = case(
         *[(ranked.c.sensor_type == sensor_type, index) for index, sensor_type in enumerate(SENSOR_ORDER)],
         else_=len(SENSOR_ORDER),
@@ -495,11 +505,11 @@ def install_api(application: FastAPI, *, allowed_origins: Iterable[str] = DEFAUL
     @router.get("/api/bed/status", response_model=BedStatus)
     def get_bed_status(
         request: Request,
-        device_id: Annotated[str, Query()] = "petzone-01",
+        device_id: Annotated[str, Query()] = "bed-01",
     ) -> BedStatus | JSONResponse:
         if error := _query_error(request, frozenset({"device_id"})):
             return error
-        if device_id != "petzone-01":
+        if device_id != "bed-01":
             return _api_error(422, "validation_error", "Request validation failed")
         try:
             return _bed_status(request.app)

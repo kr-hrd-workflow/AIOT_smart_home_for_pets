@@ -12,6 +12,9 @@ inline constexpr DeviceProfile device_profile = DeviceProfile::entrance_01;
 #elif defined(PETCARE_PROFILE_PETZONE)
 inline constexpr char device_id[] = "petzone-01";
 inline constexpr DeviceProfile device_profile = DeviceProfile::petzone_01;
+#elif defined(PETCARE_PROFILE_BED)
+inline constexpr char device_id[] = "bed-01";
+inline constexpr DeviceProfile device_profile = DeviceProfile::bed_01;
 #else
 #error "A PetCare Pico profile must be selected"
 #endif
@@ -51,10 +54,11 @@ inline constexpr std::uint8_t water_hx711_dout_pin = 12;
 inline constexpr std::uint8_t water_hx711_sck_pin = 13;
 inline constexpr std::uint32_t food_hx711_timeout_us = 100'000;
 inline constexpr std::uint32_t water_hx711_timeout_us = 100'000;
-inline constexpr std::int32_t food_tare_raw = 100;
-inline constexpr double food_counts_per_gram = 10.0;
-inline constexpr std::int32_t water_tare_raw = 100;
-inline constexpr double water_counts_per_gram = 10.0;
+inline constexpr std::int32_t food_tare_raw = -251'961;
+inline constexpr double food_counts_per_gram = 408.54117647058825;
+inline constexpr std::int32_t water_tare_raw = 114'845;
+inline constexpr double water_counts_per_gram = -413.1862745098039;
+inline constexpr double weight_max_grams = 5'000.0;
 inline constexpr WeightCalibration food_calibration{food_tare_raw, food_counts_per_gram};
 inline constexpr WeightCalibration water_calibration{water_tare_raw, water_counts_per_gram};
 

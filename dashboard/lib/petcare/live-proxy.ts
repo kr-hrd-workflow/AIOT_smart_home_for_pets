@@ -69,32 +69,34 @@ function isHealth(value: unknown) {
 function isDevice(value: unknown) {
   return (
     exact(value, ["device_id", "status", "last_seen_at"]) &&
-    oneOf(value.device_id, ["entrance-01", "petzone-01"]) &&
+    oneOf(value.device_id, ["entrance-01", "petzone-01", "bed-01"]) &&
     oneOf(value.status, ["online", "offline", "unknown"]) &&
     nullableString(value.last_seen_at)
   );
 }
 
 function isSensor(value: unknown) {
-  return (
-    exact(value, ["id", "device_id", "sensor_type", "value", "unit", "observed_at"]) &&
-    finite(value.id) &&
-    oneOf(value.device_id, ["entrance-01", "petzone-01"]) &&
-    oneOf(value.sensor_type, [
-      "temperature",
-      "humidity",
-      "presence_moving",
-      "presence_stationary",
-      "food_weight",
-      "water_weight",
-      "bed_pressure_left",
-      "bed_pressure_center",
-      "bed_pressure_right",
-    ]) &&
-    (finite(value.value) || typeof value.value === "boolean") &&
-    oneOf(value.unit, ["C", "%", "bool", "g", "adc"]) &&
-    typeof value.observed_at === "string"
-  );
+  if (
+    !exact(value, ["id", "device_id", "sensor_type", "value", "unit", "observed_at"]) ||
+    !finite(value.id) ||
+    typeof value.observed_at !== "string"
+  ) return false;
+  if (value.sensor_type === "temperature" || value.sensor_type === "humidity") {
+    return oneOf(value.device_id, ["entrance-01", "bed-01"]) && finite(value.value) &&
+      value.unit === (value.sensor_type === "temperature" ? "C" : "%");
+  }
+  if (value.sensor_type === "presence_moving" || value.sensor_type === "presence_stationary") {
+    return value.device_id === "entrance-01" && typeof value.value === "boolean" && value.unit === "bool";
+  }
+  if (value.sensor_type === "food_weight" || value.sensor_type === "water_weight") {
+    return value.device_id === "petzone-01" && finite(value.value) &&
+      value.value >= 0 && value.value <= 5000 && value.unit === "g";
+  }
+  if (oneOf(value.sensor_type, ["bed_pressure_left", "bed_pressure_center", "bed_pressure_right"])) {
+    return value.device_id === "bed-01" && finite(value.value) && Number.isInteger(value.value) &&
+      value.value >= 0 && value.value <= 4095 && value.unit === "adc";
+  }
+  return false;
 }
 
 function isCamera(value: unknown) {
@@ -148,7 +150,7 @@ function isBed(value: unknown) {
       "seven_day",
       "calibrated_at",
     ]) &&
-    value.device_id === "petzone-01" &&
+    value.device_id === "bed-01" &&
     oneOf(value.sensor_state, ["unavailable", "uncalibrated", "ready"]) &&
     oneOf(value.pressure_state, ["unavailable", "uncalibrated", "empty", "occupied"]) &&
     oneOf(value.fusion_state, ["unavailable", "empty", "confirmed_rest", "unconfirmed_pressure", "sensor_check"]) &&

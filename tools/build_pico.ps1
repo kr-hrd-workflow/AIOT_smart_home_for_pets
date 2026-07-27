@@ -2,7 +2,7 @@
 param(
   [string]$RuntimePath = '',
   [string]$BuildRoot = '',
-  [ValidateSet('all','entrance-01','petzone-01')][string]$Profile = 'all',
+  [ValidateSet('all','entrance-01','petzone-01','bed-01')][string]$Profile = 'all',
   [switch]$Hardware,
   [switch]$DryRun
 )
@@ -254,7 +254,7 @@ function Assert-CachePath([string]$CachePath, [string]$Name, [string]$Expected) 
   }
 }
 
-$Targets = if ($Profile -eq 'all') { @('entrance-01','petzone-01') } else { @($Profile) }
+$Targets = if ($Profile -eq 'all') { @('entrance-01','petzone-01','bed-01') } else { @($Profile) }
 $SourcePath = Get-EffectivePath (Join-Path $Root 'firmware/pico_pet_node/pico')
 $BuildRoot = Get-EffectivePath ([IO.Path]::GetFullPath($BuildRoot))
 $OldPath = $env:PATH

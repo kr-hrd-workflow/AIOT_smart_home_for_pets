@@ -40,7 +40,7 @@ def test_uvicorn_has_a_websocket_protocol() -> None:
 
 def bed_status(raw: int = 100) -> BedStatus:
     return BedStatus(
-        device_id="petzone-01",
+        device_id="bed-01",
         sensor_state="ready",
         pressure_state="empty",
         fusion_state="empty",

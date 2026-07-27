@@ -114,14 +114,24 @@ int main() {
 
     assert(petcare::profile_device_id(DeviceProfile::entrance_01) == "entrance-01");
     assert(petcare::profile_device_id(DeviceProfile::petzone_01) == "petzone-01");
+    assert(petcare::profile_device_id(DeviceProfile::bed_01) == "bed-01");
     for (const auto sensor : {"temperature", "humidity", "presence_moving", "presence_stationary"}) {
         assert(petcare::profile_allows(DeviceProfile::entrance_01, sensor));
-        assert(petcare::profile_allows(DeviceProfile::petzone_01, sensor));
+        assert(!petcare::profile_allows(DeviceProfile::petzone_01, sensor));
     }
-    for (const auto sensor : {"food_weight", "water_weight", "bed_pressure_left", "bed_pressure_center", "bed_pressure_right"}) {
+    for (const auto sensor : {"food_weight", "water_weight"}) {
         assert(!petcare::profile_allows(DeviceProfile::entrance_01, sensor));
         assert(petcare::profile_allows(DeviceProfile::petzone_01, sensor));
+        assert(!petcare::profile_allows(DeviceProfile::bed_01, sensor));
     }
+    for (const auto sensor : {"bed_pressure_left", "bed_pressure_center", "bed_pressure_right"}) {
+        assert(!petcare::profile_allows(DeviceProfile::entrance_01, sensor));
+        assert(!petcare::profile_allows(DeviceProfile::petzone_01, sensor));
+        assert(petcare::profile_allows(DeviceProfile::bed_01, sensor));
+    }
+    assert(petcare::profile_allows(DeviceProfile::bed_01, "temperature"));
+    assert(petcare::profile_allows(DeviceProfile::bed_01, "humidity"));
+    assert(!petcare::profile_allows(DeviceProfile::bed_01, "presence_moving"));
     for (const auto retired : {"bed_weight", "light", "motion", "door_open"}) {
         assert(!petcare::profile_allows(DeviceProfile::entrance_01, retired));
         assert(!petcare::profile_allows(DeviceProfile::petzone_01, retired));
@@ -160,29 +170,23 @@ int main() {
     assert(payload(lwt) ==
         "{\"device_id\":\"petzone-01\",\"status\":\"offline\",\"observed_at\":\"2026-07-15T07:00:00.000Z\"}");
 
-    const std::array<SensorReading, 9> petzone_readings{{
-        {"petzone-01", "temperature", SensorValue::number(24.25), "C", observed_at},
-        {"petzone-01", "humidity", SensorValue::number(51.0), "%", observed_at},
-        {"petzone-01", "presence_moving", SensorValue::boolean(true), "bool", observed_at},
-        {"petzone-01", "presence_stationary", SensorValue::boolean(false), "bool", observed_at},
+    const std::array<SensorReading, 7> petzone_readings{{
         {"petzone-01", "food_weight", SensorValue::number(80.0), "g", observed_at},
         {"petzone-01", "water_weight", SensorValue::number(80.0), "g", observed_at},
-        {"petzone-01", "bed_pressure_left", SensorValue::integer(0), "adc", observed_at},
-        {"petzone-01", "bed_pressure_center", SensorValue::integer(2048), "adc", observed_at},
-        {"petzone-01", "bed_pressure_right", SensorValue::integer(4095), "adc", observed_at},
+        {"bed-01", "temperature", SensorValue::number(24.25), "C", observed_at},
+        {"bed-01", "humidity", SensorValue::number(51.0), "%", observed_at},
+        {"bed-01", "bed_pressure_left", SensorValue::integer(0), "adc", observed_at},
+        {"bed-01", "bed_pressure_center", SensorValue::integer(2048), "adc", observed_at},
+        {"bed-01", "bed_pressure_right", SensorValue::integer(4095), "adc", observed_at},
     }};
     for (const auto& reading : petzone_readings) {
         petcare::TelemetryMessage message{};
         assert(petcare::serialize_sensor_message(reading, message));
     }
-    petcare::TelemetryMessage boolean_message{};
-    assert(petcare::serialize_sensor_message(petzone_readings[2], boolean_message));
-    assert(payload(boolean_message) ==
-        "{\"device_id\":\"petzone-01\",\"sensor_type\":\"presence_moving\",\"value\":true,\"unit\":\"bool\",\"observed_at\":\"2026-07-15T07:00:00.000Z\"}");
     petcare::TelemetryMessage integer_message{};
-    assert(petcare::serialize_sensor_message(petzone_readings[8], integer_message));
+    assert(petcare::serialize_sensor_message(petzone_readings[6], integer_message));
     assert(payload(integer_message) ==
-        "{\"device_id\":\"petzone-01\",\"sensor_type\":\"bed_pressure_right\",\"value\":4095,\"unit\":\"adc\",\"observed_at\":\"2026-07-15T07:00:00.000Z\"}");
+        "{\"device_id\":\"bed-01\",\"sensor_type\":\"bed_pressure_right\",\"value\":4095,\"unit\":\"adc\",\"observed_at\":\"2026-07-15T07:00:00.000Z\"}");
 
     const petcare::WeightCalibration food{100, 10.0};
     const petcare::WeightCalibration water{100, 10.0};
@@ -193,6 +197,9 @@ int main() {
     const petcare::WeightCalibration changed_food{200, 10.0};
     assert(changed_food.grams(900, food_grams) && food_grams == 70.0);
     assert(water.grams(900, water_grams) && water_grams == 80.0);
+    const petcare::WeightCalibration reversed_water{100, -10.0};
+    assert(reversed_water.grams(-700, water_grams) && water_grams == 80.0);
+    assert(reversed_water.grams(200, water_grams) && water_grams == 0.0);
     const double previous_grams = water_grams;
     const petcare::WeightCalibration zero_scale{100, 0.0};
     const petcare::WeightCalibration nonfinite_scale{100, NAN};

@@ -24,12 +24,12 @@ DEVICE_SENSORS = {
         "presence_stationary": ("bool", "bool"),
     },
     "petzone-01": {
-        "temperature": ("C", "number"),
-        "humidity": ("%", "number"),
-        "presence_moving": ("bool", "bool"),
-        "presence_stationary": ("bool", "bool"),
         "food_weight": ("g", "number"),
         "water_weight": ("g", "number"),
+    },
+    "bed-01": {
+        "temperature": ("C", "number"),
+        "humidity": ("%", "number"),
         "bed_pressure_left": ("adc", "adc"),
         "bed_pressure_center": ("adc", "adc"),
         "bed_pressure_right": ("adc", "adc"),
@@ -105,7 +105,7 @@ class SmokeVerifier:
         require_reconnect: bool = False,
     ) -> None:
         if device_id not in DEVICE_SENSORS:
-            raise ValueError("device must be entrance-01 or petzone-01")
+            raise ValueError("device must be entrance-01, petzone-01, or bed-01")
         self.device_id = device_id
         self.required_sensors = frozenset(DEVICE_SENSORS[device_id])
         self.seen_sensors: set[str] = set()
@@ -289,7 +289,7 @@ class SmokeVerifier:
 
 def load_config(device_id: str, environ: Mapping[str, str] = os.environ) -> SmokeConfig:
     if device_id not in DEVICE_SENSORS:
-        raise ValueError("device must be entrance-01 or petzone-01")
+        raise ValueError("device must be entrance-01, petzone-01, or bed-01")
     if environ.get("PETCARE_MQTT_PROFILE", "hardware") != "hardware":
         raise ValueError("PETCARE_MQTT_PROFILE must be hardware")
     manifest_path = Path(environ.get("PETCARE_MQTT_SERVICES_MANIFEST", ROOT / ".runtime" / "services.json"))

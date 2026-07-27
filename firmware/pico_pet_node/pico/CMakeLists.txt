@@ -44,3 +44,4 @@ endfunction()
 
 add_petcare_node(entrance-01 PETCARE_PROFILE_ENTRANCE)
 add_petcare_node(petzone-01 PETCARE_PROFILE_PETZONE)
+add_petcare_node(bed-01 PETCARE_PROFILE_BED)

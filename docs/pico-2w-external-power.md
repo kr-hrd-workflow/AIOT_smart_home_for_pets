@@ -40,15 +40,19 @@ $env:PETCARE_MQTT_PASSWORD = '<secret-manager-or-private-input>'
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\build_pico.ps1 `
   -Profile entrance-01 -Hardware
-# 또는 두 번째 보드:
+# 또는 식기 보드:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\build_pico.ps1 `
   -Profile petzone-01 -Hardware
+# 또는 침대 보드:
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\build_pico.ps1 `
+  -Profile bed-01 -Hardware
 ```
 
 UF2 위치:
 
 - `.runtime/pico-build/entrance-01/entrance-01.uf2`
 - `.runtime/pico-build/petzone-01/petzone-01.uf2`
+- `.runtime/pico-build/bed-01/bed-01.uf2`
 
 빌드가 끝나면 현재 셸의 비밀 환경변수를 제거한다.
 
@@ -84,7 +88,8 @@ Pico 2 W 데이터시트상 micro-USB VBUS는 5 V ±10%이고 GPIO는 3.3 V 영�
 스모크 도구는 `.runtime/services.json`의 정확한 `hardware` 주소와 환경변수 자격 증명만 사용한다. 비밀번호용 명령행 옵션은 없고 보고서에도 사용자명·비밀번호를 출력하지 않는다. 기본 제한시간 45초 안에 다음을 요구한다.
 
 - `entrance-01`: status와 temperature, humidity, moving/stationary presence 4종
-- `petzone-01`: 위 4종과 food/water weight, left/center/right pressure까지 9종
+- `petzone-01`: status와 food/water weight 2종
+- `bed-01`: status와 temperature, humidity, left/center/right pressure 5종
 - 정확한 토픽, JSON 키 순서, 타입, 단위, UTC 밀리초 timestamp
 - 2회의 연속 online으로 10초 heartbeat 증명
 - 누락, 잘못된 payload, 미래 또는 30초 초과 sensor/online 데이터는 종료 코드 1
@@ -96,6 +101,7 @@ $env:PETCARE_MQTT_PASSWORD = '<secret-manager-or-private-input>'
 
 & .\.runtime\managed\python\python\python.exe .\tools\pico_mqtt_smoke.py entrance-01
 & .\.runtime\managed\python\python\python.exe .\tools\pico_mqtt_smoke.py petzone-01
+& .\.runtime\managed\python\python\python.exe .\tools\pico_mqtt_smoke.py bed-01
 ```
 
 성공 기준은 `PASS Pico MQTT smoke`, 전체 센서 수, `heartbeat=PASS`다. 정상 상태에서는 `lwt=NOT_CONFIRMED`와 `reconnect=NOT_OBSERVED`여도 된다.

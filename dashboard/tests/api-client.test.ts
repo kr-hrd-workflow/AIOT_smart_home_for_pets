@@ -144,7 +144,7 @@ describe("PetCareClient", () => {
     invalidComparison.bed.seven_day.difference_seconds = 1;
 
     const invalidCalibration = {
-      device_id: "petzone-01",
+      device_id: "bed-01",
       calibrated_at: "2026-07-20T12:01:00Z",
       window_start: "2026-07-20T12:00:00Z",
       window_end: "2026-07-20T12:00:59Z",
@@ -186,7 +186,7 @@ describe("PetCareClient", () => {
 
   it("returns the exact calibration success, 409, and 503 unions", async () => {
     const success = {
-      device_id: "petzone-01",
+      device_id: "bed-01",
       calibrated_at: "2026-07-20T12:01:00Z",
       window_start: "2026-07-20T12:00:00Z",
       window_end: "2026-07-20T12:01:00Z",
@@ -226,7 +226,7 @@ describe("PetCareClient", () => {
       "http://127.0.0.1:8000/api/bed/calibration",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ device_id: "petzone-01" }),
+        body: JSON.stringify({ device_id: "bed-01" }),
       }),
     );
   });

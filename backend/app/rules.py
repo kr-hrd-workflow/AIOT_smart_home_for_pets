@@ -318,7 +318,7 @@ class MismatchState:
             return None
         if now_monotonic - self.started_monotonic < 30.0:
             return None
-        identity = self.subject_id or "petzone-01"
+        identity = self.subject_id or "bed-01"
         attempt = MismatchAttempt(
             mismatch_kind=self.kind,
             subject_id=self.subject_id,
@@ -685,7 +685,7 @@ class RuleEngine:
             return None if self._bed_status_snapshot is None else self._bed_status_snapshot.model_copy(deep=True)
 
     def startup(self, session: Session, scheduler: object, now: datetime) -> None:
-        for device_id in ("entrance-01", "petzone-01"):
+        for device_id in ("entrance-01", "petzone-01", "bed-01"):
             if session.get(Device, device_id) is None:
                 session.add(Device(device_id=device_id))
         session.flush()
@@ -693,7 +693,7 @@ class RuleEngine:
         self._close_orphan_rest(session)
         calibration = session.execute(
             select(BedCalibration)
-            .where(BedCalibration.device_id == "petzone-01")
+            .where(BedCalibration.device_id == "bed-01")
             .order_by(BedCalibration.calibrated_at.desc(), BedCalibration.id.desc())
             .limit(1)
         ).scalar_one_or_none()
@@ -782,7 +782,7 @@ class RuleEngine:
             rollback_snapshot=rollback_snapshot,
         )
         return BedCalibrationSuccess(
-            device_id="petzone-01",
+            device_id="bed-01",
             calibrated_at=received_at_utc,
             window_start=snapshot.window_start,
             window_end=snapshot.window_end,
@@ -1340,7 +1340,7 @@ class RuleEngine:
         ]
         earliest = session.execute(
             select(func.min(SensorReading.observed_at)).where(
-                SensorReading.device_id == "petzone-01",
+                SensorReading.device_id == "bed-01",
                 SensorReading.sensor_type.in_(
                     ("bed_pressure_left", "bed_pressure_center", "bed_pressure_right")
                 ),
@@ -1389,7 +1389,7 @@ class RuleEngine:
                 )
             )
         snapshot = BedStatus(
-            device_id="petzone-01",
+            device_id="bed-01",
             sensor_state=evaluation.sensor_state,
             pressure_state=evaluation.pressure_state,
             fusion_state=evaluation.fusion_state,

@@ -13,19 +13,20 @@
   "nodes": {
     "entrance-01": "NOT RUN",
     "petzone-01": "NOT RUN",
+    "bed-01": "NOT RUN",
     "home-camera": "NOT RUN"
   },
   "components": [
     {"id": "entrance_serial_boot", "status": "NOT RUN", "evidence": null},
     {"id": "petzone_serial_boot", "status": "NOT RUN", "evidence": null},
+    {"id": "bed_serial_boot", "status": "NOT RUN", "evidence": null},
     {"id": "authenticated_sensor_subscription", "status": "NOT RUN", "evidence": null},
     {"id": "authenticated_status_subscription", "status": "NOT RUN", "evidence": null},
     {"id": "mqtt_reconnect", "status": "NOT RUN", "evidence": null},
     {"id": "entrance_sht31_installed", "status": "NOT RUN", "evidence": null},
-    {"id": "petzone_sht31_installed", "status": "NOT RUN", "evidence": null},
+    {"id": "bed_sht31_installed", "status": "NOT RUN", "evidence": null},
     {"id": "spare_sht31_test", "status": "NOT RUN", "evidence": null},
     {"id": "entrance_ld2410c_installed", "status": "NOT RUN", "evidence": null},
-    {"id": "petzone_ld2410c_installed", "status": "NOT RUN", "evidence": null},
     {"id": "food_bowl_calibrated", "status": "NOT RUN", "evidence": null},
     {"id": "water_bowl_calibrated", "status": "NOT RUN", "evidence": null},
     {"id": "fsr_left_raw", "status": "NOT RUN", "evidence": null},
@@ -40,10 +41,10 @@
 
 ## 실행 체크리스트
 
-1. 두 UF2를 올리고 각 serial boot와 정확한 device ID를 기록합니다.
-2. hardware MQTT listener를 한 명시적 RFC1918 주소에만 열고 사용자/비밀번호 인증으로 sensor wildcard와 두 retained status topic을 구독합니다.
-3. 두 Pico의 전원 또는 AP를 순차 재시작해 retained offline, online 복구, 1/2/4/8/16/30초 backoff를 확인합니다.
-4. 노드별 SHT31 두 대와 spare 한 대, LD2410C 두 대를 각각 확인합니다.
+1. 세 UF2를 올리고 각 serial boot와 정확한 device ID를 기록합니다.
+2. hardware MQTT listener를 한 명시적 RFC1918 주소에만 열고 사용자/비밀번호 인증으로 sensor wildcard와 세 retained status topic을 구독합니다.
+3. 세 Pico의 전원 또는 AP를 순차 재시작해 retained offline, online 복구, 1/2/4/8/16/30초 backoff를 확인합니다.
+4. `entrance-01`과 `bed-01`의 SHT31, spare SHT31 한 대, `entrance-01`의 LD2410C를 각각 확인합니다.
 5. 식기와 물그릇을 별도 tare/known-mass calibration하고 raw/gram 변화를 기록합니다.
 6. FSR left/center/right를 하나씩 누르며 `0..4095 adc` raw 채널이 서로 뒤바뀌지 않았는지 확인합니다.
 7. 실웹캠의 유효 `640x480x3 uint8` frame, FPS, inference latency, dog/cat bbox/zone을 확인합니다.
