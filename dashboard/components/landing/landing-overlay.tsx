@@ -10,7 +10,7 @@ export function LandingOverlay() {
         </Link>
         <nav aria-label="주요 메뉴">
           <Link href="/demo">데모 보기</Link>
-          <Link className="landing-header-cta" href="/login">로그인</Link>
+          <Link className="landing-header-cta" href="/dashboard">로그인</Link>
         </nav>
       </header>
 
@@ -23,7 +23,7 @@ export function LandingOverlay() {
             이벤트가 생긴 순간만 짧게 보관합니다.
           </p>
           <div className="landing-actions">
-            <Link className="landing-primary" href="/login">로그인</Link>
+            <Link className="landing-primary" href="/dashboard">로그인</Link>
             <Link className="landing-secondary" href="/demo">데모 보기</Link>
           </div>
         </div>
@@ -49,7 +49,7 @@ export function LandingOverlay() {
         <div>
           <p>나의 PetCare 홈</p>
           <h2 id="landing-final-title">필요한 순간을 바로 확인하세요</h2>
-          <Link className="landing-primary" href="/login">로그인</Link>
+          <Link className="landing-primary" href="/dashboard">로그인</Link>
         </div>
       </section>
     </div>

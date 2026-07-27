@@ -194,7 +194,7 @@ it("calls only the assigned Supabase password method and redirects on success", 
   });
   expect(mocks.requireAuth).toHaveBeenCalled();
   expect(mocks.ensureHome).toHaveBeenCalledWith("user-a");
-  expect(loginResponse.headers.get("location")).toBe("https://app.test/");
+  expect(loginResponse.headers.get("location")).toBe("https://app.test/dashboard");
 
   const signupResponse = await signup(request(handlers[1].path, handlers[1].fields));
   expect(mocks.signUp).toHaveBeenCalledWith({

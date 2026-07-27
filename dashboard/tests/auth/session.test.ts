@@ -253,7 +253,7 @@ it("uses a safe callback destination and maps callback failures generically", as
   const safe = await GET(
     new NextRequest("https://app.test/auth/callback?code=pkce-code&next=https://evil.test"),
   );
-  expect(safe.headers.get("location")).toBe("https://app.test/");
+  expect(safe.headers.get("location")).toBe("https://app.test/dashboard");
 
   mocks.exchangeCodeForSession.mockResolvedValue({
     data: null,
