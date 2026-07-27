@@ -335,11 +335,10 @@ export function RemoteDashboardView({
             )}
           </li>
         </ol>
-        {agentReady && (
-          <section
-            className="pico-cloud-setup"
-            aria-labelledby="pico-cloud-setup-title"
-          >
+        <section
+          className="pico-cloud-setup"
+          aria-labelledby="pico-cloud-setup-title"
+        >
             <div>
               <p className="eyebrow">Pico를 처음 연결할 때</p>
               <h2 id="pico-cloud-setup-title">Pico Wi-Fi 설정</h2>
@@ -348,6 +347,12 @@ export function RemoteDashboardView({
                 입력하세요. MQTT 비밀번호는 Home Agent가 기기에 직접 결합하며
                 웹에 표시하거나 저장하지 않습니다.
               </p>
+              {!agentReady && (
+                <p role="status">
+                  Home Agent를 먼저 등록하면 이 PC에 USB로 연결한 Pico로 Wi-Fi
+                  설정을 전달할 수 있습니다.
+                </p>
+              )}
             </div>
             <form
               aria-describedby="pico-cloud-setup-description"
@@ -361,7 +366,7 @@ export function RemoteDashboardView({
                   minLength={1}
                   maxLength={32}
                   required
-                  disabled={provisioningProduct !== null}
+                  disabled={!agentReady || provisioningProduct !== null}
                   value={wifiSsid}
                   onChange={(event) => setWifiSsid(event.target.value)}
                 />
@@ -374,7 +379,7 @@ export function RemoteDashboardView({
                   minLength={8}
                   maxLength={63}
                   required
-                  disabled={provisioningProduct !== null}
+                  disabled={!agentReady || provisioningProduct !== null}
                   value={wifiPassword}
                   onChange={(event) => setWifiPassword(event.target.value)}
                 />
@@ -383,7 +388,7 @@ export function RemoteDashboardView({
                 <button
                   type="submit"
                   value="entrance-01"
-                  disabled={provisioningProduct !== null}
+                  disabled={!agentReady || provisioningProduct !== null}
                   aria-busy={provisioningProduct === "entrance-01"}
                 >
                   {entranceOnline ? "현관 Pico 다시 설정" : "현관 Pico 설정"}
@@ -391,20 +396,21 @@ export function RemoteDashboardView({
                 <button
                   type="submit"
                   value="petzone-01"
-                  disabled={provisioningProduct !== null}
+                  disabled={!agentReady || provisioningProduct !== null}
                   aria-busy={provisioningProduct === "petzone-01"}
                 >
                   {petzoneOnline
                     ? "생활공간 Pico 다시 설정"
                     : "생활공간 Pico 설정"}
                 </button>
-                <a href={LOCAL_SETUP_URL}>오프라인 복구 설정 열기</a>
+                {agentReady && (
+                  <a href={LOCAL_SETUP_URL}>오프라인 복구 설정 열기</a>
+                )}
               </div>
               {picoMessage && <p role="status">{picoMessage}</p>}
               {picoError && <p role="alert">{picoError}</p>}
             </form>
-          </section>
-        )}
+        </section>
       </section>
       {status.dashboard && status.agent && (
         <>

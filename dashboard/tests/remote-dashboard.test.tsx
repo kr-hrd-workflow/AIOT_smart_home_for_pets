@@ -231,6 +231,14 @@ it("prevents duplicate enrollment, reports failure, and permits retry", async ()
     "/api/petcare/installer",
   );
   expect(installer).toHaveAttribute("download");
+  expect(
+    screen.getByRole("textbox", { name: "Wi-Fi 이름 (SSID)" }),
+  ).toBeDisabled();
+  expect(screen.getByLabelText("Wi-Fi 비밀번호")).toBeDisabled();
+  expect(screen.getByRole("button", { name: "현관 Pico 설정" })).toBeDisabled();
+  expect(
+    screen.getByText(/Home Agent를 먼저 등록하면 이 PC에 USB로 연결한 Pico/),
+  ).toBeInTheDocument();
   button.click();
   button.click();
   await waitFor(() => expect(enroll).toHaveBeenCalledTimes(1));
