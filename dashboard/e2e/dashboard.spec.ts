@@ -515,10 +515,14 @@ test.describe("remote dashboard states", () => {
     }) => {
       await page.setViewportSize(viewport);
       const { backend, state } = await gotoConnected(page);
-      await expect(page.getByText("필수 연결 완료")).toBeVisible();
       await expect(
-        page.getByRole("list", { name: "우리 집 연결" }),
+        page.getByRole("heading", { name: "PetCare 운영 현황" }),
       ).toBeVisible();
+      await expect(page.getByRole("link", { name: "대시보드" })).toHaveAttribute(
+        "aria-current",
+        "page",
+      );
+      await expect(page.getByRole("link", { name: "기기 설정" })).toBeVisible();
       await expect(
         page.getByText("dog_001", { exact: true }).first(),
       ).toBeVisible();
