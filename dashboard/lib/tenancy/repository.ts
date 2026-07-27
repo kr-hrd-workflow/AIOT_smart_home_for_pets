@@ -208,6 +208,28 @@ export class TenantRepository {
       const results = await client.batch([
         client
           .prepare(`
+            UPDATE cameras SET disabled_at = ?
+            WHERE disabled_at IS NULL AND home_id = (
+              SELECT et.home_id FROM enrollment_tokens et
+              WHERE et.token_hash = ? AND et.consumed_at IS NULL AND et.expires_at > ?
+            ) AND agent_id IN (
+              SELECT id FROM agents
+              WHERE connection_mode = 'outbound' AND last_seen_at IS NULL AND revoked_at IS NULL
+            )
+          `)
+          .bind(input.consumedAt, input.codeHash, input.consumedAt),
+        client
+          .prepare(`
+            UPDATE agents SET revoked_at = ?
+            WHERE connection_mode = 'outbound' AND last_seen_at IS NULL AND revoked_at IS NULL
+              AND home_id = (
+                SELECT et.home_id FROM enrollment_tokens et
+                WHERE et.token_hash = ? AND et.consumed_at IS NULL AND et.expires_at > ?
+              )
+          `)
+          .bind(input.consumedAt, input.codeHash, input.consumedAt),
+        client
+          .prepare(`
             INSERT INTO agents (id, home_id, public_key, tunnel_origin, connection_mode)
             SELECT ?, et.home_id, ?, NULL, 'outbound'
             FROM enrollment_tokens et
@@ -255,11 +277,11 @@ export class TenantRepository {
             input.camera.id,
           ),
       ]);
-      const homeId = results[2].results[0]?.home_id;
+      const homeId = results[4].results[0]?.home_id;
       if (
-        results[0].meta.changes !== 1 ||
-        results[1].meta.changes !== 1 ||
         results[2].meta.changes !== 1 ||
+        results[3].meta.changes !== 1 ||
+        results[4].meta.changes !== 1 ||
         typeof homeId !== "string"
       ) {
         throw new EnrollmentRejectedError("Enrollment rejected");

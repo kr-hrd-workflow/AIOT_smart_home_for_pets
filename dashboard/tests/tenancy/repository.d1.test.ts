@@ -224,22 +224,6 @@ describe("TenantRepository", () => {
         camera: { id: "camera-foreign", localCameraId: "pc-webcam-01" as const },
       };
     }],
-    ["second-agent", async (repository: TenantRepository) => {
-      const home = await repository.ensureHome("owner-second");
-      await repository.replaceEnrollmentToken(home.id, "second-outbound", "2026-07-20T03:10:00.000Z");
-      await db
-        .prepare(
-          "INSERT INTO agents (id, home_id, public_key, tunnel_origin, connection_mode) VALUES (?, ?, ?, ?, ?)",
-        )
-        .bind("agent-existing", home.id, "key-existing", null, "outbound")
-        .run();
-      return {
-        codeHash: "second-outbound",
-        consumedAt: "2026-07-20T03:05:00.000Z",
-        agent: { id: "agent-second", publicKey: "key-second" },
-        camera: { id: "camera-second", localCameraId: "pc-webcam-01" as const },
-      };
-    }],
   ])("rejects %s outbound enrollment without mutating tenant tables", async (_name, setup) => {
     const repository = new TenantRepository(getDb(db));
     const input = await setup(repository);
@@ -251,6 +235,38 @@ describe("TenantRepository", () => {
     });
 
     await expect(enrollmentState()).resolves.toEqual(before);
+  });
+
+  it("replaces an outbound agent that never completed its first connection", async () => {
+    const repository = new TenantRepository(getDb(db));
+    const home = await repository.ensureHome("owner-recovery");
+    await repository.replaceEnrollmentToken(home.id, "recovery-hash", "2026-07-20T03:10:00.000Z");
+    await db.batch([
+      db.prepare(
+        "INSERT INTO agents (id, home_id, public_key, tunnel_origin, connection_mode) VALUES (?, ?, ?, ?, ?)",
+      ).bind("agent-orphan", home.id, "key-orphan", null, "outbound"),
+      db.prepare(
+        "INSERT INTO cameras (id, home_id, agent_id, local_camera_id, created_at) VALUES (?, ?, ?, ?, ?)",
+      ).bind("camera-orphan", home.id, "agent-orphan", "pc-webcam-01", "2026-07-20T03:00:00.000Z"),
+    ]);
+
+    await expect(repository.consumeOutboundEnrollment({
+      codeHash: "recovery-hash",
+      consumedAt: "2026-07-20T03:05:00.000Z",
+      agent: { id: "agent-recovered", publicKey: "key-recovered" },
+      camera: { id: "camera-recovered", localCameraId: "pc-webcam-01" },
+    })).resolves.toEqual({
+      homeId: home.id,
+      agentId: "agent-recovered",
+      cameraId: "camera-recovered",
+    });
+
+    await expect(db.prepare(
+      "SELECT revoked_at FROM agents WHERE id = ?",
+    ).bind("agent-orphan").first()).resolves.toEqual({ revoked_at: "2026-07-20T03:05:00.000Z" });
+    await expect(db.prepare(
+      "SELECT disabled_at FROM cameras WHERE id = ?",
+    ).bind("camera-orphan").first()).resolves.toEqual({ disabled_at: "2026-07-20T03:05:00.000Z" });
   });
 
   it("rejects a valid token without its reserved provisioning route", async () => {
