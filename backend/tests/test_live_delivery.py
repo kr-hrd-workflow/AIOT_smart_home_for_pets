@@ -125,7 +125,7 @@ def test_completed_files_publish_init_then_ordered_segments_and_ignore_temp_file
     assert (boot_dir / "2.m4s").exists()
 
 
-def test_upload_failure_drops_boot_without_queuing_or_mutating_ffmpeg_files(
+def test_upload_failure_keeps_boot_without_queuing_or_mutating_ffmpeg_files(
     tmp_path: Path,
 ) -> None:
     class Client:
@@ -149,10 +149,45 @@ def test_upload_failure_drops_boot_without_queuing_or_mutating_ffmpeg_files(
     )
     state = worker.new_boot_state("boot-a", boot_dir)
 
-    assert worker.publish_completed(state) is False
+    assert worker.publish_completed(state) is True
     assert worker.last_error == "live_upload_unavailable"
     assert len(list(boot_dir.glob("*.m4s"))) == 15
     assert "secret" not in worker.last_error
+
+
+def test_transient_upload_failure_retries_same_boot_and_segment(tmp_path: Path) -> None:
+    attempts = 0
+    uploaded: list[tuple[str, int]] = []
+
+    class Client:
+        def upload(self, _path: Path, *, kind: str, sequence: int, **_kwargs: object) -> None:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise TimeoutError("temporary upload delay")
+            uploaded.append((kind, sequence))
+
+        def close(self) -> None:
+            pass
+
+    boot_dir = tmp_path / "boot"
+    boot_dir.mkdir()
+    (boot_dir / "init.mp4").write_bytes(b"init")
+    (boot_dir / "1.m4s").write_bytes(b"one")
+    worker = LiveDeliveryWorker(
+        Client(),
+        lambda: iter(()),
+        ffmpeg_path=tmp_path / "ffmpeg.exe",
+        work_dir=tmp_path / "live",
+        now=lambda: NOW,
+    )
+    state = worker.new_boot_state("boot-a", boot_dir)
+
+    assert worker.publish_completed(state) is True
+    assert state.init_uploaded is False
+    assert worker.publish_completed(state) is True
+    assert uploaded == [("init", 0), ("segment", 1)]
+    assert state.boot_id == "boot-a"
 
 
 def test_signed_live_upload_matches_server_canonical_contract(tmp_path: Path) -> None:

@@ -39,7 +39,7 @@ describe("getLiveManifest", () => {
       boot_id: "boot-01",
       codec: "avc1.42E01E",
       newest_sequence: 9,
-      target_latency_seconds: 2,
+      target_latency_seconds: 6,
       init_url: "/api/petcare/cameras/camera-01/live/boot-01/init.mp4",
       parts: [
         { sequence: 2, url: "/api/petcare/cameras/camera-01/live/boot-01/2.m4s" },

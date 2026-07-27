@@ -42,7 +42,7 @@ export async function getLiveManifest(
       boot_id: stream.bootId,
       codec: "avc1.42E01E",
       newest_sequence: stream.newestSequence,
-      target_latency_seconds: 2,
+      target_latency_seconds: 6,
       init_url: mediaRoute(cameraId, stream.bootId, "init.mp4"),
       parts: stream.parts.map((part) => ({
         sequence: part.sequence,

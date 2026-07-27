@@ -84,7 +84,7 @@ function manifest(
     boot_id: bootId,
     codec: "avc1.42E01E",
     newest_sequence: newestSequence,
-    target_latency_seconds: 2,
+    target_latency_seconds: 6,
     init_url: `/api/petcare/cameras/camera-1/live/${bootId}/init.mp4`,
     parts: Array.from(
       { length: Math.max(0, newestSequence - first + 1) },
@@ -128,7 +128,7 @@ afterEach(() => {
 });
 
 describe("LiveMediaPlayer", () => {
-  it("appends init before ordered parts and starts near the two-second target", async () => {
+  it("appends init before ordered parts and starts with a six-second buffer", async () => {
     const liveClient = client();
     render(
       <LiveMediaPlayer
@@ -151,6 +151,16 @@ describe("LiveMediaPlayer", () => {
   });
 
   it("resets the MediaSource and init part when the stream boot changes", async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
+      "data:image/jpeg;base64,frame",
+    );
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(function () {
+      this.dispatchEvent(new Event("playing"));
+      return Promise.resolve();
+    });
     const liveManifest = vi
       .fn()
       .mockResolvedValueOnce(manifest("boot-a", 1))
@@ -166,6 +176,9 @@ describe("LiveMediaPlayer", () => {
     );
 
     await waitFor(() => expect(FakeMediaSource.instances).toHaveLength(2));
+    await waitFor(() =>
+      expect(screen.getByLabelText("실시간 반려동물 카메라")).not.toHaveAttribute("poster"),
+    );
     expect(liveClient.livePart).toHaveBeenCalledWith(
       expect.stringContaining("/boot-a/init.mp4"),
       expect.any(AbortSignal),

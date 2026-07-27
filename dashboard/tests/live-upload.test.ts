@@ -47,11 +47,12 @@ async function signed(
   sequence: number,
   body: Uint8Array,
   nonceByte: number,
+  segmentDuration = "3000",
 ): Promise<Request> {
   const bootId = "boot-a";
   const cameraId = "camera-a";
   const startedAt = "2026-07-27T00:00:00.000Z";
-  const duration = kind === "init" ? "0" : "3000";
+  const duration = kind === "init" ? "0" : segmentDuration;
   const digest = b64url(
     new Uint8Array(await webcrypto.subtle.digest("SHA-256", body)),
   );
@@ -138,6 +139,18 @@ beforeEach(async () => {
 afterEach(() => fake.dispose());
 
 describe("signed rolling live upload", () => {
+  it("accepts a signed legacy one-second segment during rollout", async () => {
+    const env = { DB: db, CLIPS: r2 } as unknown as Parameters<typeof handleLiveUpload>[1];
+    await handleLiveUpload(await signed("init", 0, new Uint8Array([1]), 1), env, now);
+    await expect(
+      handleLiveUpload(
+        await signed("segment", 1, new Uint8Array([2]), 2, "1000"),
+        env,
+        now,
+      ),
+    ).resolves.toMatchObject({ status: 204 });
+  });
+
   it("keeps one init and only the newest eight increasing one-second segments", async () => {
     const env = { DB: db, CLIPS: r2 } as unknown as Parameters<typeof handleLiveUpload>[1];
     await expect(

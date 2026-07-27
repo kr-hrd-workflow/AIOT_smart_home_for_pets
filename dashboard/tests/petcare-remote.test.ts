@@ -54,7 +54,7 @@ describe("createPetCareRemote", () => {
       boot_id: "boot-a",
       codec: "avc1.42E01E",
       newest_sequence: 2,
-      target_latency_seconds: 2,
+      target_latency_seconds: 6,
       init_url: "/api/petcare/cameras/camera-1/live/boot-a/init.mp4",
       parts: [
         {
@@ -115,7 +115,7 @@ describe("createPetCareRemote", () => {
           boot_id: "boot-a",
           codec: "avc1.42E01E",
           newest_sequence: 2,
-          target_latency_seconds: 2,
+          target_latency_seconds: 6,
           init_url: "/api/petcare/cameras/camera-1/live/boot-a/init.mp4",
           parts: [
             {

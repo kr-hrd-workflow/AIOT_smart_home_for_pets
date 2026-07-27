@@ -222,10 +222,14 @@ copy_runtime ""
 install -o petcare-vision -g petcare-vision -m 0600 "$script_dir/model.engine" /opt/petcare-vision/model.engine
 install -o petcare-vision -g petcare-vision -m 0600 "$script_dir/model.engine.json" /opt/petcare-vision/model.engine.json
 chown -R petcare-vision:petcare-vision /opt/petcare-vision
-openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 825 \
-    -subj "/CN=petcare-jetson" -addext "subjectAltName=IP:$bind_ip" \
-    -keyout /var/lib/petcare-vision/device.key -out /var/lib/petcare-vision/device.crt >/dev/null 2>&1
-head -c 32 /dev/urandom >/var/lib/petcare-vision/psk.bin
+if [ ! -f /var/lib/petcare-vision/device.key ] || [ ! -f /var/lib/petcare-vision/device.crt ]; then
+    openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 825 \
+        -subj "/CN=petcare-jetson" -addext "subjectAltName=IP:$bind_ip" \
+        -keyout /var/lib/petcare-vision/device.key -out /var/lib/petcare-vision/device.crt >/dev/null 2>&1
+fi
+if [ ! -f /var/lib/petcare-vision/psk.bin ]; then
+    head -c 32 /dev/urandom >/var/lib/petcare-vision/psk.bin
+fi
 chmod 600 /var/lib/petcare-vision/device.crt /var/lib/petcare-vision/device.key /var/lib/petcare-vision/psk.bin
 if [ ! -f /var/lib/petcare-vision/config.json ]; then
     write_config ""

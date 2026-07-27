@@ -7,7 +7,7 @@ import type { PetCareLiveClient } from "../lib/petcare-remote";
 const CODEC = 'video/mp4; codecs="avc1.42E01E"';
 const DEFAULT_POLL_MS = 1_000;
 const DEFAULT_OFFLINE_MS = 3_000;
-const MAX_BUFFER_SECONDS = 8;
+const MAX_BUFFER_SECONDS = 18;
 
 type LiveState = "connecting" | "live" | "offline" | "unsupported";
 
@@ -174,8 +174,6 @@ export function LiveMediaPlayer({
       ) {
         video.currentTime = target;
       }
-      if (video.paused) void video.play().catch(() => undefined);
-
       const removeBefore = liveEdge - MAX_BUFFER_SECONDS;
       if (removeBefore > start) {
         await queueBufferOperation((buffer) =>
@@ -214,7 +212,6 @@ export function LiveMediaPlayer({
           newestSequence = manifest.newest_sequence;
           lastFreshAt = Date.now();
         }
-        await synchronizePlayback(manifest.target_latency_seconds);
         if (changedBoot && video.poster) {
           video.addEventListener(
             "playing",
@@ -222,6 +219,8 @@ export function LiveMediaPlayer({
             { once: true },
           );
         }
+        await synchronizePlayback(manifest.target_latency_seconds);
+        if (video.paused) void video.play().catch(() => undefined);
         if (active) {
           setState(
             Date.now() - lastFreshAt >= offlineAfterMs ? "offline" : "live",

@@ -119,9 +119,10 @@ class LiveDeliveryWorker:
         )
 
     def publish_completed(self, state: LiveBootState) -> bool:
+        if not self._cap_local_parts(state):
+            self.last_error = "live_upload_unavailable"
+            return False
         try:
-            if not self._cap_local_parts(state):
-                raise RuntimeError("live sequence gap")
             init_path = state.directory / "init.mp4"
             if not state.init_uploaded:
                 if not init_path.is_file() or state.next_sequence not in self._segments(state.directory):
@@ -149,9 +150,11 @@ class LiveDeliveryWorker:
             self.last_error = None
             return True
         except Exception:
-            self._cap_local_parts(state)
             self.last_error = "live_upload_unavailable"
-            return False
+            # Keep the current encoder boot alive for transient upload failures.
+            # The same init/segment is retried on the next poll; only an actual
+            # HLS sequence gap requires a new boot.
+            return True
 
     def _prepare_boot(self, boot_id: str) -> LiveBootState:
         if _BOOT_ID.fullmatch(boot_id) is None:

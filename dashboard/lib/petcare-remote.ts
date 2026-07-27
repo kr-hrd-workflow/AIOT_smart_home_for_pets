@@ -56,7 +56,7 @@ export type PetCareLiveManifest = {
   boot_id: string;
   codec: "avc1.42E01E";
   newest_sequence: number;
-  target_latency_seconds: 2;
+  target_latency_seconds: 6;
   init_url: string;
   parts: Array<{ sequence: number; url: string }>;
 };
@@ -470,7 +470,7 @@ function isLiveManifest(value: unknown): value is PetCareLiveManifest {
     !/^[A-Za-z0-9_-]{1,64}$/.test(value.boot_id) ||
     value.codec !== "avc1.42E01E" ||
     !isNonNegativeInteger(value.newest_sequence) ||
-    value.target_latency_seconds !== 2 ||
+    value.target_latency_seconds !== 6 ||
     !isLiveMediaRoute(value.init_url) ||
     !Array.isArray(value.parts) ||
     value.parts.length > 8

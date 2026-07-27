@@ -242,6 +242,8 @@ class PackageTests(unittest.TestCase):
         self.assertLess(script.index("apply_firewall"), script.index("verify_firewall"))
         self.assertLess(script.index("verify_firewall"), script.index("systemctl enable --now petcare-vision.service"))
         self.assertLess(script.index("verify_install"), script.index("systemctl enable --now petcare-vision.service"))
+        self.assertIn('if [ ! -f /var/lib/petcare-vision/device.key ] || [ ! -f /var/lib/petcare-vision/device.crt ]; then', script)
+        self.assertIn('if [ ! -f /var/lib/petcare-vision/psk.bin ]; then', script)
         self.assertNotIn("docker", script.lower())
         self.assertNotIn("pip install", script.lower())
         self.assertNotIn("cloudflared", script.lower())
