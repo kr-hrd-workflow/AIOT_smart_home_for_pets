@@ -347,7 +347,7 @@ test.describe("real /demo route", () => {
       await expect(page.getByText("1회", { exact: true })).toBeVisible();
       await expect(page.getByText("742 g", { exact: true }).first()).toBeVisible();
       await expect(page.getByText("512 g", { exact: true }).first()).toBeVisible();
-      await expect(page.getByText("침대에 올라와 있음", { exact: true })).toBeVisible();
+      await expect(page.getByText("침대 올라와 있음", { exact: true })).toBeVisible();
       await expect(page.getByText("12시간 식사 기록 없음", { exact: true }).first()).toBeVisible();
       await expect(page.getByText("카메라 확인 대기", { exact: true }).first()).toBeVisible();
       await expect(page.getByText("침대 센서 확인 필요", { exact: true }).first()).toBeVisible();
