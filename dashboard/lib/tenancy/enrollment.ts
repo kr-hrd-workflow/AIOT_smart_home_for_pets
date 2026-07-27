@@ -27,7 +27,7 @@ export async function issueEnrollment(
   ownerSub: string,
 ): Promise<{ code: string; expiresAt: string }> {
   const repository = new TenantRepository(getDb());
-  const home = await repository.requireHome(ownerSub);
+  const home = await repository.ensureHome(ownerSub);
   const expiresAt = new Date(Date.now() + ENROLLMENT_TTL_MS).toISOString();
 
   for (let attempt = 0; attempt < MAX_COLLISION_ATTEMPTS; attempt += 1) {

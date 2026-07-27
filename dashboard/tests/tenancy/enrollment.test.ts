@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  requireHome: vi.fn(),
+  ensureHome: vi.fn(),
   replaceEnrollmentToken: vi.fn(),
 }));
 
 vi.mock("../../db", () => ({ getDb: vi.fn(() => ({ binding: "test" })) }));
 vi.mock("../../lib/tenancy/repository", () => ({
   TenantRepository: class {
-    requireHome = mocks.requireHome;
+    ensureHome = mocks.ensureHome;
     replaceEnrollmentToken = mocks.replaceEnrollmentToken;
   },
 }));
@@ -18,7 +18,7 @@ import { hashEnrollmentCode, issueEnrollment } from "../../lib/tenancy/enrollmen
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-07-20T03:00:00.000Z"));
-  mocks.requireHome.mockResolvedValue({ id: "home-a" });
+  mocks.ensureHome.mockResolvedValue({ id: "home-a" });
   mocks.replaceEnrollmentToken.mockResolvedValue(undefined);
 });
 
@@ -41,8 +41,8 @@ it("stores only the hash and expires exactly ten minutes after issue", async () 
   });
   expect(issued.code).toHaveLength(22);
   expect(issued.code).toMatch(/^[A-Za-z0-9_-]{22}$/);
-  expect(mocks.requireHome).toHaveBeenCalledWith("owner-a");
-  expect(mocks.requireHome).toHaveBeenCalledTimes(1);
+  expect(mocks.ensureHome).toHaveBeenCalledWith("owner-a");
+  expect(mocks.ensureHome).toHaveBeenCalledTimes(1);
   expect(mocks.replaceEnrollmentToken).toHaveBeenCalledWith(
     "home-a",
     await hashEnrollmentCode("AQEBAQEBAQEBAQEBAQEBAQ"),
