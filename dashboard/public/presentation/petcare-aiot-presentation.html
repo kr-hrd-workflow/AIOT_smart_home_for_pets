@@ -51,6 +51,22 @@
       background: var(--ink);
     }
     .slide.active { opacity: 1; pointer-events: auto; transform: scale(var(--deck-scale, 1)); }
+    .slide .slide-inner > * { opacity: 0; transform: translateY(20px); }
+    .slide.active .slide-inner > * { animation: reveal-content 620ms cubic-bezier(.16,1,.3,1) both; }
+    .slide.active .slide-inner > :nth-child(2) { animation-delay: 70ms; }
+    .slide.active .slide-inner > :nth-child(3) { animation-delay: 130ms; }
+    .slide.active .slide-inner > :nth-child(n+4) { animation-delay: 190ms; }
+    .slide.active .photo,
+    .slide.active .web-visual img,
+    .slide.active .phone { animation: reveal-media 760ms cubic-bezier(.16,1,.3,1) both; }
+    @keyframes reveal-content {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes reveal-media {
+      from { opacity: .42; transform: scale(1.035); }
+      to { opacity: 1; transform: scale(1); }
+    }
     .slide.light { color: #17201b; background: var(--paper); }
     .slide-inner { position: absolute; inset: 0; padding: 76px 88px 64px; }
     .chrome {
@@ -228,15 +244,24 @@
     .notes { display: none; }
     .controls { position: fixed; right: 24px; bottom: 22px; z-index: 100; display: flex; align-items: center; gap: 8px; opacity: .4; transition: opacity 180ms ease; }
     .controls:hover, .controls:focus-within { opacity: 1; }
-    .controls button { width: 42px; height: 42px; border: 1px solid rgba(255,255,255,.24); border-radius: 8px; color: var(--text); background: rgba(9,11,13,.72); cursor: pointer; }
+    .controls button { width: 42px; height: 42px; border: 1px solid rgba(255,255,255,.24); border-radius: 8px; color: var(--text); background: rgba(9,11,13,.72); cursor: pointer; transition: border-color 180ms ease, background 180ms ease, transform 180ms cubic-bezier(.16,1,.3,1); }
+    .controls button:hover { border-color: rgba(171,216,218,.72); background: rgba(17,22,25,.94); transform: translateY(-2px); }
+    .controls button:active { transform: translateY(0) scale(.96); }
+    .controls button:disabled { opacity: .28; cursor: default; transform: none; }
     .progress { position: fixed; right: 0; bottom: 0; left: 0; z-index: 110; height: 3px; background: rgba(255,255,255,.1); }
     .progress > div { width: 0; height: 100%; background: var(--cyan); transition: width 250ms ease; }
     .help { position: fixed; left: 22px; bottom: 18px; z-index: 100; color: rgba(255,255,255,.38); font: 13px Consolas, monospace; }
     .capture-mode .slide { transition: none; }
+    .capture-mode .slide .slide-inner > * { opacity: 1; animation: none; transform: none; }
     .capture-mode .controls, .capture-mode .progress, .capture-mode .help { display: none; }
 
     @media (prefers-reduced-motion: reduce) {
       .slide, .progress > div { transition: none; }
+      .slide.active .slide-inner > *,
+      .slide.active .photo,
+      .slide.active .web-visual img,
+      .slide.active .phone { opacity: 1; animation: none; transform: none; }
+      .controls button { transition: none; }
     }
 
     @media print {
@@ -253,6 +278,7 @@
         pointer-events: auto;
         transform: none;
       }
+      .slide.active .slide-inner > * { opacity: 1; animation: none; transform: none; }
       .slide:last-child { page-break-after: auto; }
       .controls, .progress, .help { display: none; }
     }
@@ -619,7 +645,10 @@
   <script>
     if (new URLSearchParams(location.search).has("capture")) document.body.classList.add("capture-mode");
     const slides = [...document.querySelectorAll(".slide")];
+    const deck = document.getElementById("deck");
     const progressBar = document.getElementById("progressBar");
+    const prevButton = document.getElementById("prev");
+    const nextButton = document.getElementById("next");
     let current = Math.max(0, Math.min(slides.length - 1, Number(location.hash.replace("#slide-", "")) - 1 || 0));
 
     function fit() {
@@ -634,6 +663,8 @@
         slide.setAttribute("aria-hidden", i === current ? "false" : "true");
       });
       progressBar.style.width = `${((current + 1) / slides.length) * 100}%`;
+      prevButton.disabled = current === 0;
+      nextButton.disabled = current === slides.length - 1;
       history.replaceState(null, "", `#slide-${current + 1}`);
     }
 
@@ -642,8 +673,31 @@
       if (url) window.open(url, "_blank", "noopener,noreferrer");
     }
 
-    document.getElementById("prev").addEventListener("click", () => show(current - 1));
-    document.getElementById("next").addEventListener("click", () => show(current + 1));
+    prevButton.addEventListener("click", () => show(current - 1));
+    nextButton.addEventListener("click", () => show(current + 1));
+
+    let pointerStartX = null;
+    deck.addEventListener("pointerdown", event => {
+      if (event.target.closest("a, button")) return;
+      pointerStartX = event.clientX;
+    });
+    deck.addEventListener("pointerup", event => {
+      if (pointerStartX === null) return;
+      const distance = event.clientX - pointerStartX;
+      pointerStartX = null;
+      if (Math.abs(distance) < 64) return;
+      show(current + (distance < 0 ? 1 : -1));
+    });
+    deck.addEventListener("pointercancel", () => { pointerStartX = null; });
+
+    let wheelLocked = false;
+    addEventListener("wheel", event => {
+      if (wheelLocked || Math.abs(event.deltaY) < 28) return;
+      event.preventDefault();
+      wheelLocked = true;
+      show(current + (event.deltaY > 0 ? 1 : -1));
+      setTimeout(() => { wheelLocked = false; }, 520);
+    }, { passive: false });
     addEventListener("resize", fit);
     addEventListener("keydown", event => {
       if (["ArrowRight", "PageDown", " "].includes(event.key)) { event.preventDefault(); show(current + 1); }
