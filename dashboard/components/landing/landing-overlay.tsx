@@ -16,6 +16,14 @@ export function LandingOverlay() {
         </Link>
         <nav aria-label="주요 메뉴">
           <Link href="/demo">먼저 둘러보기</Link>
+          <Link
+            className="landing-header-presentation"
+            href="/presentation/petcare-aiot-presentation.html"
+            target="_blank"
+            rel="noreferrer"
+          >
+            발표자료
+          </Link>
           <Link className="landing-header-login" href="/login">로그인</Link>
           <Link className="landing-header-cta" href="/signup">회원가입</Link>
         </nav>

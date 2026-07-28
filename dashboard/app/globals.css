@@ -1046,6 +1046,7 @@ a:focus-visible {
 }
 
 .landing-header nav > a:first-child,
+.landing-header-presentation,
 .landing-header-login,
 .landing-install-download,
 .landing-secondary {
@@ -1624,6 +1625,15 @@ a:focus-visible {
   .landing-header {
     width: calc(100% - 32px);
     min-height: 64px;
+  }
+
+  .landing-header nav {
+    gap: 4px;
+  }
+
+  .landing-header nav a {
+    padding-right: 10px;
+    padding-left: 10px;
   }
 
   .landing-progress {

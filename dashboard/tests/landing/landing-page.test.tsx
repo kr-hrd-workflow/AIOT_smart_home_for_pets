@@ -40,6 +40,14 @@ it("keeps the product story and primary actions available without WebGL", () => 
     "href",
     "/demo",
   );
+  expect(screen.getByRole("link", { name: "발표자료" })).toHaveAttribute(
+    "href",
+    "/presentation/petcare-aiot-presentation.html",
+  );
+  expect(screen.getByRole("link", { name: "발표자료" })).toHaveAttribute(
+    "target",
+    "_blank",
+  );
   expect(screen.getAllByRole("link", { name: "PetCare 시작하기" })[0]).toHaveAttribute(
     "href",
     "/signup",
