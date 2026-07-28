@@ -133,7 +133,7 @@ int main() {
     static_assert(petcare::config::water_hx711_timeout_us > 0);
     static_assert(petcare::config::food_tare_raw == -251'961);
     static_assert(petcare::config::food_counts_per_gram == 408.54117647058825);
-    static_assert(petcare::config::water_tare_raw == 112'907);
+    static_assert(petcare::config::water_tare_raw == 112'689);
     static_assert(petcare::config::water_counts_per_gram == -413.1862745098039);
     static_assert(petcare::config::weight_max_grams == 5'000.0);
     static_assert(&petcare::config::food_calibration != &petcare::config::water_calibration);
@@ -152,7 +152,7 @@ int main() {
     assert(grams == 0.0);
     assert(petcare::config::food_calibration.grams(-182'509, grams));
     assert(std::abs(grams - 170.0) < 0.001);
-    assert(petcare::config::water_calibration.grams(28'617, grams));
+    assert(petcare::config::water_calibration.grams(28'399, grams));
     assert(std::abs(grams - 204.0) < 0.001);
 
     const std::array<std::uint8_t, 6> sht31{{0x66, 0x66, 0x93, 0x80, 0x00, 0xA2}};
