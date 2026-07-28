@@ -28,6 +28,9 @@ from .rules import RuleEngine
 from .setup import install_setup
 
 
+DASHBOARD_SUMMARY_INTERVAL_SECONDS = 1.0
+
+
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     config = load_config()
@@ -74,13 +77,20 @@ async def lifespan(application: FastAPI):
         application.state.dashboard_hub = hub
         application.state.rule_engine = engine
 
+        last_summary_published_at = float("-inf")
+
         def publish_committed(message: object) -> None:
+            nonlocal last_summary_published_at
             hub.publish_from_worker(message)
+            now = clock.monotonic()
+            if now - last_summary_published_at < DASHBOARD_SUMMARY_INTERVAL_SECONDS:
+                return
             try:
                 summary = build_dashboard_summary(application)
             except Exception:
                 return
             hub.publish_from_worker(DashboardUpdate(type="dashboard_update", payload=summary))
+            last_summary_published_at = now
 
         if hasattr(engine, "publisher"):
             engine.publisher = publish_committed
