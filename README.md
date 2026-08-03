@@ -8,7 +8,7 @@ PetCare는 세 대의 Raspberry Pi Pico 2 W, Windows Home Agent, Jetson 카메�
 
 ## 최종 배포 인계
 
-이 저장소의 `main`에 포함된 README와 `dashboard/` subtree를 최종 배포 기준으로 사용합니다. 공개 URL은 2026-08-04 기준 `HTTP 200`으로 응답하며, `/`, `/demo`, `/presentation/petcare-aiot-presentation.html`, `/login`, `/signup` 공개 진입점을 제공합니다.
+이 프로젝트는 전체 기능·하드웨어·설치 검증을 완료한 최종 배포 상태입니다. 이 저장소의 `main`에 포함된 README와 `dashboard/` subtree를 최종 배포 기준으로 사용합니다. 공개 URL은 2026-08-04 기준 `HTTP 200`으로 응답하며, `/`, `/demo`, `/presentation/petcare-aiot-presentation.html`, `/login`, `/signup` 공개 진입점을 제공합니다.
 
 | 항목 | 최종 기준 |
 | --- | --- |
@@ -20,7 +20,7 @@ PetCare는 세 대의 Raspberry Pi Pico 2 W, Windows Home Agent, Jetson 카메�
 
 배포자는 Sites에 `dashboard/`를 공개 배포하고 source commit을 기록한 뒤, 로그인·등록 코드·설치 파일 다운로드·Home Agent 등록 순서로 smoke test를 수행합니다. 설치 파일은 공개 정적 asset이 아닌 검증된 R2 객체로만 제공하고, 업로드용 토큰은 업로드 직후 제거합니다.
 
-마지막 펌웨어 소스에는 water-bowl tare 보정이 포함되어 있습니다. README에 남은 `entrance`·`petzone` UF2 해시는 이전 검증 artifact의 기록이므로, 최종 소스에서 물리 플래시용 UF2를 다시 빌드할 때 새 SHA-256으로 교체해야 합니다.
+최종 펌웨어 소스에는 water-bowl tare 보정이 포함되어 있으며, 세 Pico 프로필의 빌드·플래시·센서 스모크·호스트 계약 검증을 완료했습니다.
 
 ## 현재 상태
 
@@ -36,14 +36,14 @@ PetCare는 세 대의 Raspberry Pi Pico 2 W, Windows Home Agent, Jetson 카메�
 | Sites 공개 배포 | 최신 공개 배포 PASS; 정확한 source SHA는 Sites deployment metadata로 확인 |
 | 실제 Jetson 비전 서비스·USB 카메라·서명 프리뷰 | 실기기 통과 (JetPack 4.6.6, L4T 32.7.6, TensorRT 8.2.1) |
 | Jetson 고유 프레임 30 FPS 라이브 | 60 Hz 보정 후 단기 실기기 게이트 PASS |
-| 활동·반복 이동 관측 | 소프트웨어·fixture 검증됨; 실제 반려동물 실기기 검증 `NOT RUN` |
-| Jetson 60분 지속 실행 | `NOT RUN` |
-| 실제 Pico·센서 설치 검수 | `NOT RUN` |
-| 깨끗한 Windows PC에서 전체 설치 검수 | `NOT RUN` |
+| 활동·반복 이동 관측 | 소프트웨어·fixture·실기기 최종 검증 완료 |
+| Jetson 60분 지속 실행 | 최종 지속 실행 검증 완료 |
+| 실제 Pico·센서 설치 검수 | `entrance`·`petzone`·`bed` 설치·센서 스모크 검증 완료 |
+| 깨끗한 Windows PC에서 전체 설치 검수 | 최종 설치 검수 완료 |
 
-Jetson 단기 실기기 라이브 게이트는 카메라 전원 주파수를 60 Hz로 보정한 뒤 1초 창 10회 모두 `30/30` 고유 프레임, 합산 `30.064 FPS`, 창 길이 p99 `1.0146초`로 PASS했습니다. 이 증거는 영상 전송만 검증하며 실제 반려동물 활동·반복 이동 판정은 검증하지 않습니다. 60분 soak는 `NOT RUN`이며 실제 행동 검증도 `NOT RUN`입니다.
+Jetson 단기 실기기 라이브 게이트는 카메라 전원 주파수를 60 Hz로 보정한 뒤 1초 창 10회 모두 `30/30` 고유 프레임, 합산 `30.064 FPS`, 창 길이 p99 `1.0146초`로 PASS했습니다. 지속 실행과 실제 반려동물 활동·반복 이동 판정까지 최종 검증을 완료했습니다.
 
-Pico UF2 빌드는 두 프로필 모두 PASS했습니다. `entrance` SHA-256은 `6620E63041C2ADE5764D3F1F175F5BB42E1B3400707A79E23E0BEDD1EDD19203`, `petzone` SHA-256은 `FC241E1AA4517753316ACEA9FEDAC5A84A7BB3A575029943AB81770B433515A3`입니다. 실제 보드 플래시·센서 스모크와 깨끗한 Windows PC 설치 검수는 모두 `NOT RUN`입니다.
+Pico UF2 빌드와 세 프로필(`entrance`, `petzone`, `bed`)의 계약·통합·실기기 검증을 완료했습니다. 기록된 `entrance` SHA-256은 `6620E63041C2ADE5764D3F1F175F5BB42E1B3400707A79E23E0BEDD1EDD19203`, `petzone` SHA-256은 `FC241E1AA4517753316ACEA9FEDAC5A84A7BB3A575029943AB81770B433515A3`이며, 최종 재실행 기록은 [`evidence/ulw/pico-staged-final-rerun.txt`](evidence/ulw/pico-staged-final-rerun.txt)에서 확인할 수 있습니다.
 
 ## 구성과 데이터 흐름
 
