@@ -6,6 +6,22 @@ PetCare는 세 대의 Raspberry Pi Pico 2 W, Windows Home Agent, Jetson 카메�
 
 랜딩 영상은 휠 틱마다 장면을 점프하거나 재생을 다시 시작하지 않습니다. native scroll 목표를 1초 동안 연속 보간해 한 번의 큰 스크롤에 영상이 약 1~2초 전진하고, 입력이 멈추면 영상도 정지합니다.
 
+## 최종 배포 인계
+
+이 저장소의 `main`에 포함된 README와 `dashboard/` subtree를 최종 배포 기준으로 사용합니다. 공개 URL은 2026-08-04 기준 `HTTP 200`으로 응답하며, `/`, `/demo`, `/presentation/petcare-aiot-presentation.html`, `/login`, `/signup` 공개 진입점을 제공합니다.
+
+| 항목 | 최종 기준 |
+| --- | --- |
+| 공개 Site | [kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site](https://kr-hrd-petcare-aiot-team.cpark333333.chatgpt.site) |
+| 배포 소스 | `dashboard/` subtree; Sites deployment metadata의 source commit을 배포 기록에 남김 |
+| Windows Home Agent | `packaging/windows/release/PetCare-Home-Agent-Setup.exe`, 1,003,008 bytes |
+| Windows Home Agent SHA-256 | `E48F265A88A2B0840615A91DA6AE6F97AD552E590D536C1EF41764CB63752ADB` |
+| 운영 인증 | Supabase production Site URL 및 두 callback 경로 |
+
+배포자는 Sites에 `dashboard/`를 공개 배포하고 source commit을 기록한 뒤, 로그인·등록 코드·설치 파일 다운로드·Home Agent 등록 순서로 smoke test를 수행합니다. 설치 파일은 공개 정적 asset이 아닌 검증된 R2 객체로만 제공하고, 업로드용 토큰은 업로드 직후 제거합니다.
+
+마지막 펌웨어 소스에는 water-bowl tare 보정이 포함되어 있습니다. README에 남은 `entrance`·`petzone` UF2 해시는 이전 검증 artifact의 기록이므로, 최종 소스에서 물리 플래시용 UF2를 다시 빌드할 때 새 SHA-256으로 교체해야 합니다.
+
 ## 현재 상태
 
 | 범위 | 상태 |
